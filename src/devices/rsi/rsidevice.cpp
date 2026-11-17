@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QFileInfo>
 #include <QNetworkDatagram>
 #include <QSaveFile>
 #include <QTimer>
@@ -278,7 +279,9 @@ void RsiDevice::saveTrace()
         QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")));
     ++m_tracePart;
     const QString part = m_tracePart == 1 ? QString{} : QStringLiteral("_part%1").arg(m_tracePart);
-    const QString fileName = QStringLiteral("rsi_packets_%1%2.csv").arg(id, part);
+    // A stream's captures go into its record folder records/<id>; unassigned ones into records.
+    const QString folder = m_diagnosticId.isEmpty() ? QString{} : m_diagnosticId + QLatin1Char('/');
+    const QString fileName = folder + QStringLiteral("rsi_packets_%1%2.csv").arg(id, part);
     m_trace.append("# plan_id," + m_diagnosticId.toUtf8()
                    + "\n# dropped_rows," + QByteArray::number(m_traceDropped) + '\n');
     m_traceSaves.push_back(std::async(std::launch::async, &RsiDevice::writeTrace,
@@ -293,7 +296,7 @@ QString RsiDevice::writeTrace(QByteArray rows, QString fileName)
 {
   const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
   QSaveFile file(records.filePath(fileName));
-  if (!QDir().mkpath(records.absolutePath()) || !file.open(QIODevice::WriteOnly)) {
+  if (!QDir().mkpath(QFileInfo(file.fileName()).absolutePath()) || !file.open(QIODevice::WriteOnly)) {
     return QStringLiteral("[ERROR] cannot open RSI diagnostic %1 (%2)")
         .arg(file.fileName(), file.errorString());
   }

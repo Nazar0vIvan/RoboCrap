@@ -177,14 +177,19 @@ searches at step 57).
 
 ## Plan, packet and touch files
 
-All beside the executable in `records/`, sharing the Sampling's UTC identifier `<id>`:
-- `rsi_calibration_plan_<id>.csv` (written by Sampling): one row per touch number with its search
+All files of one procedure (one RSI Sampling and the runs of its job) are in its own folder
+`records/<id>/` beside the executable. `<id>` is `calibration_<UTC timestamp yyyyMMdd_HHmmss_zzz>` of
+the Sampling, unique per Sampling (since 2026-11-17; earlier procedures used the bare timestamp and
+`records/` itself; the procedures of 2026-11-14 and 2026-11-17 were moved into
+`records/calibration_<timestamp>/` with their file names kept). A rerun with the same Sampling adds
+`_partN` captures to the same folder:
+- `rsi_plan_<id>.csv` (written by Sampling): one row per touch number with its search
   step, purpose, group, repetition, touch within the pass, tilt, roll, normal, nominal start and
   contact poses and the S/T at the search start. A failure to write it fails the Sampling.
 - `rsi_packets_<id>.csv` and `rsi_packets_<id>_partN.csv` (written by `RsiDevice`): the packet
   capture of `RSI_Chamfer_Hole_CONTRACT.md`. It is saved after every search, because the controller
   sends no packets between `RSI_OFF` and the next `RSI_ON`. It is the record of the touches.
-- `rsi_touches_<id>.csv` (written by `python -I python/rsi_touches.py <records directory> <id>`):
+- `rsi_touches_<id>.csv` (written by `python -I python/rsi_touches.py records/<id> <id>`):
   one row per search with a detection: `touch_index`, the IPOC and the cycle count since the search's
   first packet ((IPOC − first IPOC) / 4) of the first packet with `Touch` 1, its AIPos A1–A6 and the
   AIPos of the packet before it. The script reports searches without detection, touch numbers

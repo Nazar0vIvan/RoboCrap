@@ -122,7 +122,29 @@ user draws.
   search 93 with RSITimeout after a 171.6 ms receive stall; the user then set display-off and sleep
   to Never, USB selective suspend to Disabled, cleared the adapter's "Allow the computer to turn off
   this device" and disabled its Energy-Efficient Ethernet (`docs/context/HARDWARE_SETUP.md`).
-- [ ] Milestone 5, documents in `docs/context` updated.
+- [x] (2026-11-17) Milestone 5, documents in `docs/context` updated against the current code:
+  `AGENT_CONTRACTS.md` (Build and modules: the `QVector<QVector<V6d>>` table; Devices and protocols: a
+  new RSI bullet for the stream table, TouchIndex decoding, the run end and the captures as the touch
+  record; Machining and playback: the calibration sentence, the RSI reading list, the table delivery,
+  one held table and job file, calibration Sampling, the third stream source, `records/<id>/`; QML:
+  RSI Sampling and the status line in Calibration), `ARCHITECTURE.md` (contract links, probe row,
+  `SceneCalibration`/`SceneMachiningPreparation`, `rsicoordinates`, `probeMotionSteps`,
+  `probersistream`, `RsiDevice`, metatype, status bar, `resources/files/rsi/` layout, threads,
+  shutdown, new §5.6, calibration clearance) and `APP_DESCRIPTION.md` (Workflow step 1, record folder
+  of step 5, scope and status).
+- [x] (2026-11-17) Second procedure in AUT EXT, plan id `20261117_113235_576` (PLC log
+  `plc_io_20261117_143226.csv`): Run 14:33:29.142, finished 14:50:15.468; `python/rsi_touches.py`: 158
+  searches, 158 touches, numbers 1–158 once each, detection 765–876 cycles.
+- [x] (2026-11-17) Record folders (user request, at least two more procedures planned): the calibration
+  Sampling id is `calibration_<UTC timestamp>`, and the plan file (`rsi_plan_<id>.csv`, renamed from
+  `rsi_calibration_plan_<id>.csv`) and every packet capture of a stream are written into
+  `records/<id>/` (`probersistream.cpp`, `rsidevice.cpp`; the chamfer plan in `chamferrsistream.cpp`
+  follows the same rule, so a stream's plan and captures stay together; captures without a stream stay
+  in `records/`). The two existing procedures were moved into `records/calibration_<timestamp>/` with
+  their PLC logs; file names kept. The PLC log stays one file per connection in `records/`. Not built.
+  Counts (physical/non-blank): `probersistream.cpp` 196/177 → 199/180, `rsidevice.cpp` 366/340 →
+  369/343, `chamferrsistream.cpp` 252/230 → 254/232 (comments and wrapped path expressions; no new
+  function, member or parameter).
 
 
 ## Surprises & Discoveries
@@ -380,7 +402,27 @@ user draws.
 
 ## Outcomes & Retrospective
 
-Nothing implemented yet.
+Completed 2026-11-17. The probe sphere calibration runs on the robot: in the Calibration submode RSI
+Sampling turns the generated path into `calibration_data.txt` (485 KRL steps) and 158 search streams;
+`RSI_Probe_Calibration`, started from the PLC panel in Automatic External, executes the steps and
+stops every search on `$IN[8]`; the packet captures in `records/<id>/` hold the actual joint angles,
+and `python/rsi_touches.py` builds the touch file. Two full sessions, 2026-11-14 (16 min 41 s) and
+2026-11-17, recorded all 158 touches each, numbers 1–158 once, with detection 765–876 cycles after
+the search start. In the first G1 pass (2026-11-11) touches repeated within 0.005 mm between two runs
+26 minutes apart (nominal-FK estimate).
+
+Remaining outside this plan: the least-squares estimation of the ball centre and of the two contact
+distances, the verification residual and its 95th percentile, and the model-selection analysis of
+the recorded sessions; a verification-only session that checks an already found ball centre without
+recalibrating. Not verified on the controller: a missed search and its exit, the 2 mm of search
+beyond the nominal contact, the braking distance after ExitMoveCorr, and that the PTP velocity and
+acceleration settings survive the RSI calls (the contract's "Not yet verified" list).
+
+Lessons: the capture already recorded everything a device-side touch recorder would have stored, so
+reusing it removed code from the receive path; a session of 158 RSI_ON/RSI_OFF cycles exposed PC
+power-saving stalls (an RSITimeout after a 171.6 ms receive gap) that single runs never showed; KRL
+logic runs in the advance run, so signal checks after a motion need an advance run stop such as the
+`$POS_ACT` read.
 
 
 ## Context and Orientation
@@ -908,3 +950,6 @@ Revision note (2026-11-11, POSCORR limits): the user keeps large POSCORR1 limits
 the ±6 mm decision is superseded, the POSCORR1 reset is no longer a check (new decision after
 Milestone 4), and the contract table, work text, acceptance text and diagram follow. The user
 verified the renamed `RSI_Probe_Check` on the controller.
+
+Revision note (2026-11-17, Milestone 5 documents): `docs/context` updated against the current code
+(Progress entry), `Outcomes & Retrospective` written; the plan is complete.

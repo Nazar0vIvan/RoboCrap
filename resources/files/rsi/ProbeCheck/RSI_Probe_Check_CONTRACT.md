@@ -22,7 +22,8 @@ PC side: the "RSI test LIN" button on the Network page calls
 which replaces any held stream, deletes `C:\RoboCrapJobs\shared_data.txt` and installs the test
 increments in `RsiDevice` through the existing `correctionsReady` link. `RsiDevice` behaves as in
 `RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior"); packet captures are named
-`rsi_packets_test_lin_<UTC>.csv`. A later RSI Sampling replaces the test stream.
+`rsi_packets_test_lin_<UTC>.csv` in the folder `records/test_lin_<UTC>/` (since 2026-11-17). A later
+RSI Sampling replaces the test stream.
 
 ## Frames and motion
 

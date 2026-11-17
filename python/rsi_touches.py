@@ -1,7 +1,10 @@
 """Touch file of one RSI_Probe_Calibration session.
 
 Usage:
-    python -I python/rsi_touches.py <records directory> <id>
+    python -I python/rsi_touches.py <procedure folder> <id>
+
+The procedure folder is records/<id> beside robocrap.exe (since 2026-11-17; <id> is
+calibration_<UTC timestamp>); captures of earlier procedures may use the bare timestamp as <id>.
 
 Reads the packet captures rsi_packets_<id>.csv and rsi_packets_<id>_partN.csv that RsiDevice saved
 during the session (format in resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md), splits the
@@ -113,8 +116,8 @@ def touch_row(number, run):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("records", help="records directory beside robocrap.exe")
-    parser.add_argument("id", help="plan id of the calibration RSI Sampling, for example 20261111_131825_176")
+    parser.add_argument("records", help="procedure folder records/<id> beside robocrap.exe")
+    parser.add_argument("id", help="plan id of the calibration RSI Sampling, for example calibration_20261117_113235_576")
     arguments = parser.parse_args()
 
     files = capture_files(arguments.records, arguments.id)

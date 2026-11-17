@@ -83,7 +83,9 @@ public:
     const auto tool = wirePose(m_motion.robot().flangeToTcp);
     if (!tool) return {{}, QStringLiteral("Cannot represent the measuring flange-to-TCP transform at six decimal places.")};
     m_job.toolCoordinates = *tool;
-    m_job.diagnosticId = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
+    // Also the name of the procedure's record folder records/<id>.
+    m_job.diagnosticId = QStringLiteral("calibration_")
+        + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
     m_job.streams.append(QVector<V6d>{}); // Touch numbers start at 1.
     for (qsizetype index = 0; index < steps.size(); ++index) {
       const QString error = appendStep(steps[index], phases[index]);
@@ -167,8 +169,9 @@ private:
 
   QString writePlan() const
   {
-    const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
-    QSaveFile file(records.filePath(QStringLiteral("rsi_calibration_plan_%1.csv").arg(m_job.diagnosticId)));
+    const QDir records(QDir(QCoreApplication::applicationDirPath())
+                           .filePath(QStringLiteral("records/") + m_job.diagnosticId));
+    QSaveFile file(records.filePath(QStringLiteral("rsi_plan_%1.csv").arg(m_job.diagnosticId)));
     const QByteArray contents = (QStringLiteral("# plan_id,") + m_job.diagnosticId
         + QStringLiteral("\n# XYZ mm; ABC principal Z-Y-X deg; tilt and roll deg; search_step: 1-based step in "
                          "calibration_data.txt; start_S/start_T: configuration at the search start\n"

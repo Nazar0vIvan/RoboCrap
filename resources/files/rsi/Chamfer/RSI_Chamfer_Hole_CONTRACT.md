@@ -119,7 +119,8 @@ It is an orientation diagnostic; it neither counts full revolutions nor specifie
 
 Diagnostics are automatic and use `applicationDirPath()/records` beside the executable.
 Sampling creates one UTC timestamp identifier, carried with its correction array and recorded
-as `# plan_id` in both logs. After successful Sampling, `rsi_plan_<id>.csv` contains the time-zero TCP pose
+as `# plan_id` in both logs. Both logs of one array are in the folder `records/<id>/` (since
+2026-11-17). After successful Sampling, `rsi_plan_<id>.csv` contains the time-zero TCP pose
 and joints, each subsequent analytical target, A1..A6 checked for the rounded-offset
 reconstructed TCP pose, and rounded offset.
 Target ABC uses the principal Z-Y-X representation and may wrap; compare rotation matrices.
@@ -131,7 +132,7 @@ its nominal cycle boundary. Sampling writes on its existing numerical worker.
 During UDP exchange, `rsi_packets_<id>.csv` uses the active array's same identifier.
 Further captures of that array use `_part2`,
 `_part3`, etc. to preserve earlier files. Captures without an array identifier are named
-`rsi_packets_unassigned_<UTC timestamp>.csv` with the same part convention. Each capture records every request accepted by
+`rsi_packets_unassigned_<UTC timestamp>.csv` with the same part convention and stay in `records/`. Each capture records every request accepted by
 the sender-address check, including malformed XML and queued requests not answered, and
 each attempted reply. Rows contain monotonic PC nanoseconds since device start, `rx`/`tx`,
 the stream index before processing the request (`-1` for received rows), writeDatagram's

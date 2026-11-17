@@ -36,6 +36,6 @@ struct ProbeCalibrationRsiResult
   QString error;
 };
 
-// Copied-input worker operation; also writes records/rsi_calibration_plan_<id>.csv beside the
+// Copied-input worker operation; also writes records/<id>/rsi_plan_<id>.csv beside the
 // executable, which names every touch number.
 ProbeCalibrationRsiResult sampleProbeCalibrationRsi(const ProbeTouchMotion& motion);

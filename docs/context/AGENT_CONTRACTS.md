@@ -18,7 +18,8 @@ instructions and the root mandatory rules still apply. The class/file map is in
   Kinematics publicly links Geometry; Trajectories publicly links Kinematics. Each library exports only
   include/<capability>; Geometry also exports Eigen.
 - RoboCrapDevices (src/devices, including src/devices/rsi) links QtNetwork, privately ws2_32 for the
-  PLC RST close (`SO_LINGER`), and publicly links Geometry only for the `QVector<V6d>` RSI stream; no
+  PLC RST close (`SO_LINGER`), and publicly links Geometry only for the `QVector<QVector<V6d>>` RSI
+  stream table; no
   Trajectories dependency, QML registration or QQmlPropertyMap; its metatype metadata is extracted for
   consumers. DeviceHub, DeviceRunner and DeviceProfileModel are private Application code.
   PlcMessageManager remains a QObject with dictionary APIs and a published header for the
@@ -170,6 +171,14 @@ src/application/main.cpp; for QML registration also Build and modules.
   DUTs. A PLC protocol or check change updates `docs/plc_project_snapshot/ISPSoft project.md`, and
   RobotStartPanel's enable rules and `robotResumeBlocked` repeat the PLC's FB_RunSetVar/RobotIo
   checks; change both sides together. The panel never drives module 1 outputs.
+- RSI: `RsiDevice` holds a stream table and plays `streams[TouchIndex]` from the first Start = 1
+  request after Idle; a Start = 1 request with another TouchIndex while not Idle first ends the run
+  as Start = 0 does (consecutive searches may send no Start = 0 packet). `decodeRequest` reads a
+  missing TouchIndex or `not linked:<n>` (an unconnected ETHERNET input) as 0, a decimal integer as
+  the index and any other text as an invalid packet. The packet captures are the record of the
+  calibration touches (`python/rsi_touches.py`); keep every accepted request in them. Protocol details:
+  `resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
+  `resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md`.
 
 ## Geometry and scene
 
@@ -328,11 +337,12 @@ run; force correction is out of scope. Apply Geometry and scene to numerical cha
   finally LIN retreat and PTP HOME. Every stored point keeps the ball ≥ 3 mm from the strut, and every
   point outside Approach/Retract ≥ 3 mm from the sphere (0.001 mm tolerance). Errors start with the
   phase text ("Calibration G2 pass 1, touch 12/19: transfer: ..."), also shown by Dry Run.
-  ProbeTouchMotion keeps its plan. No RSI, KRL or real touch exists for calibration.
+  ProbeTouchMotion keeps its plan, which calibration RSI Sampling exports for the robot (below).
 - RSI: before edits read resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md (frames, signals, PC
-  behavior, offset reconstruction, diagnostics, shared_data.txt and the KRL reader), then
-  chamferrsistream, scenemachiningpreparation and devices/rsi/rsidevice. The constraints below are not
-  repeated there:
+  behavior, offset reconstruction, diagnostics, shared_data.txt and the KRL reader) and, for
+  calibration, resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md (job file, search
+  streams, KRL flow, record files), then chamferrsistream, probersistream, scenemachiningpreparation
+  and devices/rsi/rsidevice. The constraints below are not repeated there:
   - Sampling success, a bound socket or a delivered reply is not controller readiness and never grants
     permission to move the robot. The RSI Sampling button also requires RSI DeviceRunner.isConnected.
   - sampleChamferRsiStream targets come only from ChamferCentralMotion::evaluate (inverse quintic arc
@@ -343,15 +353,28 @@ run; force correction is out of scope. Apply Geometry and scene to numerical cha
     limits when KRL assigns $VEL.CP/$ACC.CP before PTP PsIn. Keep QSaveFile replacement and install
     corrections only after export succeeds.
   - The stream belongs to its sampled path, not the selection. Deliver it to ControlIO as an implicitly
-    shared QVector<V6d> plus its diagnosticId through the queued main.cpp link; keep that identifier
-    paired with the active corrections.
-  - The RSI test LIN (resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md) is the only other stream:
-    prepareTestLin drops any held stream and shared_data.txt like a new request and queues 25000
+    shared stream table QVector<QVector<V6d>> plus its diagnosticId through the queued main.cpp link
+    (chamfer and test LIN: one stream at index 0; calibration: index t = touch number, index 0 empty);
+    keep that identifier paired with the active corrections.
+  - At most one table and its job file are held: every accepted Sampling request (chamfer, calibration
+    or test LIN) first removes shared_data.txt and calibration_data.txt and sends an empty table; a removed,
+    incompatible or regenerated source path drops its table and file.
+  - Calibration RSI Sampling (prepareCalibration, App.Calibration path present, no calculation)
+    runs sampleProbeCalibrationRsi on the saved ProbeTouchMotion: probeMotionSteps pairs one to one
+    with the timed phases (PTP to entry, LIN descend/retract/retreat, CIRC transfer, Search for each
+    Approach, HOME); targets are the saved end-point TCPs at six decimals within 0.0001 mm and
+    0.000001 rotation entries, S/T from the saved joints; at most 600 steps (the KRL DAT arrays). A
+    search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros. A
+    failure to write the plan file fails the Sampling; calibration_data.txt is written with QSaveFile
+    and the table installed only after both succeed.
+  - The RSI test LIN (resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md) is the third stream
+    source: prepareTestLin drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
     Sampling request, startup or shutdown drops it.
   - Keep numerical work, file I/O, console output and unfinished-worker waits out of ControlIO receive
     callbacks; publish on state transitions/correction updates; device shutdown joins outstanding
-    saves. Plan and packet filenames share the stream identifier; flush old-ID rows before replacing
+    saves. Plan and packet filenames share the stream identifier, and both are written into
+    `records/<id>/` (captures without a stream stay in `records/`); flush old-ID rows before replacing
     the active stream, keeping whole exchanges.
 
 ## QML
@@ -377,10 +400,14 @@ registration, module names or resources.
   drawing notifications. Before applying new input settings notify QML so Cancel restores the old
   editor settings; a successful Generate closes its editor before requesting selection. Main creation
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
-- In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause and Stop; Generate
-  Path calls App.Calibration.generate() without an editor; the Scene panel lists only the Calibration
-  group; Delete removes nothing; the status bar's existing label shows the calibration error, playback
-  status or unavailable reason. WorkspaceController emits calibrationActiveChanged(false) before
+- In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop and RSI
+  Sampling (App.MachiningPreparation.prepareCalibration, enabled by canPrepareCalibration and the RSI
+  DeviceRunner's isConnected); Generate Path calls App.Calibration.generate() without an editor; the
+  Scene panel lists only the Calibration group; Delete removes nothing; the status bar's existing
+  label shows the playback status while calibration playback runs without an error; otherwise the
+  calibration error or the reason Generate is unavailable; otherwise the preparation error, summary,
+  calibrationUnavailableReason or "Ready for RSI Sampling.", followed by the controller state while
+  the RSI device is connected. WorkspaceController emits calibrationActiveChanged(false) before
   changing the tool, so calibration playback stops first.
 - Keep selected input, captured Generate source and active playback separate; UI drafts, focus, panel
   visibility and group expansion stay in QML. Cached renderer replay already restores selection.

@@ -76,7 +76,9 @@ public:
     m_stream.duration = duration;
     m_stream.increments.reserve(count + SettleCycles);
     m_stream.diagnosticId = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
-    const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
+    // The plan and the packet captures of one stream share the record folder records/<id>.
+    const QDir records(QDir(QCoreApplication::applicationDirPath())
+                           .filePath(QStringLiteral("records/") + m_stream.diagnosticId));
     m_trace.setFileName(records.filePath(QStringLiteral("rsi_plan_%1.csv")
         .arg(m_stream.diagnosticId)));
     if (!QDir().mkpath(records.absolutePath()) || !m_trace.open(QIODevice::WriteOnly)) {

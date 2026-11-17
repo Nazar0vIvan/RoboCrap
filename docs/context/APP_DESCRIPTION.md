@@ -26,7 +26,7 @@ point on the hole axis, outside the hole.
 
 ## Workflow
 
-1. **Prepare and animate the probe calibration (Measuring mode, Calibration submode).**
+1. **Prepare, animate and run the probe calibration (Measuring mode, Calibration submode).**
    Entering the submode reads `resources/json/calibration_sphere.json` beside the executable
    (copied there by the build only when absent): the 25 mm sphere, the strut that holds it and ten
    ruby ball centres recorded by jogging onto the sphere. The fitted sphere is shown as the
@@ -38,9 +38,18 @@ point on the hole axis, outside the hole.
    Each touch is a 3 mm LIN approach at a constant 1 mm/s and a LIN retract at the transfer
    speed (10 mm/s, 20 mm/s²); touches are joined by CIRC
    transfers 3 mm above the sphere surface, and passes of different orientations by a retreat, a
-   PTP turn of the probe and a descent. *Dry Run* animates it. No real touch,
-   RSI run or least-squares solution of the ball centre is implemented; editing the file and
-   entering the submode again uses the new sphere.
+   PTP turn of the probe and a descent. *Dry Run* animates it; editing the file and entering the
+   submode again uses the new sphere.
+
+   With the RSI socket bound, *RSI Sampling* in the submode turns the generated path into
+   `C:/RoboCrapJobs/calibration_data.txt` (485 KRL steps: PTP, LIN, CIRC, search, HOME) and one
+   search stream per touch (5 mm along the approach direction at 1 mm/s), and writes a plan file
+   naming every touch. The KRL program `RSI_Probe_Calibration`
+   ([contract](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)), started
+   from the PLC panel as program 1 in Automatic External, executes the steps; each search runs
+   under RSI and stops on the probe signal `$IN[8]`. The packet captures keep the robot's actual
+   joint angles of every cycle, and `python/rsi_touches.py` extracts the angles at each detected
+   touch. The least-squares solution of the ball centre is not implemented.
 
 2. **Load measured geometry (Measuring mode, Rough submode).**
    Import the workpiece end surface with *Plane from JSON* and the hole with *Cylinder from JSON*.
@@ -77,9 +86,8 @@ point on the hole axis, outside the hole.
    (version 2): the PTP/LIN targets PsIn, LeadStart and LeadEnd with their KUKA Status/Turn
    (S/T) joint-configuration values, PsOut's S/T, the flange-to-TCP frame and the transfer
    `$VEL.CP`/`$ACC.CP` in m/s and m/s². Only after a successful write are the corrections handed
-   to the RSI device. Each sampling saves a
-   diagnostic plan CSV in `records/` beside the executable; UDP exchanges are captured with the
-   same identifier.
+   to the RSI device. Each sampling saves a diagnostic plan CSV in `records/<id>/` beside the
+   executable; UDP exchanges are captured in the same folder with the same identifier.
 
 6. **Run on the controller (T1, manual start).**
    The operator starts `resources/files/rsi/Chamfer/RSI_Chamfer_Hole.src`/`.dat` with the helpers in
@@ -91,8 +99,11 @@ point on the hole axis, outside the hole.
 
 ## Scope and status
 
-- In scope: animation preparation and playback, and nominal RSI Sampling/streaming for the
-  `RSI_Chamfer_Hole` T1 run. Force correction is out of scope.
+- In scope: animation preparation and playback, nominal RSI Sampling/streaming for the
+  `RSI_Chamfer_Hole` T1 run, and the probe sphere calibration session `RSI_Probe_Calibration`.
+  Force correction is out of scope.
+- Two complete calibration sessions (158 touches each) ran in Automatic External on 2026-11-14 and
+  2026-11-17 (user runs; `plans/PROBE_SPHERE_RSI_CALIBRATION_EXECPLAN.md`).
 - A successful Generate, Dry Run or Sampling, a bound socket or a delivered reply does not
   establish controller readiness or permission to move the robot.
 - The user reported on 2026-10-24 that RSI Sampling works and the real robot motion matches it.

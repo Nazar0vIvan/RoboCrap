@@ -3,6 +3,7 @@
 Map of the code and hardware for new sessions. Paths are repository-relative; named functions and
 files are authoritative. Not repeated here: binding constraints ([AGENT_CONTRACTS.md](AGENT_CONTRACTS.md)),
 controller/PC protocols ([RSI_Chamfer_Hole_CONTRACT.md](../../resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md),
+[RSI_Probe_Calibration_CONTRACT.md](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md),
 [RSI_Probe_Check_CONTRACT.md](../../resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md)) and operator
 procedures ([HARDWARE_SETUP.md](HARDWARE_SETUP.md)). Unverified items are in §7; this document
 verifies neither compilation nor runtime behavior.
@@ -17,7 +18,7 @@ Supplied by the user unless a source is named.
 | PLC | Delta AS332T with AS16AP11P-A and AS16AP11T-A | `PlcDevice`, key `plc` | Custom binary over TCP to 192.168.1.2:5051, fixed source port 1234 |
 | Force/torque sensor | Schunk Delta IP68 SI-660-60 (ATI Net F/T electronics) | `FtsDevice`, key `fts` | ATI RDT over UDP, peer 192.168.1.3:49152 |
 | Spindle | GDZ-65-800A on an H100-1.5S2-1B frequency inverter (VFD) | none | Started through PLC output Y2.0 |
-| Touch probe | WP-500 V6 | none | Probe data enters only as JSON point files (§5.1) |
+| Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files (§5.1); calibration touches as RSI packet captures with the actual joint angles at detection (§5.6) |
 | Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `resources/json/calibration_sphere.json`; the stand CAD `resources/cad/CALIBRATION_STAND.stp` has its origin at the sphere centre |
 | EtherCAT I/O | Beckhoff EK1100 coupler, EL1809 (16 DI), EL2809 (16 DO) on the KR C4 | none | Automatic External interface and probe signal to/from the PLC (wiring below); no PC code addresses them |
 | Network switch | D-Link DGS-1005P (5 Gigabit ports, 4 PoE, unmanaged) | none | Connects the PC to the PLC, sensor and VFD |
@@ -178,8 +179,8 @@ Plain value types with `std::optional` factories; no QObjects, signals or mutabl
 | `SceneEndEffectors` | Active tool, measuring stylus data, collet frame `FLANGE_ER`, spindle XYZABC with `spindleTcpFrame`, measuring TCP with `measuringTcpFrame` (`applyMeasuringTcp`, `measuringTcpChanged`). A collet change emits `spindleColletChanged` then `spindleTcpChanged`. |
 | `ScenePlayback` | Dry Run (`App.Playback`): `shared_ptr<const TimedMotion>`, owner path id, 16 ms PreciseTimer, pause/resume, Stop to HOME, phase text, the robot model copy and availability. |
 | `SceneMachining` | Chamfer Generate and Dry Run (§5.2); robot-setup revision (robot model, spindle TCP); signed draft-axis direction with 5–40 mm display length. |
-| `SceneCalibration` | Calibration submode (`App.Calibration`, §5.5): sphere file, object hiding, Generate worker, calibration path id and revision (sphere, measuring TCP, robot model). |
-| `SceneMachiningPreparation` | RSI Sampling (`App.MachiningPreparation`): `sampleChamferRsiStream` worker, `shared_data.txt`, `correctionsReady(QVector<V6d>, QString diagnosticId)`; QML reads `canPrepare`, `unavailableReason`, `preparing`, `error`, `summary`. `prepareTestLin` (Network page, "RSI test LIN") installs the `RSI_Probe_Check` stream. |
+| `SceneCalibration` | Calibration submode (`App.Calibration`, §5.5): sphere file, object hiding, Generate worker, calibration path id and revision (sphere, measuring TCP, robot model); `path()` for the calibration RSI Sampling. |
+| `SceneMachiningPreparation` | RSI Sampling (`App.MachiningPreparation`): `prepare` (chamfer: `sampleChamferRsiStream` worker, `shared_data.txt`), `prepareCalibration` (calibration path: `sampleProbeCalibrationRsi` worker, `calibration_data.txt`, §5.6) and `prepareTestLin` (Network page, "RSI test LIN": the `RSI_Probe_Check` stream); holds at most one of them; `correctionsReady(QVector<QVector<V6d>>, QString diagnosticId)`; QML reads `canPrepare`, `unavailableReason`, `canPrepareCalibration`, `calibrationUnavailableReason`, `preparing`, `error`, `summary`. |
 
 QML singletons from `application/backendqmltypes.h`: `App.Scene`, `App.Hub`, `App.Machining`,
 `App.MachiningPreparation`, `App.Playback`, `App.Calibration`, `App.EndEffectors` and
@@ -201,11 +202,12 @@ src/trajectories/include/trajectories.
 | Central timing | `chamfercentralmotion` | Elapsed seconds → distance → progress → analytical TCP pose; all phases use `machiningFeed`, ramped over `accelerationDistanceFraction` of each lead. |
 | Point schedule | `chamfercentralvalidation` | `ChamferCentralPreparation` (per `ChamferMotion::create`, owned by `MotionCompiler`) builds maps, timing and the 0.01 mm curvature/acceleration schedule; `CentralPath` is the `TimedPath` with phases Lead-in, Machining, Lead-out. |
 | Whole motion | `chamfermotion` | `ChamferMotion::create(path, robot)` tries start configurations; per attempt one `MotionBuilder` appends PTP HOME→P_s, LIN P_s→lead-in start, the central curve (one spline), LIN lead-out end→P_s, PTP P_s→HOME. Stores `timed()`, 8 phase boundaries, `ChamferPathParameters` and `ChamferCentralMotion`. |
-| Motion module | `timedmotion`, `motion/motionbuilder`, `motion/tcpsolver` | `TimedMotion` (published): timed joint points, smoothstep/spline/joint-linear segments, labelled phases, spline coefficients, `evaluateJoints(seconds)`. `MotionBuilder`: `appendPtp`, `appendPath(TimedPath, interpolation)`; `LinearPath` adapts a LIN/CIRC `LinearProfile`. `ChamferTcpSolver`: checked TCP IK. |
+| Motion module | `timedmotion`, `motion/motionbuilder`, `motion/tcpsolver`, `motion/rsicoordinates` | `TimedMotion` (published): timed joint points, smoothstep/spline/joint-linear segments, labelled phases, spline coefficients, `evaluateJoints(seconds)`. `MotionBuilder`: `appendPtp`, `appendPath(TimedPath, interpolation)`; `LinearPath` adapts a LIN/CIRC `LinearProfile`. `ChamferTcpSolver`: checked TCP IK. `rsicoordinates.h`: `principalEulerDegrees` and `wireValues` (six decimals) for both RSI samplers. |
 | Motion numerics | `motion/jointsegments` | `ptpDuration`, quintic smoothstep, `linearProfile`/`circularProfile` (trapezoidal, triangular, or constant speed at acceleration 0), `linearSchedule`, `clampedJointSpline`, `ratedRobotSetup`. |
 | Probe touch plan | `probetouchplan` | `createProbeTouchPlan(parameters)`: 6 calibration passes (114 touches) and 2 verification passes (44 touches); each pass has purpose, group (fixed probe orientation), repetition, entry pose, touches (start/contact poses, normal, tilt, roll) and exit pose. |
-| Probe touch motion | `probetouchmotion` | `ProbeTouchMotion::create(plan, robot)`: one `MotionBuilder`, pass transitions, clearance checks after each step, one phase per step, minimum clearances; keeps the plan. |
+| Probe touch motion | `probetouchmotion` | `probeMotionSteps(plan)` (published step order: PTP to entry, LIN descend, CIRC transfer, LIN approach/retract, LIN retreat, PTP HOME) and `ProbeTouchMotion::create(plan, robot)`: one `MotionBuilder`, pass transitions, clearance checks after each step, one phase per step, minimum clearances; keeps the plan. |
 | RSI sampling | `chamferrsistream` | `sampleChamferRsiStream(motion)`: one correction per 4 ms plus 50 zero cycles; start/composed-end/staging frames and excursion summary. |
+| Calibration RSI job | `probersistream` | `sampleProbeCalibrationRsi(motion)`: id `calibration_<UTC>`, the KRL steps (PTP, LIN, CIRC with auxiliary point, Search, HOME; 485 for the current plan) with six-decimal targets and S/T, the flange-to-TCP XYZABC, 159 streams (index 0 empty, index t: 5 mm along touch t's approach direction at the search feed, 1250 × 0.004 mm at 1 mm/s, plus 50 zeros) and `records/<id>/rsi_plan_<id>.csv`. |
 
 ### 3.4 Devices (`RoboCrapDevices`; GUI adaptation in src/application/devices)
 
@@ -216,14 +218,14 @@ src/trajectories/include/trajectories.
 | `AbstractDevice` | Slots `start`, `stop`, `invoke` guarded by `m_started`; signals `stateReady`, `socketStateReady`; `attachSocket()` forwards state and logs socket errors. |
 | `PlcDevice` (GeneralIO) | `QTcpSocket` bound to a local port, then `connectToHost`; `disconnect` sets `SO_LINGER` {1, 0} and aborts, so the close sends RST and the fixed source port has no TIME_WAIT that would make the next connect fail with "The bound address is already in use". Requests are queued and sent one at a time (the PLC has one receive buffer); a reply must arrive within 1 s, otherwise "PLC reply timeout" is logged and the next request is sent; requests while not connected are dropped. A SNAPSHOT heartbeat every 2 s while idle keeps the PLC socket below its 10 s keep-alive; no request is sent at connect (the PLC never answered it) because the PLC sends an IO change frame on every new connection. Invokables `connect`, `disconnect`, `setOutput`, `writeMessage` (raw frames; no QML caller), `runRobotProgram({program: 1..4})`, `resumeRobot`, `abortRobotStart`. `PlcMessageManager`: 6-byte big-endian header (0xAA55, version, type, transaction id, length) plus command, whole frame swapped in 16-bit words; strict 8/16-bit readers; fixed 32-byte PLC frames; `VAR_TYPE` codes equal the PLC DUT `E_VARTYPE`. The IO change frame (payload 8) and the SNAPSHOT reply (payload 9) carry X1, Y1, X2, Y2 and the PLC start-sequence step, program and result, so the heartbeat repairs a lost change frame within 2 s. State keys `x1`, `y1`, `x2`, `y2` (8 bools each), `robotStep` (PLC `E_RSTEP`), `robotProgram`, `robotResult` (`E_RRESULT`), `robotProgramState` (0 unknown, 1 running, 2 finished, 3 interrupted, from X1.4/X1.5/X1.6), `robotResumeBlocked` (mirror of the PLC's `ResumeBlocked`; not known after a reconnect while the PLC already holds it); all reset on disconnect. Each connection writes `records/plc_io_<yyyyMMdd_HHmmss>.csv`: one row per change of X1/Y1 (heartbeat repeats are not logged), of step/program/result, per robot command, PLC error reply, reply timeout and unreadable frame; times are PC receive times. The framing is defined by the PLC program (snapshot `docs/plc_project_snapshot/ISPSoft project.md`). |
 | `FtsDevice` (ControlIO) | `QUdpSocket`; invokables `connect`, `disconnect`, `startStreaming`, `stopStreaming`, `bias`, `startLogRecording`, `stopLogRecording`, `saveLogToDefaultFile`. RDT request 0x1234, command, count 0; one 36-byte record per datagram; timestamps from sequence difference at an assumed 7000 Hz; 1e6 counts per unit. Each packet emits `dataSampleHFReady`; after ≥ 16 ms `processBatch` publishes the last sample (all axes first, then changes ≥ 0.05). Recording saves through `std::async` + `QSaveFile` to `<appDir>/records/`. |
-| `RsiDevice` (ControlIO, src/devices/rsi) | `QUdpSocket`; answers the newest valid `<Rob>`; states Idle → Streaming → Finished → Stopping. Invokables `connect`, `disconnect`; slot `setCorrections(QVector<V6d>, QString)`; publishes `rsiState`, `rsiCorrections`. Behavior: RSI_Chamfer_Hole_CONTRACT.md "PC behavior". |
+| `RsiDevice` (ControlIO, src/devices/rsi) | `QUdpSocket`; answers the newest valid `<Rob>`; states Idle → Streaming → Finished → Stopping over a stream table: plays `streams[TouchIndex]` (`not linked:<n>` reads as 0) and ends a run whose TouchIndex changes. Invokables `connect`, `disconnect`; slot `setCorrections(QVector<QVector<V6d>>, QString)` (console "RSI correction streams installed: n"); publishes `rsiState`, `rsiCorrections` (size of the active stream). Packet captures `rsi_packets_<id>[_partN].csv` go into `records/<id>/`, unassigned ones into `records/`. Behavior: RSI_Chamfer_Hole_CONTRACT.md "PC behavior". |
 | `DeviceProfileModel` | Read-only table from `:/json/db.json`: default endpoints for the Network view. |
 | `QmlChartBridge` | Compiled into `robocrap` with QtCharts; its construction in `main.cpp` is commented out. |
 
 Console output uses `[ERROR]`/`[OK]`/`[INFO]`/`[WRITE]` labels with source names; Qt's message
 pattern adds timestamps; `logViewportMessage` in main formats viewport messages. `main.cpp` connects
 `SceneMachiningPreparation::correctionsReady` queued to `RsiDevice::setCorrections` and registers
-`QVector<V6d>`.
+`QVector<QVector<V6d>>`.
 
 ### 3.5 3D viewport (`RoboCrap3D`)
 
@@ -246,8 +248,10 @@ pattern adds timestamps; `logViewportMessage` in main formats viewport messages.
   `visible`. Tool windows hold the device panels: PLC `DeltaPanel`, FTS `FtsPanel`, Settings/`Network`.
 - Status bar (right-aligned): "Loading…" while `OccController.ready` is false without
   `errorString`; "Calculating trajectory…" while machining or calibration calculates; "RSI Sampling…";
-  in Calibration the calibration error, playback status ("Playing · Calibration G2 pass 1, touch
-  5/19: approach · 34.12 / 246.19 s") or the reason Generate is unavailable. A `QxBusyIndicator` is a child of the label,
+  in Calibration the playback status ("Playing · Calibration G2 pass 1, touch 5/19: approach ·
+  34.12 / 246.19 s"), the calibration error or the reason Generate is unavailable, otherwise the
+  RSI preparation status ("RSI calibration: 158 touches · 485 steps") with the controller state; the
+  toolbar shows RSI Sampling in Calibration too. A `QxBusyIndicator` is a child of the label,
   outside the layout. Nothing draws over the native OCCT window (`docs/OCCT_SCENE_OVERLAY.md`).
   Generate has no modal window; while calculating only Generate, Dry Run and RSI Sampling are
   unavailable.
@@ -270,19 +274,21 @@ pattern adds timestamps; `logViewportMessage` in main formats viewport messages.
 - Resources: `pics.qrc` (SVG icons), `fonts.qrc` (Roboto), `json.qrc` (`db.json`). CAD: seven link
   BREPs in `resources/cad/kr10` (no STEP sources) and `EE_WP-500.stp`, `EE_GDZ-65-800A.stp`,
   `CALIBRATION_STAND.stp` in `resources/cad`, converted at build time; `resources/files` keeps
-  blade/RSI inputs outside any qrc.
+  blade/RSI inputs outside any qrc: `resources/files/rsi/` holds `RSI_EthernetConfig.xml`,
+  `FILE_UTILS/` and one folder per KRL program with its contract (`Chamfer/`, `Calibration/`,
+  `ProbeCheck/`).
 - `PropertiesPanel.qml` renders `selectedObject.properties` with a fixed-width label column.
 
 ## 4. Threads and ownership
 
 | Thread | Objects / work | Created by |
 |---|---|---|
-| GUI | `QApplication`, `DeviceHub`, `DeviceRunner`s, scene classes, `OccController`/`OccViewWindow` and OCCT rendering, QML engine; JSON import, `ChamferPath::create`, `shared_data.txt` write, 16 ms Dry Run timer | `main()` stack |
+| GUI | `QApplication`, `DeviceHub`, `DeviceRunner`s, scene classes, `OccController`/`OccViewWindow` and OCCT rendering, QML engine; JSON import, `ChamferPath::create`, `shared_data.txt` and `calibration_data.txt` writes, 16 ms Dry Run timer | `main()` stack |
 | `ControlIO` | `FtsDevice`, `RsiDevice`, their sockets/timers | `DeviceHub` |
 | `GeneralIO` | `PlcDevice`, its socket | `DeviceHub` |
 | Generate (`std::async`) | `ChamferMotion::create` on a copied `ChamferPath` + `ChamferRobotSetup`; 30 ms GUI poll | `SceneMachining::generate` |
 | Calibration (`std::async`) | `createProbeTouchPlan` + `ProbeTouchMotion::create` on copied inputs; 30 ms poll | `SceneCalibration::generate` |
-| RSI sampling (`std::async`) | `sampleChamferRsiStream` on a copied `shared_ptr<const ChamferMotion>`; 30 ms poll | `SceneMachiningPreparation::prepare` |
+| RSI sampling (`std::async`) | `sampleChamferRsiStream` on a copied `shared_ptr<const ChamferMotion>`, or `sampleProbeCalibrationRsi` on a copied `shared_ptr<const ProbeTouchMotion>` (one at a time); 30 ms poll; each writes its plan file | `SceneMachiningPreparation::prepare` / `prepareCalibration` |
 | FTS save (`std::async`) | JSON write of a copied buffer | `FtsDevice` |
 | CAD (`QThread` subclasses) | Robot job (seven links, two tools) and `DrawingModel` jobs; reads serialized by a static mutex | `OccController` |
 
@@ -291,7 +297,8 @@ pattern adds timestamps; `logViewportMessage` in main formats viewport messages.
 - Devices are deleted on their own thread by `deleteLater` when it finishes; runners are hub children.
 - A `SceneObject` is a `SceneModel` child; removal emits `objectRemoved`, then `deleteLater`.
 - Shared immutable data: `ChamferMotion`, `ProbeTouchMotion`, their aliased `TimedMotion` and
-  `CadLoadResult` as `shared_ptr<const ...>`; the RSI stream as an implicitly shared `QVector<V6d>`.
+  `CadLoadResult` as `shared_ptr<const ...>`; the RSI stream table as an implicitly shared
+  `QVector<QVector<V6d>>`, read with const access on ControlIO.
 - `Q_ASSERT` thread checks: `AbstractDevice::start/stop/invoke`, `DeviceRunner::invoke`,
   `OccController::loadRobot`, `RobotController::loadRobot/applyPlayback`, `SceneMachiningPreparation`;
   `claimQmlSingleton` `qFatal`s on a wrong-thread engine.
@@ -353,7 +360,7 @@ directly → `PlcDevice::setOutput` queues a WRITE_IO request, written when no r
 
 1. `aboutToQuit`, in connection order: `ScenePlayback::end`;
    `SceneMachiningPreparation::shutdown` (blocks on a sampling future, emits an empty
-   `correctionsReady`, deletes `shared_data.txt`); `DeviceHub::stopAll`.
+   `correctionsReady`, deletes `shared_data.txt` and `calibration_data.txt`); `DeviceHub::stopAll`.
 2. `stopAll` (returns at once if stopped; asserts it runs outside both I/O threads): a
    `BlockingQueuedConnection` stop per device, then `quit()`/`wait()` both threads. The empty
    `setCorrections` from step 1 is posted by the same GUI thread before the RSI stop, so it arrives
@@ -376,6 +383,22 @@ measuring TCP and sphere present) copies sphere, ruby ball radius, strut, model 
 `Probe calibration preparation: …`, rejects a changed revision, inserts the `CalibrationPath`
 (hidden if Calibration was left) and removes the previous path. "Dry Run" plays it through
 `ScenePlayback`. Leaving Calibration stops its playback at HOME and restores the recorded objects.
+
+### 5.6 Calibration RSI Sampling → robot run → touch file
+
+"RSI Sampling" in Calibration → `App.MachiningPreparation.prepareCalibration()` (a calibration path,
+no Generate or Sampling running, RSI bound) → `clearPrepared` (both job files removed, empty table
+sent) → worker `sampleProbeCalibrationRsi(*motion)` (steps, streams, `records/<id>/rsi_plan_<id>.csv`)
+→ `finishCalibration` logs "RSI calibration sampling: 158 touches, 485 steps", rejects a replaced
+path, writes `C:/RoboCrapJobs/calibration_data.txt` and emits `correctionsReady(streams, id)` →
+`RsiDevice::setCorrections` ("RSI correction streams installed: 159"). On the controller
+`RSI_Probe_Calibration` (started from the PLC panel as program 1 in AUT EXT, or in T1) reads the job
+and executes the steps; each Search writes its touch number to `$SEN_PINT[3]` and runs one
+`RSI_ON`/`RSI_MOVECORR`/`RSI_OFF` cycle, which the device answers with that touch's stream until
+STOP1 ends it on `$IN[8]`. Each search's packets are saved as one capture part in `records/<id>/`;
+`python -I python/rsi_touches.py records/<id> <id>` writes `rsi_touches_<id>.csv` (one row per touch:
+IPOC, cycle count, AIPos at detection and one packet before). Removing or regenerating the path,
+another Sampling request, startup and shutdown delete `calibration_data.txt`.
 
 ## 6. External-library boundaries
 
@@ -410,7 +433,7 @@ Controller-side RSI items are listed in the RSI contracts.
 - **Calibration clearance.** Generate checks only the ball centre against sphere and strut; links are
   not checked against the fixture. The fixed probe orientations never point the stylus upward; link
   clearance to the table and stand is not computed, only seen in Dry Run (user reported it works,
-  2026-11-11).
+  2026-11-11) and in the full robot sessions of 2026-11-14 and 2026-11-17 (158 touches each).
 - **Data and units.** Imported files carry no validated unit; coordinates and probe radius must be mm.
   `FLANGE_ER` is hard-coded from CMM data (ER y-axis and origin; roll from projecting the flange
   z-axis), only a reference for entering the spindle TCP (user, 2026-10-24). Link BREPs have no STEP
