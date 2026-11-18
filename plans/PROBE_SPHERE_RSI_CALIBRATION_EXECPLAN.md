@@ -121,8 +121,8 @@ user draws.
   10.9 ms, largest reply latency 0.81 ms. An earlier attempt (`20261114_163247_675`) stopped at
   search 93 with RSITimeout after a 171.6 ms receive stall; the user then set display-off and sleep
   to Never, USB selective suspend to Disabled, cleared the adapter's "Allow the computer to turn off
-  this device" and disabled its Energy-Efficient Ethernet (`docs/context/HARDWARE_SETUP.md`).
-- [x] (2026-11-17) Milestone 5, documents in `docs/context` updated against the current code:
+  this device" and disabled its Energy-Efficient Ethernet (`docs/hardware context/HARDWARE_SETUP.md`).
+- [x] (2026-11-17) Milestone 5, documents in `docs/code context` updated against the current code:
   `AGENT_CONTRACTS.md` (Build and modules: the `QVector<QVector<V6d>>` table; Devices and protocols: a
   new RSI bullet for the stream table, TouchIndex decoding, the run end and the captures as the touch
   record; Machining and playback: the calibration sentence, the RSI reading list, the table delivery,
@@ -665,12 +665,12 @@ Milestone 5 (full session and documents). With authorization the user runs the w
 agent runs `python/rsi_touches.py` on the session's captures and checks the touch file (command in
 `Concrete Steps`): 158 rows, touch numbers 1–158 once each, cycle values near 750 (3 mm at 0.004 mm
 per cycle) within ±250, AIPos with the decimals of Milestone 1. Then update
-`docs/context/AGENT_CONTRACTS.md` (Devices and protocols: stream table, TouchIndex decoding, run end
+`docs/code context/AGENT_CONTRACTS.md` (Devices and protocols: stream table, TouchIndex decoding, run end
 on a changed touch index, captures as the touch record; Machining and playback, RSI: calibration
 sampling and job file, and the sentence "No RSI, KRL or real touch exists for calibration"; QML: the
-Calibration toolbar list gains RSI Sampling), `docs/context/ARCHITECTURE.md` (RsiDevice,
+Calibration toolbar list gains RSI Sampling), `docs/code context/ARCHITECTURE.md` (RsiDevice,
 SceneMachiningPreparation, the new trajectories file, the controller files, the script) and
-`docs/context/APP_DESCRIPTION.md` (Workflow step 1 and the run on the controller).
+`docs/code context/APP_DESCRIPTION.md` (Workflow step 1 and the run on the controller).
 
 
 ## Concrete Steps
@@ -939,7 +939,7 @@ KRL manuals; the `$IN[8]` check moved behind a `$POS_ACT` advance run stop, the 
 unnecessary (Milestone 4 review decision). The contract was updated accordingly; the DAT is unchanged.
 
 Revision note (2026-11-11, after Milestone 4): the user renamed `WP-500_test/RSI_Probe_Lin.*` to
-`ProbeCheck/RSI_Probe_Check.*`; this plan, the contracts, `docs/context`, the calibration method
+`ProbeCheck/RSI_Probe_Check.*`; this plan, the contracts, `docs/code context`, the calibration method
 document and the code comments now use the new name and folder, including the records of earlier
 runs (the application keeps the "RSI test LIN" button and the `test_lin_` capture prefix). The
 renamed SRC and DAT still declared `DEF RSI_Probe_Lin()` and `DEFDAT RSI_Probe_Lin`; both now match
@@ -951,5 +951,5 @@ the ±6 mm decision is superseded, the POSCORR1 reset is no longer a check (new 
 Milestone 4), and the contract table, work text, acceptance text and diagram follow. The user
 verified the renamed `RSI_Probe_Check` on the controller.
 
-Revision note (2026-11-17, Milestone 5 documents): `docs/context` updated against the current code
+Revision note (2026-11-17, Milestone 5 documents): `docs/code context` updated against the current code
 (Progress entry), `Outcomes & Retrospective` written; the plan is complete.

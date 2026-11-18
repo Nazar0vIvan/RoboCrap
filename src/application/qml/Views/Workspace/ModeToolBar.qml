@@ -14,6 +14,7 @@ ToolBar {
   property bool generationAvailable: false
   property bool preparationAvailable: false
   property bool preparing: false
+  property bool calibrationStartAvailable: false
   property bool playbackAvailable: false
   property bool playing: false
   property bool playbackActive: false
@@ -31,6 +32,7 @@ ToolBar {
   signal intersectionRequested()
   signal generationRequested()
   signal preparationRequested()
+  signal calibrationStartRequested()
   signal toolSetupRequested()
 
   readonly property bool measuring: root.mode === WorkflowPanel.Measuring
@@ -226,6 +228,15 @@ ToolBar {
         iconSource: "qrc:/pics/rsi_sampling.svg"
         available: root.preparationAvailable
         onTriggered: root.preparationRequested()
+      }
+
+      Tool {
+        visible: root.calibration
+        text: qsTr("Start Calibration")
+        iconSource: "qrc:/pics/run.svg"
+        preserveIconColors: true
+        available: root.calibrationStartAvailable
+        onTriggered: root.calibrationStartRequested()
       }
 
       Tool {

@@ -30,6 +30,8 @@ public:
 
 signals:
   void socketStateChanged();
+  // After data() took the values; QQmlPropertyMap::valueChanged does not report insert().
+  void dataUpdated(const QVariantHash& values);
 
   void startReq();
   void stopReq();

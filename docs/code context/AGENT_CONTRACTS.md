@@ -2,8 +2,8 @@
 
 Area-specific requirements referenced by [AGENTS.md](../../AGENTS.md). Read the sections required for
 the task before changing behavior; verify implementation claims against current code/callers. User
-instructions and the root mandatory rules still apply. The class/file map is in
-[ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
+instructions and the root mandatory rules still apply. Hardware, design notes and open questions are
+in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
 
 ## Build and modules
 
@@ -175,8 +175,12 @@ src/application/main.cpp; for QML registration also Build and modules.
   request after Idle; a Start = 1 request with another TouchIndex while not Idle first ends the run
   as Start = 0 does (consecutive searches may send no Start = 0 packet). `decodeRequest` reads a
   missing TouchIndex or `not linked:<n>` (an unconnected ETHERNET input) as 0, a decimal integer as
-  the index and any other text as an invalid packet. The packet captures are the record of the
-  calibration touches (`python/rsi_touches.py`); keep every accepted request in them. Protocol details:
+  the index and any other text as an invalid packet; `Touch` is on only for "1" and `AIPos` gives the
+  angles, neither invalidates a packet. Once per search (reset by every Start = 0 packet and by a new
+  table) the oldest pending packet with Start 1, Touch 1, angles and TouchIndex > 0 is emitted as
+  `touchDetected(touch, joints)`, only after the reply and its capture rows. The packet captures are
+  the record of the calibration touches (`python/rsi_touches.py`); keep every accepted request in
+  them. Protocol details:
   `resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
   `resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md`.
 
@@ -230,8 +234,7 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
 
 ## Machining and playback
 
-Scope: animation preparation/playback and nominal RSI Sampling/streaming for the T1 RSI_Chamfer_Hole
-run; force correction is out of scope. Apply Geometry and scene to numerical changes.
+Apply Geometry and scene to numerical changes.
 
 - SceneMachining exposes SceneMachiningSettings as settings; Main calls App.Machining.generate()
   (SceneMachining::generate), separate from dryRun, which only plays a prepared immutable
@@ -371,6 +374,18 @@ run; force correction is out of scope. Apply Geometry and scene to numerical cha
     source: prepareTestLin drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
     Sampling request, startup or shutdown drops it.
+  - Calibration run (startCalibration, plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md): allowed with a
+    held current calibration job, no Sampling or run active and the PLC's own Run checks met (step
+    IDLE, X1.0, X1.7, X1.6 off); it sends PLC runRobotProgram 1. Detections arrive through the queued
+    main.cpp link RsiDevice::touchDetected → recordTouch (first per touch number). The PLC state comes
+    through DeviceRunner::dataUpdated, because QQmlPropertyMap::valueChanged does not report insert().
+    A start failure counts only when this run's start sequence returns to IDLE without STARTED
+    (robotResult repeats with every heartbeat); success needs the program seen running, then
+    robotProgramState finished. While program 1 runs, Sampling and the test LIN are refused; a
+    replaced job, a PLC disconnect or a failed start ends the run with an error; an interrupted
+    program keeps it (Resume continues it). On success
+    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is displayed,
+    logged and written to `records/<id>/calibration_result_<id>.csv`, never applied as the measuring TCP.
   - Keep numerical work, file I/O, console output and unfinished-worker waits out of ControlIO receive
     callbacks; publish on state transitions/correction updates; device shutdown joins outstanding
     saves. Plan and packet filenames share the stream identifier, and both are written into
@@ -400,11 +415,16 @@ registration, module names or resources.
   drawing notifications. Before applying new input settings notify QML so Cancel restores the old
   editor settings; a successful Generate closes its editor before requesting selection. Main creation
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
-- In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop and RSI
+- In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
   Sampling (App.MachiningPreparation.prepareCalibration, enabled by canPrepareCalibration and the RSI
-  DeviceRunner's isConnected); Generate Path calls App.Calibration.generate() without an editor; the
-  Scene panel lists only the Calibration group; Delete removes nothing; the status bar's existing
-  label shows the playback status while calibration playback runs without an error; otherwise the
+  DeviceRunner's isConnected) and Start Calibration (startCalibration, enabled by
+  canStartCalibration and the RSI DeviceRunner's isConnected); Generate Path calls
+  App.Calibration.generate() without an editor; the Scene panel lists only the Calibration group;
+  Delete removes nothing. The status bar keeps a fixed "AUT EXT" indicator after the mode label (green
+  while the PLC is connected and X1.0 is on, gray otherwise) and shows the calibration run progress
+  first in its existing label in every mode; calibrationRunFinished opens a MessageDialog with the
+  result rows or the error. Otherwise the label shows the playback status while calibration
+  playback runs without an error; otherwise the
   calibration error or the reason Generate is unavailable; otherwise the preparation error, summary,
   calibrationUnavailableReason or "Ready for RSI Sampling.", followed by the controller state while
   the RSI device is connected. WorkspaceController emits calibrationActiveChanged(false) before

@@ -59,6 +59,7 @@ int main(int argc, char* argv[])
   qRegisterMetaType<RDTResponse>("RDTResponse");
   qRegisterMetaType<QVector<RDTResponse>>("QVector<RDTResponse>");
   qRegisterMetaType<QVector<QVector<V6d>>>("QVector<QVector<V6d>>");
+  qRegisterMetaType<V6d>("V6d"); // RsiDevice::touchDetected crosses from ControlIO.
 
   auto* plcDev = new PlcDevice(QStringLiteral("PLC_AS332T"));
   auto* ftsDev = new FtsDevice(QStringLiteral("FTS_Delta"));
@@ -97,6 +98,10 @@ int main(int argc, char* argv[])
   // Implicitly shared corrections and their log identifier cross to ControlIO together.
   QObject::connect(&preparation, &SceneMachiningPreparation::correctionsReady,
                    rsiDev, &RsiDevice::setCorrections, Qt::QueuedConnection);
+  // Calibration run: program 1 through the PLC, one detection per touch from ControlIO.
+  preparation.attachPlc(hub.device(QStringLiteral("plc")));
+  QObject::connect(rsiDev, &RsiDevice::touchDetected, &preparation,
+                   &SceneMachiningPreparation::recordTouch, Qt::QueuedConnection);
   // Disable result dispatch and finish the worker before shutting down ControlIO.
   QObject::connect(&app, &QApplication::aboutToQuit, &preparation, &SceneMachiningPreparation::shutdown);
   QObject::connect(&app, &QApplication::aboutToQuit, &hub, &DeviceHub::stopAll);

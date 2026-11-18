@@ -8,7 +8,7 @@ Steps 1 and 2 may run in parallel. Complete both before proceeding to steps 3–
 
 1. Read the project context documents.
 
-   Read every file under docs/context in full.
+   Read every file under docs/code context in full.
 
    Identify how the application represents:
    - Coordinate systems and transform matrices.

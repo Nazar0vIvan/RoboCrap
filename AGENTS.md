@@ -181,21 +181,23 @@
 ## Read contracts for the affected area
 
 Before changing or reviewing the areas below, read the matching sections of
-[docs/context/AGENT_CONTRACTS.md](docs/context/AGENT_CONTRACTS.md), then the indicated producers/consumers.
+[docs/code context/AGENT_CONTRACTS.md](docs/code%20context/AGENT_CONTRACTS.md), then the indicated producers/consumers.
 They are mandatory project constraints unless the user requests a redesign. Read all matching
 sections for work crossing boundaries; do not read unrelated sections for every request.
-Use [docs/context/ARCHITECTURE.md](docs/context/ARCHITECTURE.md) when a broader implementation map is needed.
+Use [docs/code context/ARCHITECTURE.md](docs/code%20context/ARCHITECTURE.md) for hardware, threads, shutdown order and open questions.
+Use [docs/hardware context/HARDWARE_SETUP.md](docs/hardware%20context/HARDWARE_SETUP.md) for network, firewall,
+power and Automatic External setup or controller-side work.
 Update only affected constraints in their owning document. Do not add completion reports, task
 history, tutorials or repeated implementation descriptions.
 
 | Work area | Required contract sections |
 | --- | --- |
-| CMake, target ownership, dependencies, QML registration, modules or resources | [Build and modules](docs/context/AGENT_CONTRACTS.md#build-and-modules) |
-| OCCT viewport, CAD loading, robot assets or presentation | [Viewport and CAD](docs/context/AGENT_CONTRACTS.md#viewport-and-cad) |
-| Devices, protocols, device UI or thread/shutdown changes | [Devices and protocols](docs/context/AGENT_CONTRACTS.md#devices-and-protocols) |
-| Numerical geometry, kinematics, scene objects/imports/intersections or tool transforms | [Geometry and scene](docs/context/AGENT_CONTRACTS.md#geometry-and-scene) |
-| Machining generation, trajectory preparation, playback, diagnostics or authorized RSI work | [Machining and playback](docs/context/AGENT_CONTRACTS.md#machining-and-playback) and [Geometry and scene](docs/context/AGENT_CONTRACTS.md#geometry-and-scene) |
-| QML controls/layouts, delegates, settings UI or component exports | [QML](docs/context/AGENT_CONTRACTS.md#qml) |
+| CMake, target ownership, dependencies, QML registration, modules or resources | [Build and modules](docs/code%20context/AGENT_CONTRACTS.md#build-and-modules) |
+| OCCT viewport, CAD loading, robot assets or presentation | [Viewport and CAD](docs/code%20context/AGENT_CONTRACTS.md#viewport-and-cad) |
+| Devices, protocols, device UI or thread/shutdown changes | [Devices and protocols](docs/code%20context/AGENT_CONTRACTS.md#devices-and-protocols) |
+| Numerical geometry, kinematics, scene objects/imports/intersections or tool transforms | [Geometry and scene](docs/code%20context/AGENT_CONTRACTS.md#geometry-and-scene) |
+| Machining generation, trajectory preparation, playback, diagnostics or authorized RSI work | [Machining and playback](docs/code%20context/AGENT_CONTRACTS.md#machining-and-playback) and [Geometry and scene](docs/code%20context/AGENT_CONTRACTS.md#geometry-and-scene) |
+| QML controls/layouts, delegates, settings UI or component exports | [QML](docs/code%20context/AGENT_CONTRACTS.md#qml) |
 
 ## Validation and handoff
 

@@ -25,6 +25,8 @@ qt_add_library(RoboCrapTrajectories STATIC
   probe/probetouchmotion.cpp
   include/trajectories/probersistream.h
   probe/probersistream.cpp
+  include/trajectories/probecalibrationfit.h
+  probe/probecalibrationfit.cpp
 )
 target_include_directories(RoboCrapTrajectories PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(RoboCrapTrajectories PUBLIC RoboCrapKinematics)

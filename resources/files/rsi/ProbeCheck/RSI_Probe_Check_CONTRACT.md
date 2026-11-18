@@ -65,7 +65,7 @@ RSI Visual's object properties and must be checked there.
 ## Touch signal
 
 `$IN[8]` is TRUE while the WP-500 is deflected: the PLC copies X2.0 to Y1.7, which is wired to
-EL1809 input 8 (`docs/context/ARCHITECTURE.md`, "Additional hardware and Delta I/O wiring"). Datasheet
+EL1809 input 8 (`docs/code context/ARCHITECTURE.md`, "Additional hardware and Delta I/O wiring"). Datasheet
 delays on this path are about 15 ms (PLC input filter 10 ms, PLC scan, EL1809 filter 3 ms), that is
 about 0.015 mm at 1 mm/s, within the WP-500's 3 mm stylus travel.
 

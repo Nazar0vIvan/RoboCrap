@@ -1,8 +1,8 @@
 # RoboCrap hardware setup procedures
 
-Operator procedures and controller settings referenced by [ARCHITECTURE.md](ARCHITECTURE.md) §1.
+Operator procedures and controller settings referenced by [ARCHITECTURE.md](../code%20context/ARCHITECTURE.md) §1.
 Addresses and wiring are listed there; the KR C4 share is set up in
-[KR_C4_WINDOWS10_SHARED_FOLDER_SETUP.md](../KR_C4_WINDOWS10_SHARED_FOLDER_SETUP.md).
+[KR_C4_WINDOWS10_SHARED_FOLDER_SETUP.md](../solutions/KR_C4_WINDOWS10_SHARED_FOLDER_SETUP.md).
 
 ## Windows firewall for RSI
 
@@ -91,7 +91,7 @@ Get-NetAdapterAdvancedProperty -Name "KRC4-Direct" -DisplayName "Energy-Efficien
 
 Automatic External connects the KR C4 to the Delta PLC through `$IN[1..5]` and `$OUT[1..8]` (set by
 the user on the smartPAD, Configuration > Inputs/outputs > Automatic External, 2026-11-13; wiring in
-[ARCHITECTURE.md](ARCHITECTURE.md) §1; design and procedure in
+[ARCHITECTURE.md](../code%20context/ARCHITECTURE.md) §1; design and procedure in
 `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`). `$IN[1025]` is always TRUE and `$IN[1026]` always
 FALSE; outputs above 16 are not mapped to the EL2809. `$OUT[2]` is wired to PLC X1.1 but unassigned.
 Outputs 138 (`$PR_MODE`) and 139 (`$SS_MODE`) are taken by other machine-data signals; assigning them

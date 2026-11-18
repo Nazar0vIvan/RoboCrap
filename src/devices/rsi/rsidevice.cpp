@@ -15,6 +15,7 @@
 #include <QXmlStreamWriter>
 
 #include <chrono>
+#include <cmath>
 #include <optional>
 #include <utility>
 
@@ -30,8 +31,21 @@ bool isDigits(const QString& text)
   return true;
 }
 
+// Attributes A1-A6 of <AIPos>, deg; empty when one is missing or not a finite number.
+std::optional<V6d> decodeAxes(const QXmlStreamAttributes& attributes)
+{
+  V6d joints;
+  for (int axis = 0; axis < 6; ++axis) {
+    bool ok = false;
+    joints[axis] = attributes.value(QStringLiteral("A%1").arg(axis + 1)).toDouble(&ok);
+    if (!ok || !std::isfinite(joints[axis])) return std::nullopt;
+  }
+  return joints;
+}
+
 // Requires exactly one IPOC, Start (0/1) and Result (LONG) in a well-formed <Rob> document.
 // An optional single TouchIndex is a decimal index or, from an unconnected input, "not linked:<n>" (0).
+// Touch is on only for "1", so contexts without the probe input stay valid; AIPos gives the angles.
 std::optional<RsiDevice::Request> decodeRequest(const QByteArray& datagram)
 {
   QXmlStreamReader xml(datagram);
@@ -64,6 +78,11 @@ std::optional<RsiDevice::Request> decodeRequest(const QByteArray& datagram)
       if (!ok && isDigits(text)) request.touchIndex = text.toLongLong(&ok);
       if (hasTouchIndex || !ok) return std::nullopt;
       hasTouchIndex = true;
+    } else if (xml.name() == QLatin1String("Touch")) {
+      request.touch = xml.readElementText().trimmed() == QLatin1String("1");
+    } else if (xml.name() == QLatin1String("AIPos")) {
+      request.joints = decodeAxes(xml.attributes());
+      xml.skipCurrentElement();
     } else {
       xml.skipCurrentElement();
     }
@@ -190,6 +209,7 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
   m_diagnosticId = diagnosticId;
   m_activeStream = 0;
   m_index = 0;
+  m_reportedTouch = 0;
   m_state = RunState::Idle;
   m_pp = 0;
   qInfo().noquote() << "[INFO]" << objectName() + ": RSI correction streams installed:"
@@ -211,6 +231,7 @@ void RsiDevice::onReadyRead()
   // Malformed and unanswered requests remain in the packet capture.
   const qint64 entryNs = m_traceClock.nsecsElapsed();
   std::optional<Request> newest;
+  std::optional<Request> detection; // Oldest pending packet that reports a new touch.
   QVector<QByteArray> receivedRows;
   while (m_sock && m_sock->hasPendingDatagrams()) {
     const QNetworkDatagram datagram = m_sock->receiveDatagram();
@@ -222,6 +243,8 @@ void RsiDevice::onReadyRead()
     if (!request) continue;
     m_pp = datagram.senderPort();
     newest = request;
+    if (!request->start) m_reportedTouch = 0; // KRL sends Start = 0 before every search.
+    if (!detection && reportsTouch(*request)) detection = request;
   }
   if (!newest) {
     for (const auto& row : std::as_const(receivedRows)) appendTrace(row);
@@ -242,6 +265,17 @@ void RsiDevice::onReadyRead()
               + ',' + QByteArray::number(m_sleepNs) + ',' + QByteArray::number(m_wakeNs)
               + ',' + QByteArray::number(m_handlerDoneNs) + '\n');
   m_handlerDoneNs = m_traceClock.nsecsElapsed();
+  // After the reply: the queued signal must not delay it.
+  if (detection) {
+    m_reportedTouch = detection->touchIndex;
+    emit touchDetected(static_cast<int>(detection->touchIndex), *detection->joints);
+  }
+}
+
+bool RsiDevice::reportsTouch(const Request& request) const
+{
+  return request.start && request.touch && request.joints && request.touchIndex > 0
+      && request.touchIndex != m_reportedTouch;
 }
 
 void RsiDevice::onDispatcherAboutToBlock()

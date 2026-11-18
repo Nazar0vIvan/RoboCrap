@@ -26,7 +26,8 @@ per touch in `RsiDevice` (`src/devices/rsi/rsidevice.cpp`).
 
 ## AUT EXT start
 
-In Automatic External the program is program 1 of RoboCrap's PLC panel: the PLC sends program number
+In Automatic External the program is program 1 of RoboCrap's PLC panel, also started by *Start
+Calibration* in the Calibration submode: the PLC sends program number
 PGNO 0 and `CELL.SRC` calls `RSI_Probe_Calibration ( )` in CASE 0 (`resources/files/AutExt/cell.src`,
 `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`). A new start requires `$IN_HOME`, because the program
 begins with `PTP HOME` and in AUT EXT there is no BCO run; after a `StepLimit` end or a missed search
@@ -35,7 +36,7 @@ make its BCO run to HOME before the next Run. CELL runs the program at override 
 `INIT_PTP_VEL` (5 % in AUT EXT) and the transfers from the job file. RSI Sampling must run in the same
 RoboCrap session before Run (the PC deletes the job file at start-up; without it the program returns
 after HOME). The full session (485 steps) took 16 min 41 s in AUT EXT and needs the PC power settings
-of `docs/context/HARDWARE_SETUP.md` "Power settings for RSI".
+of `docs/hardware context/HARDWARE_SETUP.md` "Power settings for RSI".
 
 ## Frames and motion
 
@@ -119,6 +120,12 @@ of one stream:
   empty stream gives zero correction, Stop 1 and Result 0, as an empty table does.
 - A Start = 1 packet whose `TouchIndex` differs from the running stream's index ends the run first,
   as a Start = 0 packet would, so a stream never continues into another touch.
+- Once per search, after the reply, the device reports the touch number and the `AIPos` angles of
+  the first packet with Start 1 and `Touch` 1 to the application (`RsiDevice::touchDetected`); the
+  three Start = 0 packets before every search reset this report. A run started with *Start
+  Calibration* collects these angles and, when the PLC reports program 1 finished, fits the ball
+  centre from them (`plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md`). These are the same values
+  `python/rsi_touches.py` takes from the captures.
 
 ## calibration_data.txt
 

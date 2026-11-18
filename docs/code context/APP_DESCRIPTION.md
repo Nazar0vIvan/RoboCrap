@@ -3,7 +3,7 @@
 RoboCrap is a Windows desktop application for preparing and visually checking robotic edge
 machining with a KUKA KR 10 R1420 on a KR C4 controller (KSS 8.3, RobotSensorInterface (RSI) 3.3).
 The current implementation supports chamfering the edge of a hole; other edge geometries are part
-of the broader intended scope. Implementation details are in [ARCHITECTURE.md](ARCHITECTURE.md);
+of the broader intended scope. Hardware and design notes are in [ARCHITECTURE.md](ARCHITECTURE.md);
 the controller/PC protocol is in
 [RSI_Chamfer_Hole_CONTRACT.md](../../resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md).
 
@@ -46,10 +46,15 @@ point on the hole axis, outside the hole.
    search stream per touch (5 mm along the approach direction at 1 mm/s), and writes a plan file
    naming every touch. The KRL program `RSI_Probe_Calibration`
    ([contract](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)), started
-   from the PLC panel as program 1 in Automatic External, executes the steps; each search runs
-   under RSI and stops on the probe signal `$IN[8]`. The packet captures keep the robot's actual
-   joint angles of every cycle, and `python/rsi_touches.py` extracts the angles at each detected
-   touch. The least-squares solution of the ball centre is not implemented.
+   by *Start Calibration* in the submode (or from the PLC panel) as program 1 in Automatic External,
+   executes the steps; each search runs under RSI and stops on the probe signal `$IN[8]`. The status
+   bar shows the share of touches detected so far and, at its left, whether the controller is in
+   AUT EXT. When the program finishes, the application fits the ball centre in the flange frame, the
+   sphere centre, the two contact distances (stylus down, stylus horizontal) and the 95 % quantile
+   of the verification residuals from the actual joint angles of every touch, shows them in the window
+   "Calibration complete" and writes them to `records/<id>/`; the ball centre is not applied as the
+   measuring TCP. The packet captures keep the robot's actual joint angles of every cycle, and
+   `python/rsi_touches.py` extracts the angles at each detected touch.
 
 2. **Load measured geometry (Measuring mode, Rough submode).**
    Import the workpiece end surface with *Plane from JSON* and the hole with *Cylinder from JSON*.
@@ -104,8 +109,6 @@ point on the hole axis, outside the hole.
   Force correction is out of scope.
 - Two complete calibration sessions (158 touches each) ran in Automatic External on 2026-11-14 and
   2026-11-17 (user runs; `plans/PROBE_SPHERE_RSI_CALIBRATION_EXECPLAN.md`).
-- A successful Generate, Dry Run or Sampling, a bound socket or a delivered reply does not
-  establish controller readiness or permission to move the robot.
 - The user reported on 2026-10-24 that RSI Sampling works and the real robot motion matches it.
 - Device panels (PLC, force/torque sensor, network settings) show and control the connected
   devices; the Network page also starts the *RSI test LIN* probe-stop test

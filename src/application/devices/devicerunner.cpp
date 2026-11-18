@@ -49,6 +49,7 @@ void DeviceRunner::onStateReady(const QVariantHash& vals)
 {
   if (vals.isEmpty()) return;
   m_data->insert(vals);
+  emit dataUpdated(vals);
 }
 
 void DeviceRunner::onSockState(QAbstractSocket::SocketState state)

@@ -101,6 +101,25 @@ ApplicationWindow {
     buttons: Dialogs.MessageDialog.Ok
   }
 
+  Dialogs.MessageDialog {
+    id: calibrationResultDialog
+    buttons: Dialogs.MessageDialog.Ok
+  }
+
+  // One "label: value" line per result row; a run error or a result-file error follows the rows.
+  Connections {
+    target: App.MachiningPreparation
+    function onCalibrationRunFinished() {
+      const preparation = App.MachiningPreparation
+      const lines = preparation.calibrationResult.map(row => row.label + ": " + row.value)
+      if (preparation.calibrationRunError.length > 0) lines.push(preparation.calibrationRunError)
+      calibrationResultDialog.title = preparation.calibrationResult.length > 0 ? qsTr("Calibration complete")
+                                                                                : qsTr("Calibration failed")
+      calibrationResultDialog.text = lines.join("\n")
+      calibrationResultDialog.open()
+    }
+  }
+
   readonly property bool geometryImportAvailable: !surfaceImporter.busy && !planeFileDialog.visible
                                                  && !cylinderFileDialog.visible
   readonly property App.SceneModel sceneModel: App.Scene
@@ -218,12 +237,22 @@ ApplicationWindow {
     id: statusBar
 
     readonly property App.DeviceRunner rsi: App.Hub.device("rsi")
+    readonly property App.DeviceRunner plc: App.Hub.device("plc")
+    // X1.0 $I_O_ACTCONF: the controller's Automatic External interface is active.
+    readonly property bool autExt: !!statusBar.plc && statusBar.plc.isConnected
+                                   && !!statusBar.plc.data.x1 && !!statusBar.plc.data.x1[0]
     // Until the robot is shown; OccController.loading covers only CAD parsing.
     readonly property bool sceneLoading: !Viewport3D.OccController.ready
                                          && Viewport3D.OccController.errorString.length === 0
     readonly property bool busy: App.Machining.calculating || App.Calibration.calculating
                                  || App.MachiningPreparation.preparing || statusBar.sceneLoading
     readonly property string message: {
+      if (App.MachiningPreparation.calibrationRunning) {
+        const detected = App.MachiningPreparation.calibrationDetected
+        const count = App.MachiningPreparation.calibrationTouchCount
+        return qsTr("Calibration run: %1 % · %2/%3 touches")
+               .arg(count > 0 ? Math.floor(100 * detected / count) : 0).arg(detected).arg(count)
+      }
       if (surfaceImporter.busy) return qsTr("Importing surface…")
       if (App.Machining.calculating || App.Calibration.calculating) return qsTr("Calculating trajectory…")
       if (App.MachiningPreparation.preparing) return qsTr("RSI Sampling…")
@@ -245,8 +274,9 @@ ApplicationWindow {
     // Calibration error or the reason Generate is unavailable; preparation status otherwise.
     readonly property string calibrationStatus: root.calibrationActive
                                                 ? App.Calibration.error || App.Calibration.unavailableReason : ""
-    readonly property bool errorShown: statusBar.calibrationStatus ? App.Calibration.error.length > 0
-                                                                   : App.MachiningPreparation.error.length > 0
+    readonly property bool errorShown: !App.MachiningPreparation.calibrationRunning
+                                       && (statusBar.calibrationStatus ? App.Calibration.error.length > 0
+                                                                       : App.MachiningPreparation.error.length > 0)
 
     padding: Metrics.sp8
     implicitHeight: Metrics.h40
@@ -266,6 +296,26 @@ ApplicationWindow {
                  ? qsTr("Mode: Machining") : qsTr("Mode: Measuring / %1").arg(
                      root.measurementSubmode === WorkflowPanel.Rough ? qsTr("Rough")
                      : root.measurementSubmode === WorkflowPanel.Precise ? qsTr("Precise") : qsTr("Calibration"))
+
+      // Constant content, so its width never changes with the controller state.
+      Row {
+        Layout.alignment: Qt.AlignVCenter
+        spacing: Metrics.sp6
+
+        QxLed {
+          anchors.verticalCenter: parent.verticalCenter
+          diameter: Metrics.sz20
+          isOn: true
+          ledColor: statusBar.autExt ? "green" : "gray"
+        }
+
+        Text {
+          anchors.verticalCenter: parent.verticalCenter
+          text: qsTr("AUT EXT")
+          color: Colors.foreground.medium
+          font: Fonts.body
+        }
+      }
 
       Label {
         id: statusMessage
@@ -362,6 +412,10 @@ ApplicationWindow {
                                                          : App.MachiningPreparation.canPrepare)
                               && statusBar.rsi && statusBar.rsi.isConnected
         preparing: App.MachiningPreparation.preparing
+        // The RSI socket must be bound for the search streams, as for RSI Sampling.
+        calibrationStartAvailable: App.MachiningPreparation.canStartCalibration
+                                   && !!statusBar.rsi && statusBar.rsi.isConnected
+        onCalibrationStartRequested: App.MachiningPreparation.startCalibration()
         onPreparationRequested: {
           if (root.calibrationActive) App.MachiningPreparation.prepareCalibration()
           else App.MachiningPreparation.prepare()

@@ -1,8 +1,10 @@
 #include "scenemachiningpreparation.h"
 
+#include "devices/devicerunner.h"
 #include "geometry/utils.h"
 #include "kinematics/kr10kinematics.h"
 
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -13,6 +15,7 @@
 #include <QThread>
 #include <array>
 #include <chrono>
+#include <cmath>
 #include <utility>
 
 namespace {
@@ -126,6 +129,93 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
   return replaceJobFile(SharedDataPath, contents);
 }
 
+// PlcDevice state values (src/devices/plc/plcdevice.cpp): robotProgramState and robotResult.
+constexpr int ProgramRunning = 1;
+constexpr int ProgramFinished = 2;
+constexpr int StartResultStarted = 1;
+// robotResult names of the PLC's E_RRESULT, as in RobotStartPanel.qml.
+const QStringList StartResultNames{QStringLiteral("-"), QStringLiteral("STARTED"), QStringLiteral("RESUMED"),
+                                   QStringLiteral("TIMEOUT"), QStringLiteral("ABORTED"), QStringLiteral("AUT EXT LOST")};
+
+QString vectorText(const V3d& value)
+{
+  return QStringLiteral("[%1; %2; %3]").arg(value.x(), 0, 'f', 4).arg(value.y(), 0, 'f', 4).arg(value.z(), 0, 'f', 4);
+}
+
+QVariantMap resultRow(const QString& label, const QString& value)
+{
+  return {{QStringLiteral("label"), label}, {QStringLiteral("value"), value}};
+}
+
+int setsOutsideBound(const ProbeCalibrationFit& fit)
+{
+  int count = 0;
+  for (const ProbeResidualSet& set : fit.residualSets)
+    if (std::abs(set.mean) > set.bound) ++count;
+  return count;
+}
+
+// Rows of the result window, four decimals like the Properties panel.
+QVariantList resultRows(const ProbeCalibrationFit& fit)
+{
+  return {
+    resultRow(SceneMachiningPreparation::tr("Ball centre in {F}, mm"), vectorText(fit.ballCentre)),
+    resultRow(SceneMachiningPreparation::tr("Sphere centre in {B}, mm"), vectorText(fit.sphereCentre)),
+    resultRow(SceneMachiningPreparation::tr("Contact distance, stylus down, mm"),
+              QString::number(fit.contactVertical, 'f', 4)),
+    resultRow(SceneMachiningPreparation::tr("Contact distance, stylus horizontal, mm"),
+              QString::number(fit.contactHorizontal, 'f', 4)),
+    resultRow(SceneMachiningPreparation::tr("Quantile χ95, mm"), QString::number(fit.quantile95, 'f', 4)),
+    resultRow(SceneMachiningPreparation::tr("Repeatability s_rep, mm"), QString::number(fit.repeatability, 'f', 4)),
+    resultRow(SceneMachiningPreparation::tr("Sphere centre from verification, mm"),
+              vectorText(fit.verificationSphereCentre)),
+    resultRow(SceneMachiningPreparation::tr("Smallest singular value"),
+              QString::number(fit.smallestSingularValue, 'f', 4)),
+    resultRow(SceneMachiningPreparation::tr("Touches (calibration / verification)"),
+              QStringLiteral("%1 / %2").arg(fit.calibrationTouches).arg(fit.verificationTouches)),
+    resultRow(SceneMachiningPreparation::tr("Model check: sets outside 3·s_rep/√m"),
+              SceneMachiningPreparation::tr("%1 of %2").arg(setsOutsideBound(fit)).arg(fit.residualSets.size())),
+  };
+}
+
+QByteArray resultLine(const QString& name, const QStringList& values)
+{
+  return (name + QLatin1Char(',') + values.join(QLatin1Char(',')) + QLatin1Char('\n')).toUtf8();
+}
+
+QByteArray vectorLine(const QString& name, const V3d& value)
+{
+  return resultLine(name, {number(value.x()), number(value.y()), number(value.z())});
+}
+
+// records/<id>/calibration_result_<id>.csv beside the executable: the fit and the step K7 sets.
+QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id)
+{
+  const QString folder = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records/") + id);
+  if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
+  QByteArray contents = "# plan_id," + id.toUtf8() + "\n# mm; {F} flange, {B} base; sets: method step K7\n"
+                        "quantity,value_1,value_2,value_3\n";
+  contents += vectorLine(QStringLiteral("ball_centre_F"), fit.ballCentre);
+  contents += vectorLine(QStringLiteral("sphere_centre_B"), fit.sphereCentre);
+  contents += vectorLine(QStringLiteral("verification_sphere_centre_B"), fit.verificationSphereCentre);
+  contents += resultLine(QStringLiteral("contact_vertical"), {number(fit.contactVertical)});
+  contents += resultLine(QStringLiteral("contact_horizontal"), {number(fit.contactHorizontal)});
+  contents += resultLine(QStringLiteral("quantile95"), {number(fit.quantile95)});
+  contents += resultLine(QStringLiteral("repeatability"), {number(fit.repeatability)});
+  contents += resultLine(QStringLiteral("smallest_singular_value"), {number(fit.smallestSingularValue)});
+  contents += resultLine(QStringLiteral("touches"), {QString::number(fit.calibrationTouches),
+                                                    QString::number(fit.verificationTouches)});
+  contents += "set,group,value_deg,mean_mm,bound_mm,count\n";
+  for (const ProbeResidualSet& set : fit.residualSets)
+    contents += resultLine(set.ring ? QStringLiteral("ring") : QStringLiteral("roll"),
+                           {QString::number(set.group), number(set.value), number(set.mean), number(set.bound),
+                            QString::number(set.count)});
+  QSaveFile file(QDir(folder).filePath(QStringLiteral("calibration_result_%1.csv").arg(id)));
+  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
+    return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(file.fileName(), file.errorString());
+  return {};
+}
+
 } // namespace
 
 SceneMachiningPreparation::SceneMachiningPreparation(SceneModel* scene, SceneMachining* machining,
@@ -175,6 +265,7 @@ bool SceneMachiningPreparation::isCurrentCalibration(const std::shared_ptr<const
 QString SceneMachiningPreparation::calibrationUnavailableReason() const
 {
   if (m_shuttingDown) return tr("Application is shutting down.");
+  if (m_run == CalibrationRun::Started) return tr("Calibration run in progress.");
   if (m_preparing) return tr("RSI Sampling…");
   if (m_calibration->calculating()) return tr("Calculating trajectory…");
   if (!m_calibration->path()) return tr("Generate the calibration path first.");
@@ -184,6 +275,7 @@ QString SceneMachiningPreparation::calibrationUnavailableReason() const
 QString SceneMachiningPreparation::unavailableReason() const
 {
   if (m_shuttingDown) return tr("Application is shutting down.");
+  if (m_run == CalibrationRun::Started) return tr("Calibration run in progress.");
   if (m_preparing) return tr("RSI Sampling…");
   if (m_machining->calculating()) return tr("Calculating trajectory…");
   const auto* path = pathById(m_machining->inputId());
@@ -258,8 +350,9 @@ void SceneMachiningPreparation::prepareCalibration()
 void SceneMachiningPreparation::prepareTestLin()
 {
   Q_ASSERT(QThread::currentThread() == thread());
-  if (m_shuttingDown || m_preparing) {
-    setError(m_shuttingDown ? tr("Application is shutting down.") : tr("RSI Sampling…"));
+  if (m_shuttingDown || m_preparing || m_run == CalibrationRun::Started) {
+    setError(m_shuttingDown ? tr("Application is shutting down.")
+             : m_preparing  ? tr("RSI Sampling…") : tr("Calibration run in progress."));
     return;
   }
   // Like a new Sampling request: RSI_Chamfer_Hole must not find a file for another stream.
@@ -323,7 +416,7 @@ void SceneMachiningPreparation::finishCalibration()
     const QString writeError = writeCalibrationData(*result.job, m_pendingCalibration->robot().timing);
     if (writeError.isEmpty()) {
       m_preparedCalibration = PreparedCalibration{m_pendingCalibration, result.job->touchCount,
-                                                  result.job->steps.size()};
+                                                  result.job->steps.size(), result.job->diagnosticId};
       emit correctionsReady(result.job->streams, result.job->diagnosticId);
       emit preparedChanged();
     }
@@ -337,6 +430,8 @@ void SceneMachiningPreparation::finishCalibration()
 
 void SceneMachiningPreparation::clearPrepared()
 {
+  // The detections belong to the dropped table.
+  if (m_run != CalibrationRun::Idle) endRun(tr("The calibration job was replaced."));
   // Without a stream KRL must not find frames from another or older path.
   for (const QString& path : {SharedDataPath, CalibrationDataPath})
     if (QFile::exists(path) && !QFile::remove(path))
@@ -371,4 +466,112 @@ void SceneMachiningPreparation::shutdown()
   clearPrepared();
   emit preparingChanged();
   emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::attachPlc(DeviceRunner* plc)
+{
+  Q_ASSERT(plc && !m_plc && plc->thread() == thread());
+  m_plc = plc;
+  connect(plc, &DeviceRunner::dataUpdated, this, &SceneMachiningPreparation::onPlcData);
+  connect(plc, &DeviceRunner::socketStateChanged, this, &SceneMachiningPreparation::onPlcSocket);
+  emit availabilityChanged();
+}
+
+// The PLC's own start checks, as RobotStartPanel.qml's Run: step IDLE, X1.0 AUT EXT, X1.7 $IN_HOME,
+// X1.6 APPL_RUN off.
+bool SceneMachiningPreparation::plcReady() const
+{
+  if (!m_plc || !m_plc->isConnected()) return false;
+  const QQmlPropertyMap& data = *m_plc->data();
+  const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
+  return data.value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(0).toBool() && x1.value(7).toBool()
+      && !x1.value(6).toBool();
+}
+
+bool SceneMachiningPreparation::canStartCalibration() const
+{
+  return !m_shuttingDown && !m_preparing && m_run == CalibrationRun::Idle && m_preparedCalibration
+      && isCurrentCalibration(m_preparedCalibration->motion) && plcReady();
+}
+
+void SceneMachiningPreparation::startCalibration()
+{
+  Q_ASSERT(QThread::currentThread() == thread());
+  if (!canStartCalibration()) return;
+  m_detections.clear();
+  m_runError.clear();
+  m_runResult.clear();
+  m_run = CalibrationRun::Requested;
+  qInfo().noquote() << "Probe calibration run: program 1 requested," << m_preparedCalibration->diagnosticId;
+  m_plc->invoke(QStringLiteral("runRobotProgram"), {{QStringLiteral("program"), 1}});
+  emit calibrationRunChanged();
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::recordTouch(int touch, const V6d& joints)
+{
+  if (m_run == CalibrationRun::Idle) return;
+  for (const ProbeTouchDetection& detection : std::as_const(m_detections))
+    if (detection.touch == touch) return;
+  m_detections.append(ProbeTouchDetection{touch, joints});
+  emit calibrationRunChanged();
+}
+
+// The PLC sends robotResult with every 2 s heartbeat, so a start failure is taken only when the start
+// sequence of this run (robotStep above IDLE) returns to IDLE without program 1 running.
+void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
+{
+  const int state = values.value(QStringLiteral("robotProgramState"), -1).toInt(); // -1: unchanged.
+  const QQmlPropertyMap& data = *m_plc->data();
+  const int step = data.value(QStringLiteral("robotStep")).toInt();
+  const int result = data.value(QStringLiteral("robotResult")).toInt();
+  if (m_run == CalibrationRun::Started && state == ProgramFinished) {
+    endRun({});
+    return;
+  }
+  if (m_run == CalibrationRun::Requested || m_run == CalibrationRun::Starting) {
+    // A start sequence ending with STARTED also counts: the running state can be lost with a PLC frame.
+    if (state == ProgramRunning || (m_run == CalibrationRun::Starting && step == 0 && result == StartResultStarted)) {
+      m_run = CalibrationRun::Started;
+    } else if (step != 0) {
+      m_run = CalibrationRun::Starting;
+    } else if (m_run == CalibrationRun::Starting) {
+      endRun(tr("Program 1 did not start: %1.").arg(StartResultNames.value(result, QString::number(result))));
+      return;
+    }
+  }
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::onPlcSocket()
+{
+  emit availabilityChanged();
+  if (m_run != CalibrationRun::Idle && !m_plc->isConnected()) endRun(tr("PLC disconnected during the calibration run."));
+}
+
+void SceneMachiningPreparation::endRun(const QString& error)
+{
+  m_run = CalibrationRun::Idle;
+  m_runError = error;
+  if (error.isEmpty()) {
+    Q_ASSERT(m_preparedCalibration);
+    const ProbeCalibrationFitResult result = fitProbeCalibration(*m_preparedCalibration->motion, m_detections);
+    if (result.fit) {
+      const ProbeCalibrationFit& fit = *result.fit;
+      m_runResult = resultRows(fit);
+      qInfo().noquote() << QStringLiteral("Probe calibration result: ball centre %1 mm in {F}, sphere centre %2 mm "
+                                          "in {B}, rho_v %3 mm, rho_h %4 mm, chi95 %5 mm, s_rep %6 mm")
+                               .arg(vectorText(fit.ballCentre), vectorText(fit.sphereCentre),
+                                    QString::number(fit.contactVertical, 'f', 4),
+                                    QString::number(fit.contactHorizontal, 'f', 4),
+                                    QString::number(fit.quantile95, 'f', 4), QString::number(fit.repeatability, 'f', 4));
+      m_runError = writeCalibrationResult(fit, m_preparedCalibration->diagnosticId);
+    } else {
+      m_runError = result.error;
+    }
+  }
+  if (!m_runError.isEmpty()) qInfo().noquote() << "Probe calibration run:" << m_runError;
+  emit calibrationRunChanged();
+  emit availabilityChanged();
+  if (!m_shuttingDown) emit calibrationRunFinished();
 }
