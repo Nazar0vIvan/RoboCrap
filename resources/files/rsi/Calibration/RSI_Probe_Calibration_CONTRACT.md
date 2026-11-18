@@ -124,8 +124,8 @@ of one stream:
   the first packet with Start 1 and `Touch` 1 to the application (`RsiDevice::touchDetected`); the
   three Start = 0 packets before every search reset this report. A run started with *Start
   Calibration* collects these angles and, when the PLC reports program 1 finished, fits the ball
-  centre from them (`plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md`). These are the same values
-  `python/rsi_touches.py` takes from the captures.
+  centre from them (`plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md`) and writes them to the touch
+  file below.
 
 ## calibration_data.txt
 
@@ -185,22 +185,27 @@ searches at step 57).
 ## Plan, packet and touch files
 
 All files of one procedure (one RSI Sampling and the runs of its job) are in its own folder
-`records/<id>/` beside the executable. `<id>` is `calibration_<UTC timestamp yyyyMMdd_HHmmss_zzz>` of
-the Sampling, unique per Sampling (since 2026-11-17; earlier procedures used the bare timestamp and
-`records/` itself; the procedures of 2026-11-14 and 2026-11-17 were moved into
-`records/calibration_<timestamp>/` with their file names kept). A rerun with the same Sampling adds
-`_partN` captures to the same folder:
+`records/<id>/` in the records folder `ROBOCRAP_RECORDS_DIR` (default `records/` in the repository,
+since 2026-11-18; before, beside the executable). `<id>` is `calibration_<UTC timestamp
+yyyyMMdd_HHmmss_zzz>` of the Sampling, unique per Sampling (since 2026-11-17; earlier procedures used
+the bare timestamp and `records/` itself; the procedures of 2026-11-14 and 2026-11-17 were moved into
+`records/calibration_<timestamp>/` with their file names kept). A rerun with the same Sampling
+appends to the capture and replaces the touch and result files:
 - `rsi_plan_<id>.csv` (written by Sampling): one row per touch number with its search
   step, purpose, group, repetition, touch within the pass, tilt, roll, normal, nominal start and
   contact poses and the S/T at the search start. A failure to write it fails the Sampling.
-- `rsi_packets_<id>.csv` and `rsi_packets_<id>_partN.csv` (written by `RsiDevice`): the packet
-  capture of `RSI_Chamfer_Hole_CONTRACT.md`. It is saved after every search, because the controller
-  sends no packets between `RSI_OFF` and the next `RSI_ON`. It is the record of the touches.
-- `rsi_touches_<id>.csv` (written by `python -I python/rsi_touches.py records/<id> <id>`):
-  one row per search with a detection: `touch_index`, the IPOC and the cycle count since the search's
-  first packet ((IPOC − first IPOC) / 4) of the first packet with `Touch` 1, its AIPos A1–A6 and the
-  AIPos of the packet before it. The script reports searches without detection, touch numbers
-  searched more than once and captures with dropped rows.
+- `rsi_packets_<id>.csv` (written by `RsiDevice`): the packet capture of
+  `RSI_Chamfer_Hole_CONTRACT.md`, one file; a save appends after every search, because the
+  controller sends no packets between `RSI_OFF` and the next `RSI_ON`. Captures before 2026-11-18
+  are split into `rsi_packets_<id>_partN.csv` files with Base64 XML.
+- `calibration_touches_<id>.csv` (written by the application at the end of every run with
+  detections, also a failed one): `# plan_id`, then `touch,a1,…,a6`, one row per detected touch in
+  detection order, the AIPos (deg, six decimals) of the first packet with Start 1 and `Touch` 1 of
+  that touch's search. The touch files of the sessions before 2026-11-18 were made from their
+  captures with the same rule.
+- `calibration_result_<id>.csv` (written by the application after a successful fit): the estimated
+  quantities and the step-K7 sets. `python -I python/calibration/calibration_fit.py records/<id>`
+  recomputes it from the plan and touch files.
 
 ## Verified on the controller
 
@@ -212,7 +217,7 @@ Runs of 2026-11-11 with `StepLimit` = 10 (plan id `20261111_150029_843`, touches
   OR1.
 - Every search is preceded by exactly 3 Start = 0 packets (the 12 ms wait), and each search played
   its own stream.
-- Detection 781–846 cycles after the search start; `python/rsi_touches.py` found every touch.
+- Detection 781–846 cycles after the search start; every touch was found in the capture.
 
 The context uses large POSCORR1 limits (user, 2026-11-11), so these runs do not show whether
 POSCORR1 starts every search from zero; with those limits it does not matter.

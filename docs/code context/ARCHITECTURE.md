@@ -18,7 +18,7 @@ Supplied by the user unless a source is named.
 | PLC | Delta AS332T with AS16AP11P-A and AS16AP11T-A | `PlcDevice`, key `plc` | Custom binary over TCP to 192.168.1.2:5051, fixed source port 1234 |
 | Force/torque sensor | Schunk Delta IP68 SI-660-60 (ATI Net F/T electronics) | `FtsDevice`, key `fts` | ATI RDT over UDP, peer 192.168.1.3:49152 |
 | Spindle | GDZ-65-800A on an H100-1.5S2-1B frequency inverter (VFD) | none | Started through PLC output Y2.0 |
-| Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files; calibration touches as RSI packet captures with the actual joint angles at detection ([RSI_Probe_Calibration_CONTRACT.md](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)) |
+| Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files; calibration touches as the application's touch file with the actual joint angles at detection ([RSI_Probe_Calibration_CONTRACT.md](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)) |
 | Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `resources/json/calibration_sphere.json`; the stand CAD `resources/cad/CALIBRATION_STAND.stp` has its origin at the sphere centre |
 | EtherCAT I/O | Beckhoff EK1100 coupler, EL1809 (16 DI), EL2809 (16 DO) on the KR C4 | none | Automatic External interface and probe signal to/from the PLC (wiring below); no PC code addresses them |
 | Network switch | D-Link DGS-1005P (5 Gigabit ports, 4 PoE, unmanaged) | none | Connects the PC to the PLC, sensor and VFD |
@@ -36,7 +36,7 @@ Since 2026-10-23 the PC uses two adapters with separate subnets:
 RSI bypasses the switch: through the DGS-1005P (store-and-forward, 802.3az EEE, 802.3x flow
 control, 802.1p QoS per D-Link's B1 datasheet) KR C4 requests sometimes arrived up to 19 ms late and
 several at once, and the controller rejected the late replies; over a direct cable none was late
-(measured 2026-10-22 with `python/rsi_packet_timing.py` and Wireshark; the cause inside the switch
+(measured 2026-10-22 with `python/rsi/rsi_packet_timing.py` and Wireshark; the cause inside the switch
 was not examined). RSI also requires a Windows firewall rule and a Private profile on
 "KRC4-Direct" ([HARDWARE_SETUP.md](../hardware%20context/HARDWARE_SETUP.md)).
 

@@ -58,6 +58,10 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   resources/json/calibration_sphere.json is copied to <exe dir>/resources/json/ only when absent (an
   edited deployed file is never overwritten) and is not in a qrc. File/type moves require owning
   source-list/import updates; asset moves require resource-URL updates.
+- Run records (RSI plans and captures, calibration results and touches, PLC and FTS logs) go to the
+  root cache path ROBOCRAP_RECORDS_DIR (default <repository>/records, git-ignored), passed to every
+  target as a compile definition; writers use QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)), never the
+  executable folder, so deleting a build keeps the measurements.
 
 ## Viewport and CAD
 
@@ -178,9 +182,9 @@ src/application/main.cpp; for QML registration also Build and modules.
   the index and any other text as an invalid packet; `Touch` is on only for "1" and `AIPos` gives the
   angles, neither invalidates a packet. Once per search (reset by every Start = 0 packet and by a new
   table) the oldest pending packet with Start 1, Touch 1, angles and TouchIndex > 0 is emitted as
-  `touchDetected(touch, joints)`, only after the reply and its capture rows. The packet captures are
-  the record of the calibration touches (`python/rsi_touches.py`); keep every accepted request in
-  them. Protocol details:
+  `touchDetected(touch, joints)`, only after the reply and its capture rows. The application writes
+  the detected touches (`calibration_touches_<id>.csv`); the packet capture keeps every accepted
+  request and reply. Protocol details:
   `resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
   `resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md`.
 
@@ -383,14 +387,19 @@ Apply Geometry and scene to numerical changes.
     (robotResult repeats with every heartbeat); success needs the program seen running, then
     robotProgramState finished. While program 1 runs, Sampling and the test LIN are refused; a
     replaced job, a PLC disconnect or a failed start ends the run with an error; an interrupted
-    program keeps it (Resume continues it). On success
-    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is displayed,
-    logged and written to `records/<id>/calibration_result_<id>.csv`, never applied as the measuring TCP.
+    program keeps it (Resume continues it). Every run end with detections writes them to
+    `records/<id>/calibration_touches_<id>.csv`. On success
+    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is displayed
+    and written to `records/<id>/calibration_result_<id>.csv`, never applied as the measuring TCP.
+    The run prints only its errors to the console. `python/calibration/calibration_fit.py` repeats
+    the fit offline and must keep matching the result file.
   - Keep numerical work, file I/O, console output and unfinished-worker waits out of ControlIO receive
     callbacks; publish on state transitions/correction updates; device shutdown joins outstanding
     saves. Plan and packet filenames share the stream identifier, and both are written into
     `records/<id>/` (captures without a stream stay in `records/`); flush old-ID rows before replacing
-    the active stream, keeping whole exchanges.
+    the active stream, keeping whole exchanges. One identifier has one capture file: save workers
+    append in start order (each waits for the previous in its own thread) and decode the XML there;
+    the console shows only save errors.
 
 ## QML
 

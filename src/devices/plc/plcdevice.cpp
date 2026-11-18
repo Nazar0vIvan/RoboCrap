@@ -3,7 +3,6 @@
 
 #include <winsock2.h>
 
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -284,7 +283,7 @@ void PlcDevice::onConnected()
 
 void PlcDevice::openLog()
 {
-  const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
+  const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
   const QString fileName = QStringLiteral("plc_io_%1.csv")
       .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
 

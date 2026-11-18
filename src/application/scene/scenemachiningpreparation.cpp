@@ -4,7 +4,6 @@
 #include "geometry/utils.h"
 #include "kinematics/kr10kinematics.h"
 
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -188,10 +187,10 @@ QByteArray vectorLine(const QString& name, const V3d& value)
   return resultLine(name, {number(value.x()), number(value.y()), number(value.z())});
 }
 
-// records/<id>/calibration_result_<id>.csv beside the executable: the fit and the step K7 sets.
+// records/<id>/calibration_result_<id>.csv in ROBOCRAP_RECORDS_DIR: the fit and the step K7 sets.
 QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id)
 {
-  const QString folder = QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records/") + id);
+  const QString folder = QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(id);
   if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
   QByteArray contents = "# plan_id," + id.toUtf8() + "\n# mm; {F} flange, {B} base; sets: method step K7\n"
                         "quantity,value_1,value_2,value_3\n";
@@ -211,6 +210,24 @@ QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id
                            {QString::number(set.group), number(set.value), number(set.mean), number(set.bound),
                             QString::number(set.count)});
   QSaveFile file(QDir(folder).filePath(QStringLiteral("calibration_result_%1.csv").arg(id)));
+  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
+    return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(file.fileName(), file.errorString());
+  return {};
+}
+
+// records/<id>/calibration_touches_<id>.csv in ROBOCRAP_RECORDS_DIR: AIPos of every detected touch.
+QString writeCalibrationTouches(const QVector<ProbeTouchDetection>& detections, const QString& id)
+{
+  const QString folder = QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(id);
+  if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
+  QByteArray contents = "# plan_id," + id.toUtf8() + "\n# AIPos at detection, deg, in detection order; touch numbers "
+                        "as in rsi_plan_" + id.toUtf8() + ".csv\ntouch,a1,a2,a3,a4,a5,a6\n";
+  for (const ProbeTouchDetection& detection : detections) {
+    QStringList joints;
+    for (double value : detection.joints) joints.append(number(value));
+    contents += resultLine(QString::number(detection.touch), joints);
+  }
+  QSaveFile file(QDir(folder).filePath(QStringLiteral("calibration_touches_%1.csv").arg(id)));
   if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
     return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(file.fileName(), file.errorString());
   return {};
@@ -502,7 +519,6 @@ void SceneMachiningPreparation::startCalibration()
   m_runError.clear();
   m_runResult.clear();
   m_run = CalibrationRun::Requested;
-  qInfo().noquote() << "Probe calibration run: program 1 requested," << m_preparedCalibration->diagnosticId;
   m_plc->invoke(QStringLiteral("runRobotProgram"), {{QStringLiteral("program"), 1}});
   emit calibrationRunChanged();
   emit availabilityChanged();
@@ -551,25 +567,23 @@ void SceneMachiningPreparation::onPlcSocket()
 
 void SceneMachiningPreparation::endRun(const QString& error)
 {
+  Q_ASSERT(m_preparedCalibration); // clearPrepared ends a run before it drops the job.
   m_run = CalibrationRun::Idle;
   m_runError = error;
+  // The touches are kept also when the run or the fit fails.
+  const QString touchesError = m_detections.isEmpty()
+      ? QString{} : writeCalibrationTouches(m_detections, m_preparedCalibration->diagnosticId);
   if (error.isEmpty()) {
-    Q_ASSERT(m_preparedCalibration);
     const ProbeCalibrationFitResult result = fitProbeCalibration(*m_preparedCalibration->motion, m_detections);
     if (result.fit) {
-      const ProbeCalibrationFit& fit = *result.fit;
-      m_runResult = resultRows(fit);
-      qInfo().noquote() << QStringLiteral("Probe calibration result: ball centre %1 mm in {F}, sphere centre %2 mm "
-                                          "in {B}, rho_v %3 mm, rho_h %4 mm, chi95 %5 mm, s_rep %6 mm")
-                               .arg(vectorText(fit.ballCentre), vectorText(fit.sphereCentre),
-                                    QString::number(fit.contactVertical, 'f', 4),
-                                    QString::number(fit.contactHorizontal, 'f', 4),
-                                    QString::number(fit.quantile95, 'f', 4), QString::number(fit.repeatability, 'f', 4));
-      m_runError = writeCalibrationResult(fit, m_preparedCalibration->diagnosticId);
+      m_runResult = resultRows(*result.fit);
+      m_runError = writeCalibrationResult(*result.fit, m_preparedCalibration->diagnosticId);
     } else {
       m_runError = result.error;
     }
   }
+  if (!touchesError.isEmpty())
+    m_runError = m_runError.isEmpty() ? touchesError : m_runError + QLatin1Char(' ') + touchesError;
   if (!m_runError.isEmpty()) qInfo().noquote() << "Probe calibration run:" << m_runError;
   emit calibrationRunChanged();
   emit availabilityChanged();

@@ -3,6 +3,9 @@ import json
 import matplotlib.pyplot as plt
 from scipy.signal import butter, sosfiltfilt, welch
 from dataclasses import dataclass
+from pathlib import Path
+
+DATA_FOLDER = Path(__file__).parent / "data"  # The force records listed in `files` below.
 
 label_fs = 18
 tick_fs = 16
@@ -24,7 +27,7 @@ class ChartInfo:
     color: str
 
 def load_forces_record(filename):
-    with open(filename, "r", encoding="utf-8") as f:
+    with open(DATA_FOLDER / filename, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     samples = data["samples"]

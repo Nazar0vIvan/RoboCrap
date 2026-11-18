@@ -75,7 +75,7 @@ PLC, starts programs; RoboCrap commands the PLC over TCP (`PlcDevice`).
   calibration and verification fits share one Gauss–Newton function.
 - [x] (2026-11-18) Milestone 1, reference values for sessions `calibration_20261117_113235_576` and
   `calibration_20261114_170013_165` computed offline (Artifacts and Notes).
-- [ ] Milestone 1, build of `RoboCrapTrajectories`: not run (user's).
+- [x] (2026-11-18) Milestone 1, build of `RoboCrapTrajectories`: passed (user).
 - [x] (2026-11-18) Milestone 2, code: `decodeRequest` reads `Touch` and `AIPos` (new helper
   `decodeAxes`); `Request::touch`, `Request::joints`; signal `touchDetected(int, const V6d&)`
   emitted after the reply and the capture rows; `reportsTouch`; `m_reportedTouch` reset by every
@@ -85,7 +85,7 @@ PLC, starts programs; RoboCrap commands the PLC over TCP (`PlcDevice`).
   before the reply only the reset assignment runs (no console output, file I/O or numerics). The
   connection to `SceneMachiningPreparation::recordTouch` moved to Milestone 3, where the slot is
   created, so that Milestone 2 builds on its own.
-- [ ] Milestone 2, build of `RoboCrapDevices` and `robocrap`: not run (user's).
+- [x] (2026-11-18) Milestone 2, build of `RoboCrapDevices` and `robocrap`: passed (user).
 - [x] (2026-11-18) Milestone 3, code: `DeviceRunner::dataUpdated`; in `SceneMachiningPreparation`
   `attachPlc`, `canStartCalibration`, `startCalibration`, `recordTouch`, `onPlcData`, `onPlcSocket`,
   `endRun`, the run phase `CalibrationRun`, `PreparedCalibration::diagnosticId`, the six properties
@@ -126,10 +126,14 @@ PLC, starts programs; RoboCrap commands the PLC over TCP (`PlcDevice`).
 - [x] (2026-11-18) Milestone 5, final compliance pass over the whole diff (12 tracked files, 390
   insertions, 16 deletions, plus the two new fit files): no C++ lambdas, templates, exceptions or
   output parameters; no function with more than three parameters; `git diff --check` clean.
-- [ ] Milestone 5, disconnected runtime check of the Calibration submode (Validation and
-  Acceptance, first paragraph): user's.
-- [ ] Milestone 5, user-authorized robot run and comparison with the reference values (Validation
-  and Acceptance, second paragraph): user's.
+- [x] (2026-11-18) Milestone 5, disconnected runtime check of the Calibration submode (Validation
+  and Acceptance, first paragraph): passed (user).
+- [x] (2026-11-18) Milestone 5, user-authorized robot run, session `calibration_20261118_113045_223`:
+  "Calibration complete", result file written, values within the reference magnitudes (Artifacts
+  and Notes) (user).
+- [ ] Milestone 5, reproduction of the displayed values within 1e-4 mm by `python/rsi_touches.py`
+  and the Milestone 1 reference script: not run; the record folder holds no `rsi_touches_<id>.csv`,
+  and the reference script was in an earlier session's scratchpad, outside the repository.
 
 
 ## Surprises & Discoveries
@@ -291,8 +295,11 @@ Milestone 1 (2026-11-18): the fit exists as `fitProbeCalibration`. The offline r
 two recorded sessions gives a ball centre of about [0.024; -0.056; 126.968] mm in {F} and chi95 of
 about 0.11 mm.
 
-Milestones 2–5 (2026-11-18): all code and documentation are in place and the project builds. What
-remains is runtime evidence: the disconnected UI check and one user-authorized robot run. Lessons:
+Milestones 2–5 (2026-11-18): all code and documentation are in place and the project builds. The
+disconnected UI check passed, and the robot run `calibration_20261118_113045_223` ended with
+"Calibration complete": its ball centre in {F} differs from both offline references by at most
+0.0014 mm per coordinate, chi95 is 0.1107 mm and 23 of 36 step-К7 sets lie outside their bound, as
+in the recorded sessions. Not done: the 1e-4 mm reproduction by an offline fit of the same run. Lessons:
 the PLC state could not be observed through `QQmlPropertyMap::valueChanged`, and the heartbeat
 repetition of `robotResult` would have ended runs falsely; both were found by reading
 `DeviceRunner` and `PlcDevice::publishIo` before writing the run logic.
@@ -605,6 +612,18 @@ centre [1054.1403; -331.9692; 454.2727] mm, contact distance 14 mm, TOOL_DATA[5]
 
 The smallest singular value matches the 2.03 of the method document's planning calculation (section
 6.2), computed there in nominal poses.
+
+Robot run of Milestone 5 (2026-11-18), computed by RoboCrap,
+`records/calibration_20261118_113045_223/calibration_result_calibration_20261118_113045_223.csv`:
+
+    == calibration_20261118_113045_223
+    touches: 114 calibration, 44 verification
+    ball centre in {F}: [0.0228; -0.0554; 126.9679] mm
+    sphere centre in {B}: [1054.2032; -331.9299; 454.1821] mm
+    rho_v 13.8449 mm, rho_h 13.8572 mm
+    s_rep 0.0107 mm, smallest singular value 2.0383
+    verification sphere centre: [1054.2167; -331.9202; 454.1978] mm, chi95 0.1107 mm
+    K7 sets outside 3 s_rep/sqrt(m): 23 of 36
 
 
 ## Interfaces and Dependencies

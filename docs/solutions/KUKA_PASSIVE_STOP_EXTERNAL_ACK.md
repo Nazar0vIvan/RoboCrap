@@ -41,7 +41,7 @@ Example without motion (program 4 is `WAIT SEC 3`): the STOP key came 0.83 s aft
 
 After the smartPAD STOP key in AUT EXT the controller shows the acknowledgeable message "KSS01370 Passive STOP" and sets `$STOPMESS` TRUE. The PLC's `$CONF_MESS` pulse in ST_PREP does not clear this message, so `$STOPMESS` stays TRUE and every Resume ends with TIMEOUT. After the operator acknowledges the message on the smartPAD, `$STOPMESS` becomes FALSE and Resume works.
 
-Evidence: RoboCrap's PLC log `records/plc_io_20261114_152647.csv` (beside the executable), one action at a time:
+Evidence: RoboCrap's PLC log `records/plc_io_20261114_152647.csv` (then beside the executable), one action at a time:
 
 | Action | Time | Logged result |
 | --- | --- | --- |

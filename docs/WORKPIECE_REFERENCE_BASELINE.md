@@ -131,10 +131,10 @@ the common systematic part. Drift between repetitions still contributes to that 
 6. KRL executes the transfers. Each search sets its touch number, enables relative RSI, waits
    12 ms, sets Start and calls `RSI_MOVECORR`. The documented RSI STOP block ends the search on
    the probe signal. A failed search retracts LIN to its recorded start and ends the program.
-7. Packet captures preserve the received XML. `python/rsi_touches.py` extracts the first detected
-   packet's actual joint angles, the preceding packet's angles, the controller's millisecond
-   counter IPOC and the search cycle count.
-   The extractor does not perform forward kinematics, estimate parameters or compute verification.
+7. At the end of a run the application writes, for every detected touch, the actual joint angles
+   of the first packet with the probe signal to `records/<id>/calibration_touches_<id>.csv`. The
+   packet capture keeps every 4 ms cycle: the controller's millisecond counter IPOC, the actual
+   joint angles and the corrections.
 
 Code evidence: `src/application/scene/scenecalibration.cpp:28-105, 144-168, 241-248`;
 `src/geometry/spherefit.cpp:7-50`; `src/trajectories/probe/probetouchplan.cpp:26-159`;
@@ -142,7 +142,7 @@ Code evidence: `src/application/scene/scenecalibration.cpp:28-105, 144-168, 241-
 `src/trajectories/probe/probersistream.cpp:20-53, 128-187`;
 `src/application/scene/scenemachiningpreparation.cpp:307-348`;
 `resources/files/rsi/Calibration/RSI_Probe_Calibration.src:43-100`;
-`python/rsi_touches.py:49-166`.
+`src/application/scene/scenemachiningpreparation.cpp:219-234` (touch file).
 
 ### What verification means
 

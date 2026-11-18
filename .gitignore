@@ -3,4 +3,6 @@ build*/
 libs/
 *.user*
 *.user
+records/
+__pycache__/
 

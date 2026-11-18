@@ -77,7 +77,9 @@ private:
   void publishState();
   void appendTrace(const QByteArray& row);
   void saveTrace();
-  static QString writeTrace(QByteArray rows, QString fileName);
+  // Appends rows to fileName under the records folder after the previous save finished;
+  // returns an empty string or the error.
+  static QString writeTrace(std::shared_future<QString> previous, QByteArray rows, QString fileName);
 
   QUdpSocket* m_sock = nullptr;
   QHostAddress m_la;
@@ -100,6 +102,7 @@ private:
   QTimer* m_traceTimer = nullptr;
   QByteArray m_trace;
   qsizetype m_traceDropped = 0;
-  int m_tracePart = 0;
-  std::vector<std::future<QString>> m_traceSaves;
+  // Capture file of the current table, relative to the records folder; empty until its first save.
+  QString m_traceFile;
+  std::vector<std::shared_future<QString>> m_traceSaves; // In start order; each waits for the previous.
 };

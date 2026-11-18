@@ -4,7 +4,6 @@
 #include "../motion/tcpsolver.h"
 #include "geometry/utils.h"
 
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -77,8 +76,7 @@ public:
     m_stream.increments.reserve(count + SettleCycles);
     m_stream.diagnosticId = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
     // The plan and the packet captures of one stream share the record folder records/<id>.
-    const QDir records(QDir(QCoreApplication::applicationDirPath())
-                           .filePath(QStringLiteral("records/") + m_stream.diagnosticId));
+    const QDir records(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(m_stream.diagnosticId));
     m_trace.setFileName(records.filePath(QStringLiteral("rsi_plan_%1.csv")
         .arg(m_stream.diagnosticId)));
     if (!QDir().mkpath(records.absolutePath()) || !m_trace.open(QIODevice::WriteOnly)) {

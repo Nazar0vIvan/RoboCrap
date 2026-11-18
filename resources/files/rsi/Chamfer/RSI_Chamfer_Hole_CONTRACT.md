@@ -39,7 +39,7 @@ ImFree). The KR C4 RSI interface is 172.31.1.147/24 on the KLI, cabled directly 
 USB network adapter ("KRC4-Direct"); no switch may be in this path: the D-Link DGS-1005P held
 requests for up to 19 ms (`plans/RSI_NETWORK_SPLIT_EXECPLAN.md`). The controller also
 sends RIst, AIPos, MACur and Delay (late-packet count, `DEF_Delay`); the PC ignores them, and
-`python/rsi_packet_timing.py` reads RIst and Delay from the packet capture. The shared
+`python/rsi/rsi_packet_timing.py` reads RIst and Delay from the packet capture. The shared
 configuration also sends `TouchIndex` (LONG, In3) and `Touch` (BOOL, In4) for
 `RSI_Probe_Calibration`; this context leaves both inputs unconnected, and the controller then
 sends the texts `not linked:3` and `not linked:4` in them (RSI_Probe_Check capture, 2026-11-11).
@@ -117,9 +117,10 @@ The summary's mm value is the maximum absolute X, Y or Z displacement from LeadS
 Its degree value is the maximum shortest rotation angle from LeadStart, in [0, 180].
 It is an orientation diagnostic; it neither counts full revolutions nor specifies MaxRotAngle.
 
-Diagnostics are automatic and use `applicationDirPath()/records` beside the executable.
+Diagnostics are automatic and use the records folder `ROBOCRAP_RECORDS_DIR` (CMake cache path,
+default `records/` in the repository; before 2026-11-18 `records/` beside the executable).
 Sampling creates one UTC timestamp identifier, carried with its correction array and recorded
-as `# plan_id` in both logs. Both logs of one array are in the folder `records/<id>/` (since
+as `# plan_id` in the plan. Both logs of one array are in the folder `records/<id>/` (since
 2026-11-17). After successful Sampling, `rsi_plan_<id>.csv` contains the time-zero TCP pose
 and joints, each subsequent analytical target, A1..A6 checked for the rounded-offset
 reconstructed TCP pose, and rounded offset.
@@ -129,31 +130,42 @@ number of zero settling cycles. Row zero has a zero increment; stream increment 
 corresponds to the next row, normally at 0.004 s. The final target time can be shorter than
 its nominal cycle boundary. Sampling writes on its existing numerical worker.
 
-During UDP exchange, `rsi_packets_<id>.csv` uses the active array's same identifier.
-Further captures of that array use `_part2`,
-`_part3`, etc. to preserve earlier files. Captures without an array identifier are named
-`rsi_packets_unassigned_<UTC timestamp>.csv` with the same part convention and stay in `records/`. Each capture records every request accepted by
-the sender-address check, including malformed XML and queued requests not answered, and
-each attempted reply. Rows contain monotonic PC nanoseconds since device start, `rx`/`tx`,
-the stream index before processing the request (`-1` for received rows), writeDatagram's
-byte result (`-1` on failure), the send-call duration in nanoseconds and exact XML bytes
-encoded as Base64. Reply (`tx`) rows add four PC times on the same clock: handler entry,
-the ControlIO event loop's last sleep and last wake before it, and the end of the previous
-replying handler; `rx` rows keep six columns. `python/rsi_packet_timing.py` uses them to
-classify late reads. Decode the XML column to obtain RIst, AIPos, MACur, Start, Result,
-IPOC and RKorr without imposing additional receive-field requirements. A successful local
-write is not proof the controller received or applied the correction.
+During UDP exchange, the capture `records/<id>/rsi_packets_<id>.csv` uses the active array's
+identifier; every later save of that identifier, also after a reconnect, appends to the same
+file (since 2026-11-18; earlier captures were split into `_part2`, `_part3`, … files with the
+columns `pc_ns,direction,stream_index,write_bytes,write_ns,xml_base64` and, on replies, the four
+handler times, every XML in Base64). Rows without an array identifier go to
+`records/rsi_packets_unassigned_<UTC timestamp of the first save>.csv`, one file per connection.
+Each capture records every request accepted by the sender-address check, including malformed
+XML and queued requests not answered, and each attempted reply, one row each, with the columns
+
+    pc_ns,direction,stream_index,write_bytes,write_ns,entry_ns,sleep_ns,wake_ns,prev_done_ns,
+    ipoc,start,result,touch_index,touch,delay,rist_x,rist_y,rist_z,rist_a,rist_b,rist_c,
+    a1,a2,a3,a4,a5,a6,corr_x,corr_y,corr_z,corr_a,corr_b,corr_c,stop,xml_base64
+
+`pc_ns` is monotonic PC nanoseconds since device start and `direction` is `rx` or `tx`. Reply
+(`tx`) rows fill the stream index before processing the request, writeDatagram's byte result
+(`-1` on failure), the send-call duration in nanoseconds and four PC times on the same clock:
+handler entry, the ControlIO event loop's last sleep and last wake before it, and the end of
+the previous replying handler; they also fill the reply's IPOC, Result, RKorr (`corr_*`) and
+Stop. Request (`rx`) rows fill IPOC, Start, Result, TouchIndex, Touch, Delay, RIst (`rist_*`)
+and AIPos (`a1`…`a6`, deg). XML values are copied as sent; other XML elements (MACur) are not
+kept; `xml_base64` holds the exact bytes only of a packet whose XML cannot be read.
+`python/rsi/rsi_packet_timing.py` reads both formats and classifies late reads. A successful
+local write is not proof the controller received or applied the correction.
 Receive timestamps measure application dequeue time, not network-interface arrival time;
 send duration measures the local write call, not a network round trip.
 
-Capture buffers at most 64 MiB of rows; a `# dropped_rows` footer reports omitted rows.
+Capture buffers at most 64 MiB of rows; a `# dropped_rows` comment line reports omitted rows.
 After 250 ms without accepted-peer traffic, or on disconnect/shutdown, a copied-input
 worker saves the capture; replacing the active array also flushes its old-ID rows. Received
 rows are timestamped before decoding and appended with their reply after sending, keeping the
-exchange together without including capture insertion in reply latency. Independent files can finish saving concurrently. There is
-no file I/O in the receive callback or inactivity slot.
-Only shutdown waits for outstanding saves. Console messages report saved paths or errors;
-no user-operated recording control or protocol change is required.
+exchange together without including capture insertion in reply latency. The buffer keeps the
+Base64 rows; the save worker converts them to the columns above. Each save worker first waits
+for the previous one in its own thread, so appended rows stay in order. There is no file I/O
+or XML conversion in the receive callback or inactivity slot. Only shutdown waits for
+outstanding saves. The console shows only save errors; no user-operated recording control or
+protocol change is required.
 
 Example request and reply (values illustrative):
 

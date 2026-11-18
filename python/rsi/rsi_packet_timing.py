@@ -1,15 +1,16 @@
 """Timing analysis of one RSI run recorded by RoboCrap.
 
 Usage:
-    python -I python/rsi_packet_timing.py <rsi_packets_ID.csv> [<rsi_plan_ID.csv>]
+    python -I python/rsi/rsi_packet_timing.py <rsi_packets_ID.csv> [<rsi_plan_ID.csv>]
 
-Packet capture (rsi_packets_ID.csv): one row per controller request ("rx") and per PC
-reply ("tx"): pc_ns, direction, stream_index, write_bytes, write_ns, xml_base64, optionally
-followed by entry_ns, sleep_ns, wake_ns, prev_done_ns on reply rows (handler entry, last
-event-loop sleep and wake, end of the previous replying handler; format in
-resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md). The script reports late reads, replies the
-controller rejected and, with the plan file, how far the rejected corrections moved the
-final pose.
+Packet capture (records/<ID>/rsi_packets_ID.csv): one row per controller request ("rx") and per
+PC reply ("tx"), format in resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md. Current
+captures have decoded columns (ipoc, delay, rist_x ... on requests, stream_index, stop, result and
+the handler times entry_ns, sleep_ns, wake_ns, prev_done_ns on replies). Captures saved before
+2026-11-18 (one file per search, *_partN) have the columns pc_ns, direction, stream_index,
+write_bytes, write_ns, xml_base64 and the four handler times; both are read. The script reports
+late reads, replies the controller rejected and, with the plan file, how far the rejected
+corrections moved the final pose.
 """
 
 import argparse
@@ -34,13 +35,38 @@ STOP_RE = re.compile(rb"<Stop>1</Stop>")
 RESULT_RE = re.compile(rb"<Result>1</Result>")
 
 
+def decoded_packet(row):
+    """Packet dict of one row of a decoded capture; None for a row without readable XML."""
+    if not row["ipoc"]:
+        return None
+    reply = row["direction"] == "tx"
+    return {
+        "ns": int(row["pc_ns"]),
+        "rx": not reply,
+        "index": int(row["stream_index"]) if reply else -1,
+        "ipoc": int(row["ipoc"]),
+        "delay": int(row["delay"]) if row["delay"] else None,
+        "rist": tuple(float(row["rist_" + axis]) for axis in "xyzabc") if row["rist_x"] else None,
+        "control": row["stop"] == "1" or row["result"] == "1",
+        "times": [int(row[name]) for name in ("entry_ns", "sleep_ns", "wake_ns", "prev_done_ns")]
+        if reply else None,
+    }
+
+
 def read_packets(path):
     """Requests and replies in file order, each as a dict."""
     packets = []
     with open(path, newline="", encoding="utf-8") as file:
         rows = csv.reader(line for line in file if not line.startswith("#"))
+        header = next(rows)
+        if "ipoc" in header:
+            for values in rows:
+                packet = decoded_packet(dict(zip(header, values)))
+                if packet is not None:
+                    packets.append(packet)
+            return packets
         for row in rows:
-            if not row or row[0] == "pc_ns":
+            if not row:
                 continue
             xml = base64.b64decode(row[5])
             delay = DELAY_RE.search(xml)

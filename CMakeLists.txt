@@ -50,6 +50,11 @@ endif()
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml")
 set(QML_IMPORT_PATH "${QT_QML_OUTPUT_DIRECTORY}" CACHE STRING "QML import paths for Qt Creator" FORCE)
 
+# Outside the build folder, so deleting a build keeps the measurements.
+set(ROBOCRAP_RECORDS_DIR "${PROJECT_SOURCE_DIR}/records" CACHE PATH
+  "Folder for run records: RSI plans and captures, calibration results, PLC and FTS logs")
+add_compile_definitions(ROBOCRAP_RECORDS_DIR="${ROBOCRAP_RECORDS_DIR}")
+
 add_subdirectory(src/geometry)
 add_subdirectory(src/kinematics)
 add_subdirectory(src/trajectories)

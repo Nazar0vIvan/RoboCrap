@@ -3,7 +3,6 @@
 #include "devices/fts/ftsdevice.h"
 #include "common/socketconfigutils.h"
 
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -478,7 +477,7 @@ void FtsDevice::saveLogToDefaultFile()
 	const QString fileName = QStringLiteral("fts_%1_%2.json")
 			.arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")),
 				 QUuid::createUuid().toString(QUuid::WithoutBraces));
-	const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
+	const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
 	saveLogToFileImpl(records.filePath(fileName));
 }
 

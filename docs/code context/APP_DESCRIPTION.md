@@ -53,8 +53,9 @@ point on the hole axis, outside the hole.
    sphere centre, the two contact distances (stylus down, stylus horizontal) and the 95 % quantile
    of the verification residuals from the actual joint angles of every touch, shows them in the window
    "Calibration complete" and writes them to `records/<id>/`; the ball centre is not applied as the
-   measuring TCP. The packet captures keep the robot's actual joint angles of every cycle, and
-   `python/rsi_touches.py` extracts the angles at each detected touch.
+   measuring TCP. The joint angles of every detected touch are written to
+   `records/<id>/calibration_touches_<id>.csv`, and the packet capture keeps the robot's actual
+   joint angles of every cycle; `python/calibration/calibration_fit.py` repeats the fit offline.
 
 2. **Load measured geometry (Measuring mode, Rough submode).**
    Import the workpiece end surface with *Plane from JSON* and the hole with *Cylinder from JSON*.
@@ -91,8 +92,9 @@ point on the hole axis, outside the hole.
    (version 2): the PTP/LIN targets PsIn, LeadStart and LeadEnd with their KUKA Status/Turn
    (S/T) joint-configuration values, PsOut's S/T, the flange-to-TCP frame and the transfer
    `$VEL.CP`/`$ACC.CP` in m/s and m/s². Only after a successful write are the corrections handed
-   to the RSI device. Each sampling saves a diagnostic plan CSV in `records/<id>/` beside the
-   executable; UDP exchanges are captured in the same folder with the same identifier.
+   to the RSI device. Each sampling saves a diagnostic plan CSV in `records/<id>/` of the records
+   folder (`records/` in the repository by default, CMake path `ROBOCRAP_RECORDS_DIR`); UDP
+   exchanges are captured in one file in the same folder with the same identifier.
 
 6. **Run on the controller (T1, manual start).**
    The operator starts `resources/files/rsi/Chamfer/RSI_Chamfer_Hole.src`/`.dat` with the helpers in

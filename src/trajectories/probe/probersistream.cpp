@@ -4,7 +4,6 @@
 #include "geometry/utils.h"
 #include "kinematics/kr10kinematics.h"
 
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QSaveFile>
@@ -169,8 +168,7 @@ private:
 
   QString writePlan() const
   {
-    const QDir records(QDir(QCoreApplication::applicationDirPath())
-                           .filePath(QStringLiteral("records/") + m_job.diagnosticId));
+    const QDir records(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(m_job.diagnosticId));
     QSaveFile file(records.filePath(QStringLiteral("rsi_plan_%1.csv").arg(m_job.diagnosticId)));
     const QByteArray contents = (QStringLiteral("# plan_id,") + m_job.diagnosticId
         + QStringLiteral("\n# XYZ mm; ABC principal Z-Y-X deg; tilt and roll deg; search_step: 1-based step in "

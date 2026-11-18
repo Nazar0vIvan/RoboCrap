@@ -2,13 +2,13 @@
 #include "../common/socketconfigutils.h"
 
 #include <QAbstractEventDispatcher>
-#include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QHash>
 #include <QNetworkDatagram>
-#include <QSaveFile>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QXmlStreamReader>
@@ -111,6 +111,47 @@ QByteArray encodeReply(const RsiDevice::Reply& reply)
   return datagram;
 }
 
+constexpr char CaptureHeader[] =
+    "# pc_ns: monotonic nanoseconds since device start; rx: controller request, tx: PC reply\n"
+    "# tx only: stream_index (next increment before the reply), writeDatagram result and duration,\n"
+    "# handler entry, last event-loop sleep and wake, previous replying handler end (pc_ns)\n"
+    "# XML values as sent: rx RIst, AIPos (deg), Delay; tx RKorr; xml_base64 only for unreadable XML\n"
+    "pc_ns,direction,stream_index,write_bytes,write_ns,entry_ns,sleep_ns,wake_ns,prev_done_ns,"
+    "ipoc,start,result,touch_index,touch,delay,rist_x,rist_y,rist_z,rist_a,rist_b,rist_c,"
+    "a1,a2,a3,a4,a5,a6,corr_x,corr_y,corr_z,corr_a,corr_b,corr_c,stop,xml_base64\n";
+
+// XML values of the header columns ipoc ... stop: element text or Element.Attribute.
+constexpr const char* XmlColumns[] = {
+    "IPOC", "Start", "Result", "TouchIndex", "Touch", "Delay.D",
+    "RIst.X", "RIst.Y", "RIst.Z", "RIst.A", "RIst.B", "RIst.C",
+    "AIPos.A1", "AIPos.A2", "AIPos.A3", "AIPos.A4", "AIPos.A5", "AIPos.A6",
+    "RKorr.X", "RKorr.Y", "RKorr.Z", "RKorr.A", "RKorr.B", "RKorr.C", "Stop"};
+
+// Buffered row "pc_ns,rx,-1,-1,-1,<Base64 XML>" or "pc_ns,tx,<index>,<bytes>,<write ns>,<Base64 XML>,
+// <entry>,<sleep>,<wake>,<done>" as one CaptureHeader line.
+QByteArray captureRow(const QByteArray& row)
+{
+  const QList<QByteArray> fields = row.split(',');
+  const bool reply = fields.value(1) == "tx";
+  QByteArray line = fields.value(0) + ',' + fields.value(1);
+  for (const int column : {2, 3, 4, 6, 7, 8, 9}) line += ',' + (reply ? fields.value(column) : QByteArray());
+  QXmlStreamReader xml(QByteArray::fromBase64(fields.value(5)));
+  QHash<QString, QString> values;
+  if (xml.readNextStartElement()) {
+    while (xml.readNextStartElement()) {
+      const QString name = xml.name().toString();
+      for (const QXmlStreamAttribute& attribute : xml.attributes())
+        values.insert(name + QLatin1Char('.') + attribute.name().toString(), attribute.value().toString());
+      values.insert(name, xml.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+    }
+  }
+  while (!xml.atEnd()) xml.readNext();
+  const bool readable = !xml.hasError() && !values.isEmpty();
+  for (const char* key : XmlColumns)
+    line += ',' + (readable ? values.value(QString::fromLatin1(key)).toUtf8() : QByteArray());
+  return line + ',' + (readable ? QByteArray() : fields.value(5)) + '\n';
+}
+
 } // namespace
 
 RsiDevice::RsiDevice(const QString& name, QObject* parent) : AbstractDevice(name, parent) {}
@@ -191,6 +232,7 @@ void RsiDevice::disconnect()
   m_pp = 0;
   resetRun();
   saveTrace();
+  m_traceFile.clear(); // Unassigned rows of a new connection go to a new file.
   qInfo().noquote() << "[OK]" << objectName() + ":" << "Socket disconnected";
 }
 
@@ -204,7 +246,7 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
                 + datagram.data().toBase64() + '\n');
   }
   saveTrace();
-  if (m_diagnosticId != diagnosticId) m_tracePart = 0;
+  if (m_diagnosticId != diagnosticId) m_traceFile.clear();
   m_streams = streams;
   m_diagnosticId = diagnosticId;
   m_activeStream = 0;
@@ -303,47 +345,47 @@ void RsiDevice::saveTrace()
       ++save;
       continue;
     }
-    qInfo().noquote() << objectName() + ":" << save->get();
+    const QString error = save->get();
+    if (!error.isEmpty()) qInfo().noquote() << "[ERROR]" << objectName() + ":" << error;
     save = m_traceSaves.erase(save);
   }
   m_traceTimer->stop();
   if (!m_trace.isEmpty()) {
-    QString id = m_diagnosticId;
-    if (id.isEmpty()) id = QStringLiteral("unassigned_%1").arg(
-        QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")));
-    ++m_tracePart;
-    const QString part = m_tracePart == 1 ? QString{} : QStringLiteral("_part%1").arg(m_tracePart);
-    // A stream's captures go into its record folder records/<id>; unassigned ones into records.
-    const QString folder = m_diagnosticId.isEmpty() ? QString{} : m_diagnosticId + QLatin1Char('/');
-    const QString fileName = folder + QStringLiteral("rsi_packets_%1%2.csv").arg(id, part);
-    m_trace.append("# plan_id," + m_diagnosticId.toUtf8()
-                   + "\n# dropped_rows," + QByteArray::number(m_traceDropped) + '\n');
-    m_traceSaves.push_back(std::async(std::launch::async, &RsiDevice::writeTrace,
-                                     std::exchange(m_trace, {}), fileName));
+    // One file per table in its record folder records/<id>; unassigned rows in records.
+    if (m_traceFile.isEmpty()) {
+      m_traceFile = m_diagnosticId.isEmpty()
+          ? QStringLiteral("rsi_packets_unassigned_%1.csv")
+                .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")))
+          : QStringLiteral("%1/rsi_packets_%1.csv").arg(m_diagnosticId);
+    }
+    if (m_traceDropped > 0) m_trace.append("# dropped_rows," + QByteArray::number(m_traceDropped) + '\n');
+    const std::shared_future<QString> previous = m_traceSaves.empty() ? std::shared_future<QString>{}
+                                                                       : m_traceSaves.back();
+    m_traceSaves.push_back(std::async(std::launch::async, &RsiDevice::writeTrace, previous,
+                                      std::exchange(m_trace, {}), m_traceFile).share());
     m_traceDropped = 0;
     if (m_sock->state() == QAbstractSocket::BoundState) m_trace.reserve(TraceCapacity);
   }
   if (!m_traceSaves.empty()) m_traceTimer->start();
 }
 
-QString RsiDevice::writeTrace(QByteArray rows, QString fileName)
+QString RsiDevice::writeTrace(std::shared_future<QString> previous, QByteArray rows, QString fileName)
 {
-  const QDir records(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("records")));
-  QSaveFile file(records.filePath(fileName));
-  if (!QDir().mkpath(QFileInfo(file.fileName()).absolutePath()) || !file.open(QIODevice::WriteOnly)) {
-    return QStringLiteral("[ERROR] cannot open RSI diagnostic %1 (%2)")
-        .arg(file.fileName(), file.errorString());
+  if (previous.valid()) previous.wait(); // Rows of one file stay in capture order.
+  QFile file(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(fileName));
+  if (!QDir().mkpath(QFileInfo(file.fileName()).absolutePath())
+      || !file.open(QIODevice::WriteOnly | QIODevice::Append)) {
+    return QStringLiteral("cannot open RSI diagnostic %1 (%2)").arg(file.fileName(), file.errorString());
   }
-  const QByteArray header = "# pc_ns: monotonic nanoseconds since device start; XML: exact bytes in Base64\n"
-                            "# stream_index: next increment before reply; -1 for received packets\n"
-                            "# tx only: handler entry, last event-loop sleep and wake, previous replying handler end (pc_ns)\n"
-                            "pc_ns,direction,stream_index,write_bytes,write_ns,xml_base64,"
-                            "entry_ns,sleep_ns,wake_ns,prev_done_ns\n";
-  if (file.write(header) != header.size() || file.write(rows) != rows.size() || !file.commit()) {
-    return QStringLiteral("[ERROR] cannot save RSI diagnostic %1 (%2)")
-        .arg(file.fileName(), file.errorString());
+  QByteArray contents = file.size() == 0 ? QByteArray(CaptureHeader) : QByteArray();
+  for (const QByteArray& row : rows.split('\n')) {
+    if (row.startsWith('#')) contents += row + '\n';
+    else if (!row.isEmpty()) contents += captureRow(row);
   }
-  return QStringLiteral("[OK] saved RSI diagnostic %1").arg(file.fileName());
+  if (file.write(contents) != contents.size() || !file.flush()) {
+    return QStringLiteral("cannot save RSI diagnostic %1 (%2)").arg(file.fileName(), file.errorString());
+  }
+  return {};
 }
 
 RsiDevice::Reply RsiDevice::advance(const Request& request)
