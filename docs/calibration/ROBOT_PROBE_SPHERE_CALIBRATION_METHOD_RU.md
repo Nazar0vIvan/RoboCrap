@@ -57,7 +57,7 @@ $$
 
 ### 3.1. Путь сигнала и задержка
 
-Путь сигнала срабатывания: выход WP-500 → вход X2.0 ПЛК Delta → программа ПЛК копирует его на выход Y1.7 → вход 8 модуля EL1809 → `$IN[8]` (`docs/code context/ARCHITECTURE.md`, Additional hardware and Delta I/O wiring; с 2026-11-06, до этого — выход Y1.5, вход 11, `$IN[11]`). Объект STOP контекста RSI останавливает движение по переднему фронту `$IN[8]` на контроллере, без участия ПК; тестом `RSI_Probe_Check` (`resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md`) остановка проверена и при прежнем подключении к `$IN[11]`, и при текущем к `$IN[8]` (пользователь, 2026-11-11).
+Путь сигнала срабатывания: выход WP-500 → вход X2.0 ПЛК Delta → программа ПЛК копирует его на выход Y1.7 → вход 8 модуля EL1809 → `$IN[8]` (`docs/code context/ARCHITECTURE.md`, Additional hardware and Delta I/O wiring; с 2026-11-06, до этого — выход Y1.5, вход 11, `$IN[11]`). Объект STOP контекста RSI останавливает движение по переднему фронту `$IN[8]` на контроллере, без участия ПК; тестом `RSI_Probe_Check` (`controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md`) остановка проверена и при прежнем подключении к `$IN[11]`, и при текущем к `$IN[8]` (пользователь, 2026-11-11).
 
 Звенья задержки сигнала (модели, раздел 5) — по паспортам и настройкам, не измерено:
 
@@ -106,7 +106,7 @@ $$
 4. Робот перемещается с наименьшим инкрементом, пока не загорится светодиод щупа. Со smartPAD записывается поза TCP: X, Y, Z, A, B, C, S, T.
 5. Центр сферы — аппроксимация сферы по десяти записанным положениям.
 
-Файлы: `resources/calibration_sphere_jog_points.txt` (позы в виде `E6POS`), `resources/json/calibration_sphere.json` (те же позы в массиве `roughPoints`, диаметр сферы, объект `table`), `resources/cad/CALIBRATION_STAND.stp` (модель стойки в {S}).
+Файлы: `resources/deploy/config/calibration_sphere.json` (позы в массиве `roughPoints`, диаметр сферы, объект `table`), `resources/deploy/cad/fixtures/CALIBRATION_STAND.stp` (модель стойки в {S}).
 
 ### 4.2. Результаты
 

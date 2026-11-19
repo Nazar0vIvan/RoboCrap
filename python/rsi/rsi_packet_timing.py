@@ -4,7 +4,7 @@ Usage:
     python -I python/rsi/rsi_packet_timing.py <rsi_packets_ID.csv> [<rsi_plan_ID.csv>]
 
 Packet capture (records/<ID>/rsi_packets_ID.csv): one row per controller request ("rx") and per
-PC reply ("tx"), format in resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md. Current
+PC reply ("tx"), format in controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md. Current
 captures have decoded columns (ipoc, delay, rist_x ... on requests, stream_index, stop, result and
 the handler times entry_ns, sleep_ns, wake_ns, prev_done_ns on replies). Captures saved before
 2026-11-18 (one file per search, *_partN) have the columns pc_ns, direction, stream_index,

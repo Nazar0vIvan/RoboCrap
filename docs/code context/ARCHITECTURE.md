@@ -2,9 +2,9 @@
 
 Hardware, design notes the code does not show, and open questions for new sessions. Paths are repository-relative; named functions and
 files are authoritative. Not repeated here: binding constraints ([AGENT_CONTRACTS.md](AGENT_CONTRACTS.md)),
-controller/PC protocols ([RSI_Chamfer_Hole_CONTRACT.md](../../resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md),
-[RSI_Probe_Calibration_CONTRACT.md](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md),
-[RSI_Probe_Check_CONTRACT.md](../../resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md)) and operator
+controller/PC protocols ([RSI_Chamfer_Hole_CONTRACT.md](../../controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md),
+[RSI_Probe_Calibration_CONTRACT.md](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md),
+[RSI_Probe_Check_CONTRACT.md](../../controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md)) and operator
 procedures ([HARDWARE_SETUP.md](../hardware%20context/HARDWARE_SETUP.md)). Unverified items are in §7; this document
 verifies neither compilation nor runtime behavior.
 
@@ -18,8 +18,8 @@ Supplied by the user unless a source is named.
 | PLC | Delta AS332T with AS16AP11P-A and AS16AP11T-A | `PlcDevice`, key `plc` | Custom binary over TCP to 192.168.1.2:5051, fixed source port 1234 |
 | Force/torque sensor | Schunk Delta IP68 SI-660-60 (ATI Net F/T electronics) | `FtsDevice`, key `fts` | ATI RDT over UDP, peer 192.168.1.3:49152 |
 | Spindle | GDZ-65-800A on an H100-1.5S2-1B frequency inverter (VFD) | none | Started through PLC output Y2.0 |
-| Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files; calibration touches as the application's touch file with the actual joint angles at detection ([RSI_Probe_Calibration_CONTRACT.md](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)) |
-| Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `resources/json/calibration_sphere.json`; the stand CAD `resources/cad/CALIBRATION_STAND.stp` has its origin at the sphere centre |
+| Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files; calibration touches as the application's touch file with the actual joint angles at detection ([RSI_Probe_Calibration_CONTRACT.md](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md)) |
+| Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `resources/deploy/config/calibration_sphere.json`; the stand CAD `resources/deploy/cad/fixtures/CALIBRATION_STAND.stp` has its origin at the sphere centre |
 | EtherCAT I/O | Beckhoff EK1100 coupler, EL1809 (16 DI), EL2809 (16 DO) on the KR C4 | none | Automatic External interface and probe signal to/from the PLC (wiring below); no PC code addresses them |
 | Network switch | D-Link DGS-1005P (5 Gigabit ports, 4 PoE, unmanaged) | none | Connects the PC to the PLC, sensor and VFD |
 
@@ -217,5 +217,5 @@ Controller-side RSI items are listed in the RSI contracts.
   documented Qt pattern). `FtsDevice::dataSampleHFReady`, `dataBatchReady`, `streamReset` and the
   `RDTResponse` registrations are kept for future force control (user decision);
   `ChamferPathSample`/`ChamferPathResult` serve analytical evaluation. Device/viewport error
-  properties and QML displays are deferred (user). Link BREPs, STEP sources and `resources/files`
+  properties and QML displays are deferred (user). Link BREPs, STEP sources and `controller/`
   are retained assets. The `devicehub.h` class comment still mentions one shared I/O thread.

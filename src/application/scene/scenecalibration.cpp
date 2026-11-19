@@ -148,7 +148,7 @@ void SceneCalibration::activate()
                              m_effectors->rubyBallDiameter() / 2.0);
   setError(file.error);
   if (file.sphere) {
-    // Converted from resources/cad/CALIBRATION_STAND.stp at build time.
+    // Converted from resources/deploy/cad/fixtures/CALIBRATION_STAND.stp at build time.
     file.sphere->standModel = QDir(RoboCrap3D::ViewportAssets::applicationAssets().cadDirectory)
                                   .filePath(QStringLiteral("CALIBRATION_STAND.brep"));
     replaceSphere(*file.sphere);

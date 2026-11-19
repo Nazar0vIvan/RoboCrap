@@ -120,7 +120,7 @@ updates that file and this table together.
 | | | | `$ON_PATH`, `$NEAR_POSRET` | 997, 147 |
 | | | | `$IN_HOME1` … `$IN_HOME5` | FALSE |
 
-`R1\CELL.SRC` on the controller is `resources/files/AutExt/cell.src`: CASE 0 calls
+`R1\CELL.SRC` on the controller is `controller/krl/autext/cell.src`: CASE 0 calls
 `RSI_Probe_Calibration` (RoboCrap program 1, program number PGNO 0), CASE 1–3 are `WAIT SEC 5`
 placeholders (programs 2–4). Velocities are programmed, not reduced by the override:
 
@@ -129,7 +129,7 @@ placeholders (programs 2–4). Velocities are programmed, not reduced by the ove
   appears to keep a separate T1 value (it read 10 % in T1 after 100 % in AUT EXT, 2026-11-14), so
   set it once on the smartPAD (POV/HOV status indicator in the status bar, Overrides window).
 - PTP velocity: every program with PTP motions (CELL, `RSI_Probe_Calibration`) calls
-  `INIT_PTP_VEL ( )` (module `resources/files/AutExt/INIT_PTP_VEL.src/.dat`, created on the controller
+  `INIT_PTP_VEL ( )` (module `controller/krl/lib/INIT_PTP_VEL.src/.dat`, created on the controller
   from the module template) after its INI fold and after any `BAS` call that sets the PTP velocity,
   then uses plain PTPs (an inline-form PTP overwrites `$VEL_AXIS` with its own Vel).
   `INIT_PTP_VEL` sets `$VEL_AXIS[1..6]` to 100 % in T1 (limited by the controller to 250 mm/s) and to

@@ -11,7 +11,7 @@ Why: in sessions `calibration_20261117_130745_826`, `calibration_20261118_160007
 | ASIX USB to Gigabit Ethernet (MAC D0-37-45-A7-B6-6E) | `KRC4-Direct`; 172.31.1.47/24 and 192.168.2.100/24; default route to 192.168.2.200, metric 9999; cable to the KR C4 KLI | `Devices-Switch`; 192.168.1.100/24; cable to the DGS-1005P switch |
 | Intel Ethernet Connection (14) I219-V, onboard 8P8C port (MAC 04-42-1A-A9-B8-A4) | `Devices-Switch`; 192.168.1.100/24; cable to the switch | `KRC4-Direct`; 172.31.1.47/24 and 192.168.2.100/24; default route to 192.168.2.200, metric 9999; cable to the KR C4 KLI |
 
-Nothing changes in RoboCrap or on the controller: `resources/json/db.json` and the firewall rule `RoboCrap RSI from KUKA` use IP addresses (172.31.1.47, 192.168.1.100), not adapters, and the controller still sees 172.31.1.47 and 192.168.2.100.
+Nothing changes in RoboCrap or on the controller: `resources/qrc/config/db.json` and the firewall rule `RoboCrap RSI from KUKA` use IP addresses (172.31.1.47, 192.168.1.100), not adapters, and the controller still sees 172.31.1.47 and 192.168.2.100.
 
 ## 1. Prepare
 

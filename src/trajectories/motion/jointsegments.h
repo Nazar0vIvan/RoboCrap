@@ -11,7 +11,7 @@
 // Internal PTP/LIN/CIRC/joint-spline operations shared by the motion builder and the motions.
 
 constexpr double TransferPositionTolerance = 0.01; // mm; prescribed TCP chord criterion only.
-// mm/s, $VEL_MA.CP of the installed KR C4 (resources/files/KR C4/R1/Mada/$machine.dat).
+// mm/s, $VEL_MA.CP of the installed KR C4 (controller/snapshots/2026-11-14/R1/Mada/$machine.dat).
 constexpr double MaximumTransferFeed = 3000.0;
 
 bool rigid(const M4d& transform);

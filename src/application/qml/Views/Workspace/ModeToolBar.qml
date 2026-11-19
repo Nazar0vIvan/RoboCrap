@@ -128,7 +128,7 @@ ToolBar {
 
       Tool {
         text: root.measuring ? qsTr("Measuring EE") : qsTr("Spindle EE")
-        iconSource: "qrc:/pics/settings.svg"
+        iconSource: "qrc:/icons/settings.svg"
         available: true
         onTriggered: root.toolSetupRequested()
       }
@@ -146,28 +146,28 @@ ToolBar {
 
         Tool {
           text: qsTr("Plane from JSON")
-          iconSource: "qrc:/pics/plane.svg"
+          iconSource: "qrc:/icons/plane.svg"
           available: root.planeImportAvailable
           onTriggered: root.planeImportRequested()
         }
 
         Tool {
           text: qsTr("Cylinder from JSON")
-          iconSource: "qrc:/pics/cylinder.svg"
+          iconSource: "qrc:/icons/cylinder.svg"
           available: root.cylinderImportAvailable
           onTriggered: root.cylinderImportRequested()
         }
 
         Tool {
           text: qsTr("Cone from JSON")
-          iconSource: "qrc:/pics/cone.svg"
+          iconSource: "qrc:/icons/cone.svg"
         }
       }
 
       Tool {
         visible: root.measuring && !root.calibration
         text: qsTr("Intersect Selected")
-        iconSource: "qrc:/pics/intersec.svg"
+        iconSource: "qrc:/icons/intersec.svg"
         available: root.intersectionAvailable
         onTriggered: root.intersectionRequested()
       }
@@ -175,7 +175,7 @@ ToolBar {
       Tool {
         visible: !root.measuring || root.calibration
         text: qsTr("Generate Path")
-        iconSource: "qrc:/pics/generate_path.svg"
+        iconSource: "qrc:/icons/generate_path.svg"
         available: root.generationAvailable
         onTriggered: root.generationRequested()
       }
@@ -192,7 +192,7 @@ ToolBar {
         visible: !root.rough
         text: (root.precise ? root.scanRunning : root.playing) ? qsTr("Pause")
               : root.precise ? qsTr("Dry Scan") : qsTr("Dry Run")
-        iconSource: (root.precise ? root.scanRunning : root.playing) ? "qrc:/pics/pause.svg" : "qrc:/pics/dry.svg"
+        iconSource: (root.precise ? root.scanRunning : root.playing) ? "qrc:/icons/pause.svg" : "qrc:/icons/dry.svg"
         preserveIconColors: true
         available: root.precise ? root.scanActive || root.scanAvailable : root.playing || root.playbackAvailable
         onTriggered: {
@@ -205,7 +205,7 @@ ToolBar {
       Tool {
         visible: !root.rough
         text: qsTr("Stop")
-        iconSource: "qrc:/pics/stop.svg"
+        iconSource: "qrc:/icons/stop.svg"
         preserveIconColors: true
         available: root.precise ? root.scanActive : root.playbackActive
         onTriggered: {
@@ -225,7 +225,7 @@ ToolBar {
       Tool {
         visible: !root.measuring || root.calibration
         text: root.preparing ? qsTr("Sampling…") : qsTr("RSI Sampling")
-        iconSource: "qrc:/pics/rsi_sampling.svg"
+        iconSource: "qrc:/icons/rsi_sampling.svg"
         available: root.preparationAvailable
         onTriggered: root.preparationRequested()
       }
@@ -233,7 +233,7 @@ ToolBar {
       Tool {
         visible: root.calibration
         text: qsTr("Start Calibration")
-        iconSource: "qrc:/pics/run.svg"
+        iconSource: "qrc:/icons/run.svg"
         preserveIconColors: true
         available: root.calibrationStartAvailable
         onTriggered: root.calibrationStartRequested()
@@ -242,7 +242,7 @@ ToolBar {
       Tool {
         visible: !root.rough && !root.calibration
         text: root.precise ? qsTr("Scan") : qsTr("Start Machining")
-        iconSource: root.precise ? "qrc:/pics/scan.svg" : "qrc:/pics/run.svg"
+        iconSource: root.precise ? "qrc:/icons/scan.svg" : "qrc:/icons/run.svg"
         preserveIconColors: true
       }
     }

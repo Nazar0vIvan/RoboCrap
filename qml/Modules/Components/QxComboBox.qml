@@ -29,7 +29,7 @@ ComboBox {
 
     width: Metrics.sz12
     height: width
-    source: "qrc:/pics/arrow_dropdown.svg"
+    source: "qrc:/icons/arrow_dropdown.svg"
     fillMode: Image.PreserveAspectFit
     rotation: root.popup.visible ? -90 : 0
     smooth: true

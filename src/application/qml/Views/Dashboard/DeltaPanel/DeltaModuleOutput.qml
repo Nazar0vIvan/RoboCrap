@@ -38,7 +38,7 @@ Item {
 
       barWidth: root.switchWidth
       barHeight: root.switchHeight
-      imageSource: "qrc:/pics/lock.svg"
+      imageSource: "qrc:/icons/lock.svg"
       enabled: root.plugged && !root.displayOnly
       available: root.enabled
       displayOnly: root.displayOnly

@@ -1,0 +1,29 @@
+<RCC>
+    <qresource prefix="/">
+        <file>icons/lock.svg</file>
+        <file>icons/arrow_dropdown.svg</file>
+        <file>icons/settings.svg</file>
+        <file>icons/logo.svg</file>
+        <file>icons/calibration.svg</file>
+        <file>icons/cylinder.svg</file>
+        <file>icons/plane.svg</file>
+        <file>icons/cone.svg</file>
+        <file>icons/edge.svg</file>
+        <file>icons/eye.svg</file>
+        <file>icons/folder_full.svg</file>
+        <file>icons/machining.svg</file>
+        <file>icons/measuring.svg</file>
+        <file>icons/path.svg</file>
+        <file>icons/precise.svg</file>
+        <file>icons/rough.svg</file>
+        <file>icons/stop.svg</file>
+        <file>icons/run.svg</file>
+        <file>icons/generate_path.svg</file>
+        <file>icons/intersec.svg</file>
+        <file>icons/scan.svg</file>
+        <file>icons/dry.svg</file>
+        <file>icons/pause.svg</file>
+        <file>icons/rsi_sampling.svg</file>
+        <file>icons/sphere.svg</file>
+    </qresource>
+</RCC>

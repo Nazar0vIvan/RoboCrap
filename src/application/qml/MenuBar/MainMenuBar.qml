@@ -62,7 +62,7 @@ MenuBar {
     width: 20
     height: 20
 
-    source: "qrc:/pics/logo.svg"
+    source: "qrc:/icons/logo.svg"
     fillMode: Image.PreserveAspectFit
     smooth: true
   }

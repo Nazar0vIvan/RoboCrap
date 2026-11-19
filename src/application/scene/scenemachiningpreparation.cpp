@@ -23,7 +23,7 @@ const QString SharedDataDirectory = QStringLiteral("C:/RoboCrapJobs");
 const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt");
 const QString CalibrationDataPath = QStringLiteral("C:/RoboCrapJobs/calibration_data.txt");
 
-// RSI_Probe_Check (resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
+// RSI_Probe_Check (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
 constexpr double RsiCycleSeconds = 0.004; // #IPO_FAST
 constexpr double TestLinStep = 0.004; // mm per cycle: 1 mm/s.
 constexpr int TestLinCycles = 25000; // 100 mm.

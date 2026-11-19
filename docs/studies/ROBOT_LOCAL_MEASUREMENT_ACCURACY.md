@@ -69,7 +69,7 @@ Each recorded point $j$ differs from the real tip position by its own error
 $\bar{e}(\bar{q}_j, \delta\bar{\pi})$.
 
 In RoboCrap, the points $\bar{m}_j$ are the coordinates in the imported JSON files, for example
-`resources/json/edge_cyl_plane/XP.json` and `XC.json`. These files were recorded by jogging the
+`data/probe_points/edge_cyl_plane/XP.json` and `XC.json`. These files were recorded by jogging the
 robot until the WP-500 touched the surface: `XP.json` holds the touches of the end plane,
 `XC.json` the touches of the cylinder hole.
 

@@ -71,8 +71,8 @@ The machining contract explicitly requires robot-base/WORLD alignment when those
 used unchanged; the SRC does not establish that alignment by assigning `$ROBROOT`.
 The calibration contract reports zero `$ROBROOT` in the archived machine data, rather than a
 measurement made during this baseline inspection
-(`resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md:22-32`;
-`resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md:40-53`).
+(`controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md:22-32`;
+`controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md:40-53`).
 
 ## Sphere calibration: documented calculation and implemented acquisition
 
@@ -141,7 +141,7 @@ Code evidence: `src/application/scene/scenecalibration.cpp:28-105, 144-168, 241-
 `src/trajectories/probe/probetouchmotion.cpp:40-163`;
 `src/trajectories/probe/probersistream.cpp:20-53, 128-187`;
 `src/application/scene/scenemachiningpreparation.cpp:307-348`;
-`resources/files/rsi/Calibration/RSI_Probe_Calibration.src:43-100`;
+`controller/krl/rsi/calibration/RSI_Probe_Calibration.src:43-100`;
 `src/application/scene/scenemachiningpreparation.cpp:219-234` (touch file).
 
 ### What verification means
@@ -217,7 +217,7 @@ strut at stored points; this is not a robot-link, probe-body, workpiece or vice 
 | Read CAD | Runtime loading reads BREP. STEP reading belongs to `tools/cadstep2brep`, used during the build. The existing `DrawingModel` has a BREP path and translation-only origin in {B}, currently used for the calibration stand (`src/viewport/occt/cadloadworker.cpp:30-55`; `tools/cadstep2brep/main.cpp:36`; `src/viewport/include/viewport/occcontroller.h:46-50`). |
 | Select with the mouse | OCCT detection enables subshapes, but application selection returns the owning scene-object ID. It does not preserve an individual CAD-face identity for assigning a datum (`src/viewport/occt/occscene.cpp:197`; `src/viewport/occt/occviewport.cpp:134`; `src/viewport/adapters/occsceneadapter.cpp:290`; `src/application/main.cpp:117`). |
 | Generate machining | `SceneMachining` takes the ellipse and source cylinder directly from scene coordinates. `ChamferPathSample::tcp` is explicitly BASE-relative. Local frames used to construct tool orientation are not stored workpiece frames (`src/application/scene/scenemachining.cpp:107-129`; `src/trajectories/include/trajectories/chamferpath.h:29-37`). |
-| Send machining motion | The sampler evaluates the analytical trajectory, calculates Cartesian corrections, and exports base-relative staging/lead targets. KRL uses the exported tool and null BASE (`src/trajectories/chamfer/chamferrsistream.cpp:146-202`; `resources/files/rsi/Chamfer/RSI_Chamfer_Hole.src:19-21`). |
+| Send machining motion | The sampler evaluates the analytical trajectory, calculates Cartesian corrections, and exports base-relative staging/lead targets. KRL uses the exported tool and null BASE (`src/trajectories/chamfer/chamferrsistream.cpp:146-202`; `controller/krl/rsi/chamfer/RSI_Chamfer_Hole.src:19-21`). |
 | Precise scanning | Dry Scan changes UI flags; Scan is disabled. The Precise classification and ScanPath kind do not provide a scan implementation (`src/application/qml/Main.qml:376`; `src/application/qml/Views/Workspace/ModeToolBar.qml:231`). |
 
 Separated coplanar readings can already enter the plane fitter. Their enclosing display rectangle

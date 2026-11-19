@@ -128,7 +128,7 @@ QVariantMap DeviceProfileModel::device(int row) const
 
 void DeviceProfileModel::load()
 {
-  QFile file(":/json/db.json");
+  QFile file(":/config/db.json");
 
   if (!file.open(QIODevice::ReadOnly)) {
     qWarning() << "DeviceProfileModel: cannot open db.json";

@@ -2,7 +2,7 @@
 
 Status (2026-11-13): design study, implemented and refined by `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`, which wins where the two differ; the PLC side is in `ISPSoft project.md` of this folder. Differences made during implementation: a start is possible only in AUT EXT (PLC guard on `$I_O_ACTCONF`, all KUKA outputs gated by it, result AUTEXT_LOST); a new job always requires `$IN_HOME`; Resume requires APPL_RUN without `$PRO_ACT` (P00 keeps APPL_RUN until CELL asks for the next number); `TR_Running` requires `$PRO_ACT` and `TR_Request` a program number; CELL.SRC fixes the program override at 10 % and no PTP is programmed above 20 %; program 1 is `RSI_Probe_Calibration`, programs 2–4 are `WAIT SEC` placeholders.
 
-High-level proposal; nothing here is implemented. Inputs: KSS 8.3 SI §6.17 "Configuring Automatic External" and §8.11, KUKA Robot Programming 3 (KSS 8.2) ch. 8, AS Programming Manual §6.22 (SOPEN/SSEND/SCLOSE/SCONF, SM1270–SM1277), ISPSoft User Manual §3.1.4.12 (Socket) and Chapter 14 (SFC), `docs/plc_project_snapshot`, `src/devices/plc`, `docs/hardware context/HARDWARE_SETUP.md`, `ARCHITECTURE.md` §1 and the controller copy `resources/files/KR C4` (17 Oct).
+High-level proposal; nothing here is implemented. Inputs: KSS 8.3 SI §6.17 "Configuring Automatic External" and §8.11, KUKA Robot Programming 3 (KSS 8.2) ch. 8, AS Programming Manual §6.22 (SOPEN/SSEND/SCLOSE/SCONF, SM1270–SM1277), ISPSoft User Manual §3.1.4.12 (Socket) and Chapter 14 (SFC), `docs/plc_project_snapshot`, `src/devices/plc`, `docs/hardware context/HARDWARE_SETUP.md`, `ARCHITECTURE.md` §1 and the controller copy `controller/snapshots/2026-11-14` (17 Oct).
 
 The KSS signal diagrams Fig. 6-23 … 6-28 were read from PNG copies in `manuals/KUKA` (6-23.png … 6-28.png).
 

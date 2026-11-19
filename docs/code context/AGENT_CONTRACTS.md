@@ -29,7 +29,7 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   Application/Trajectories dependency. It exports only include/viewport, including the singleton
   wrapper used by Application's instance wiring.
 - tools/cadstep2brep is the only target linking TKDESTEP. robocrap_deploy_occt (cmake/DeployOcct.cmake)
-  converts each resources/cad/*.stp through cmake/ConvertStep.cmake into
+  converts each resources/deploy/cad/**/*.stp through cmake/ConvertStep.cmake into
   <build>/generated/cad/<name>.brep only when inputs are newer; a failed conversion leaves no BREP.
   robocrap depends on that target and lists the BREPs in LINK_DEPENDS, so a changed BREP relinks it
   and reruns the POST_BUILD deployment. No STEP file is deployed.
@@ -55,9 +55,16 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   CMAKE_RUNTIME_OUTPUT_DIRECTORY overrides.
 - Application, the executable's declaring directory, attaches the OCCT POST_BUILD deployment helper;
   root owns deployment setup and installation. Deployed CAD/resources stay beside the executable.
-  resources/json/calibration_sphere.json is copied to <exe dir>/resources/json/ only when absent (an
-  edited deployed file is never overwritten) and is not in a qrc. File/type moves require owning
-  source-list/import updates; asset moves require resource-URL updates.
+  resources/deploy/config/calibration_sphere.json is copied to <exe dir>/resources/json/ only when
+  absent (an edited deployed file is never overwritten) and is not in a qrc. File/type moves require
+  owning source-list/import updates; asset moves require resource-URL updates.
+- Source layout: resources/qrc/ holds the compiled resources (icons.qrc → qrc:/icons/, fonts.qrc →
+  qrc:/fonts/, config.qrc → :/config/db.json); resources/deploy/ holds what the deployment copies
+  beside the executable (cad/robot/kr10 BREPs, cad/**/*.stp converted to BREP, config/); controller/
+  holds KR C4 files (krl/ programs, krl/lib/ shared modules, krl/template/, rsi_config/, read-only
+  snapshots/<date>/ copies of controller files); data/ holds input data that the application does not
+  produce (probe point files, workpiece models). The executable-side layout (resources/cad,
+  resources/json, resources/occt) does not change with the source layout.
 - Run records (RSI plans and captures, calibration results and touches, PLC and FTS logs) go to the
   root cache path ROBOCRAP_RECORDS_DIR (default <repository>/records, git-ignored), passed to every
   target as a compile definition; writers use QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)), never the
@@ -133,7 +140,7 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   OCCT resource directory to OccController at construction. initializeOcct keeps resource checks,
   environment variables and external Font_FontMgr failure handling; Viewport selects no paths.
 - The application reads BREP only from applicationDirPath()/resources/cad (seven hand-maintained link
-  BREPs in kr10/, plus BREPs generated from resources/cad/*.stp); no STEP import, runtime BREP cache or
+  BREPs in kr10/, plus BREPs generated from resources/deploy/cad/**/*.stp); no STEP import, runtime BREP cache or
   TKDESTEP link. cmake/DeployOcct.cmake stages OCCT DLLs/resources and both BREP sets beside the
   executable and at installation.
 
@@ -185,8 +192,8 @@ src/application/main.cpp; for QML registration also Build and modules.
   `touchDetected(touch, joints)`, only after the reply and its capture rows. The application writes
   the detected touches (`calibration_touches_<id>.csv`); the packet capture keeps every accepted
   request and reply. Protocol details:
-  `resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
-  `resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md`.
+  `controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
+  `controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md`.
 
 ## Geometry and scene
 
@@ -345,9 +352,9 @@ Apply Geometry and scene to numerical changes.
   point outside Approach/Retract ≥ 3 mm from the sphere (0.001 mm tolerance). Errors start with the
   phase text ("Calibration G2 pass 1, touch 12/19: transfer: ..."), also shown by Dry Run.
   ProbeTouchMotion keeps its plan, which calibration RSI Sampling exports for the robot (below).
-- RSI: before edits read resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md (frames, signals, PC
+- RSI: before edits read controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md (frames, signals, PC
   behavior, offset reconstruction, diagnostics, shared_data.txt and the KRL reader) and, for
-  calibration, resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md (job file, search
+  calibration, controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md (job file, search
   streams, KRL flow, record files), then chamferrsistream, probersistream, scenemachiningpreparation
   and devices/rsi/rsidevice. The constraints below are not repeated there:
   - Sampling success, a bound socket or a delivered reply is not controller readiness and never grants
@@ -374,7 +381,7 @@ Apply Geometry and scene to numerical changes.
     search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros. A
     failure to write the plan file fails the Sampling; calibration_data.txt is written with QSaveFile
     and the table installed only after both succeed.
-  - The RSI test LIN (resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md) is the third stream
+  - The RSI test LIN (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md) is the third stream
     source: prepareTestLin drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
     Sampling request, startup or shutdown drops it.

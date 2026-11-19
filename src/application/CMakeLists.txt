@@ -89,9 +89,9 @@ else()
 endif()
 
 target_sources(robocrap PRIVATE
-  "${PROJECT_SOURCE_DIR}/resources/pics.qrc"
-  "${PROJECT_SOURCE_DIR}/resources/fonts.qrc"
-  "${PROJECT_SOURCE_DIR}/resources/json.qrc"
+  "${PROJECT_SOURCE_DIR}/resources/qrc/icons.qrc"
+  "${PROJECT_SOURCE_DIR}/resources/qrc/fonts.qrc"
+  "${PROJECT_SOURCE_DIR}/resources/qrc/config.qrc"
 )
 target_include_directories(robocrap PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}

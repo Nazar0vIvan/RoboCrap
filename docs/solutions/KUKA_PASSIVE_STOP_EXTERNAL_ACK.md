@@ -8,7 +8,7 @@ Status (2026-11-14): **proposed, not applied, not verified on the controller.** 
 
 - Robot: KUKA KR10 R1420 with a KR C4 smallsize-2 controller, KUKA System Software (KSS) 8.3.
 - PLC: Delta AS332T with expansion module 1, AS16AP11P-A (inputs X1.0 … X1.7, outputs Y1.0 … Y1.7), wired to the KR C4 EtherCAT terminals EL1809 (`$IN[1]` … `$IN[16]`) and EL2809 (`$OUT[1]` … `$OUT[16]`).
-- Automatic External (AUT EXT): a KR C4 operating mode in which a higher-level controller, here the PLC, starts programs through digital signals. In AUT EXT the controller runs `CELL.SRC`, which reads a program number from the PLC and calls the matching program (repository copy `resources/files/AutExt/CELL.src`).
+- Automatic External (AUT EXT): a KR C4 operating mode in which a higher-level controller, here the PLC, starts programs through digital signals. In AUT EXT the controller runs `CELL.SRC`, which reads a program number from the PLC and calls the matching program (repository copy `controller/krl/autext/cell.src`).
 - RoboCrap: the PC application. Its PLC panel (`src/application/qml/Views/Dashboard/DeltaPanel/RobotStartPanel.qml`) has the buttons Run, Resume and Abort and shows the PLC inputs X1.x.
 - The live AUT EXT signal assignment is recorded in `docs/plc_project_snapshot/AUT_EXT_DIOs_live.md`. The work around it is planned in `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`.
 

@@ -77,14 +77,14 @@ QxPanel {
 
     ModeButton {
       text: qsTr("Measuring")
-      icon.source: "qrc:/pics/measuring.svg"
+      icon.source: "qrc:/icons/measuring.svg"
       checked: root.mode === WorkflowPanel.Measuring
       onClicked: root.modeRequested(WorkflowPanel.Measuring)
     }
 
     ModeButton {
       text: qsTr("Machining")
-      icon.source: "qrc:/pics/machining.svg"
+      icon.source: "qrc:/icons/machining.svg"
       checked: root.mode === WorkflowPanel.Machining
       onClicked: root.modeRequested(WorkflowPanel.Machining)
     }
@@ -107,21 +107,21 @@ QxPanel {
 
       ModeButton {
         text: qsTr("Calibration")
-        icon.source: "qrc:/pics/calibration.svg"
+        icon.source: "qrc:/icons/calibration.svg"
         checked: root.submode === WorkflowPanel.Calibration
         onClicked: root.submodeRequested(WorkflowPanel.Calibration)
       }
 
       ModeButton {
         text: qsTr("Rough")
-        icon.source: "qrc:/pics/rough.svg"
+        icon.source: "qrc:/icons/rough.svg"
         checked: root.submode === WorkflowPanel.Rough
         onClicked: root.submodeRequested(WorkflowPanel.Rough)
       }
 
       ModeButton {
         text: qsTr("Precise")
-        icon.source: "qrc:/pics/precise.svg"
+        icon.source: "qrc:/icons/precise.svg"
         checked: root.submode === WorkflowPanel.Precise
         onClicked: root.submodeRequested(WorkflowPanel.Precise)
       }

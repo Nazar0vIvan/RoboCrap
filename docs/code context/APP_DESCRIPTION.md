@@ -5,7 +5,7 @@ machining with a KUKA KR 10 R1420 on a KR C4 controller (KSS 8.3, RobotSensorInt
 The current implementation supports chamfering the edge of a hole; other edge geometries are part
 of the broader intended scope. Hardware and design notes are in [ARCHITECTURE.md](ARCHITECTURE.md);
 the controller/PC protocol is in
-[RSI_Chamfer_Hole_CONTRACT.md](../../resources/files/rsi/Chamfer/RSI_Chamfer_Hole_CONTRACT.md).
+[RSI_Chamfer_Hole_CONTRACT.md](../../controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md).
 
 Terms used below: TCP is the tool center point. PTP is a synchronized joint motion to a target;
 LIN is a straight Cartesian motion; CIRC is a circular-arc Cartesian motion. P_s is the staging
@@ -45,7 +45,7 @@ point on the hole axis, outside the hole.
    `C:/RoboCrapJobs/calibration_data.txt` (485 KRL steps: PTP, LIN, CIRC, search, HOME) and one
    search stream per touch (5 mm along the approach direction at 1 mm/s), and writes a plan file
    naming every touch. The KRL program `RSI_Probe_Calibration`
-   ([contract](../../resources/files/rsi/Calibration/RSI_Probe_Calibration_CONTRACT.md)), started
+   ([contract](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md)), started
    by *Start Calibration* in the submode (or from the PLC panel) as program 1 in Automatic External,
    executes the steps; each search runs under RSI and stops on the probe signal `$IN[8]`. The status
    bar shows the share of touches detected so far and, at its left, whether the controller is in
@@ -97,8 +97,8 @@ point on the hole axis, outside the hole.
    exchanges are captured in one file in the same folder with the same identifier.
 
 6. **Run on the controller (T1, manual start).**
-   The operator starts `resources/files/rsi/Chamfer/RSI_Chamfer_Hole.src`/`.dat` with the helpers in
-   `resources/files/rsi/FILE_UTILS/` and the RSI Visual context. KRL reads the shared file,
+   The operator starts `controller/krl/rsi/chamfer/RSI_Chamfer_Hole.src`/`.dat` with the helpers in
+   `controller/krl/lib/` and the RSI Visual context. KRL reads the shared file,
    moves HOME, PTP PsIn, LIN LeadStart, follows the streamed corrections under RSI, and only after
    the PC reports completion moves LIN PsOut and PTP HOME. The file is deleted whenever its path
    is removed, regenerated or invalidated, at a new sampling request, at startup and at shutdown,
@@ -114,5 +114,5 @@ point on the hole axis, outside the hole.
 - The user reported on 2026-10-24 that RSI Sampling works and the real robot motion matches it.
 - Device panels (PLC, force/torque sensor, network settings) show and control the connected
   devices; the Network page also starts the *RSI test LIN* probe-stop test
-  ([RSI_Probe_Check_CONTRACT.md](../../resources/files/rsi/ProbeCheck/RSI_Probe_Check_CONTRACT.md)).
+  ([RSI_Probe_Check_CONTRACT.md](../../controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md)).
   *Start Machining* is disabled.

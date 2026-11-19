@@ -49,14 +49,14 @@ QxPanel {
 
   function objectIcon(kind: int): url {
     switch (kind) {
-    case Backend.SceneObject.Plane: return "qrc:/pics/plane.svg"
-    case Backend.SceneObject.Cylinder: return "qrc:/pics/cylinder.svg"
-    case Backend.SceneObject.Cone: return "qrc:/pics/cone.svg"
-    case Backend.SceneObject.Edge: return "qrc:/pics/edge.svg"
-    case Backend.SceneObject.Sphere: return "qrc:/pics/sphere.svg"
+    case Backend.SceneObject.Plane: return "qrc:/icons/plane.svg"
+    case Backend.SceneObject.Cylinder: return "qrc:/icons/cylinder.svg"
+    case Backend.SceneObject.Cone: return "qrc:/icons/cone.svg"
+    case Backend.SceneObject.Edge: return "qrc:/icons/edge.svg"
+    case Backend.SceneObject.Sphere: return "qrc:/icons/sphere.svg"
     case Backend.SceneObject.ScanPath:
     case Backend.SceneObject.MachiningPath:
-    case Backend.SceneObject.CalibrationPath: return "qrc:/pics/path.svg"
+    case Backend.SceneObject.CalibrationPath: return "qrc:/icons/path.svg"
     default: return ""
     }
   }
@@ -115,7 +115,7 @@ QxPanel {
               Image {
                 Layout.preferredWidth: Metrics.sz12
                 Layout.preferredHeight: Metrics.sz12
-                source: "qrc:/pics/arrow_dropdown.svg"
+                source: "qrc:/icons/arrow_dropdown.svg"
                 fillMode: Image.PreserveAspectFit
                 rotation: group.expanded ? 0 : -90
               }
@@ -123,7 +123,7 @@ QxPanel {
               Image {
                 Layout.preferredWidth: Metrics.sz16
                 Layout.preferredHeight: Metrics.sz16
-                source: "qrc:/pics/folder_full.svg"
+                source: "qrc:/icons/folder_full.svg"
                 fillMode: Image.PreserveAspectFit
               }
 
@@ -285,7 +285,7 @@ QxPanel {
                     Layout.preferredWidth: Metrics.sz24
                     Layout.fillHeight: true
                     padding: Metrics.sp4
-                    icon.source: "qrc:/pics/eye.svg"
+                    icon.source: "qrc:/icons/eye.svg"
                     icon.width: Metrics.sz16
                     icon.height: Metrics.sz16
                     icon.color: visibilityButton.down || !objectRow.modelData.visible

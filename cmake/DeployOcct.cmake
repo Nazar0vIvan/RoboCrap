@@ -8,7 +8,8 @@ if(NOT DEFINED ROBOCRAP_DEPLOY_CONFIG)
 
     # STEP sources become BREP during the build. A changed BREP relinks the target,
     # which reruns the POST_BUILD deployment below; only BREP files are deployed.
-    file(GLOB cad_steps CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/resources/cad/*.stp")
+    # Tools, fixtures and other STEP models in subfolders; BREP names must stay unique.
+    file(GLOB_RECURSE cad_steps CONFIGURE_DEPENDS "${PROJECT_SOURCE_DIR}/resources/deploy/cad/*.stp")
     set(cad_generated "${CMAKE_BINARY_DIR}/generated/cad")
     file(MAKE_DIRECTORY "${cad_generated}")
     # The deployment below resolves the MinGW runtime through the same search directories.
@@ -39,9 +40,9 @@ if(NOT DEFINED ROBOCRAP_DEPLOY_CONFIG)
     set(deploy_config "${CMAKE_CURRENT_BINARY_DIR}/occt-deploy-$<CONFIG>.cmake")
     file(GENERATE OUTPUT "${deploy_config}" CONTENT
 "set(occt_prefix [==[${occt_prefix}]==])
-set(cad_source [==[${PROJECT_SOURCE_DIR}/resources/cad/kr10]==])
+set(cad_source [==[${PROJECT_SOURCE_DIR}/resources/deploy/cad/robot/kr10]==])
 set(cad_generated [==[${cad_generated}]==])
-set(calibration_source [==[${PROJECT_SOURCE_DIR}/resources/json/calibration_sphere.json]==])
+set(calibration_source [==[${PROJECT_SOURCE_DIR}/resources/deploy/config/calibration_sphere.json]==])
 set(runtime_search [==[${OCCT_RUNTIME_SEARCH_DIRS}]==])
 set(objdump [==[${CMAKE_OBJDUMP}]==])
 set(runtime_roots
