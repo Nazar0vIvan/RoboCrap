@@ -22,9 +22,9 @@
 #include <TopoDS_Edge.hxx>
 #include <Standard_Failure.hxx>
 #include <QStringList>
-#include <QDebug>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace RoboCrap3D {
 namespace {
@@ -123,11 +123,16 @@ std::vector<OccScene::PartId> OccSceneAdapter::Presentation::parts() const
 
 QString OccSceneAdapter::removeParts(const std::vector<OccScene::PartId>& ids)
 {
+  // Parts whose earlier removal threw are still in the scene; retry them first.
+  std::vector<OccScene::PartId> pending = std::exchange(m_unremovedParts, {});
+  pending.insert(pending.end(), ids.cbegin(), ids.cend());
   QStringList errors;
-  for (const auto id : ids) {
+  for (const auto id : pending) {
     try {
+      // False means the scene no longer knows the part, so there is nothing to retry.
       if (!m_scene.removePart(id)) errors.append(QStringLiteral("cannot remove part %1").arg(id));
     } catch (const Standard_Failure& failure) {
+      m_unremovedParts.push_back(id);
       errors.append(QStringLiteral("part %1: %2").arg(id).arg(QString::fromUtf8(failure.what())));
     }
   }
@@ -217,14 +222,14 @@ ViewportOperationResult OccSceneAdapter::insertObject(const DrawingObject& objec
   return {true, error};
 }
 
-bool OccSceneAdapter::removeObject(quint32 id)
+ViewportOperationResult OccSceneAdapter::removeObject(quint32 id)
 {
   const auto it = m_parts.find(id);
-  if (it == m_parts.end()) return false;
+  // Objects without a drawing were never installed; their removal is not an error.
+  if (it == m_parts.end()) return {false, {}};
   const QString error = removeParts(it->parts());
-  if (!error.isEmpty()) qWarning().noquote() << error;
   m_parts.erase(it);
-  return true;
+  return {true, error};
 }
 
 ViewportOperationResult OccSceneAdapter::setObjectVisible(quint32 id, bool visible)

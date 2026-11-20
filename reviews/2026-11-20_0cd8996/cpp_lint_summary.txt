@@ -1,0 +1,58 @@
+Paths relative to D:\Qt\QtProjects\RoboCrap/
+198 finding(s), 28 distinct rule/message pair(s)
+DEP-10 .count()/.length() — prefer .size() for std consistency (2)
+  src\geometry\surfaceintersection.cpp:72  src\trajectories\chamfer\chamfercentralmotion.cpp:75
+DEP-11 QDateTime::currentDateTime() — use currentDateTimeUtc() (100x faster, DST-stable) (3)
+  src\devices\fts\ftsdevice.cpp:478  src\devices\plc\plcdevice.cpp:288,307
+DEP-13 QChar as object type — use char16_t; QChar:: namespace is OK (1)
+  src\devices\rsi\rsidevice.cpp:29
+ENM-2 Unscoped enum without explicit underlying type — add type to prevent BiC (7)
+  src\application\devices\deviceprofilemodel.h:15,28  src\application\scene\sceneendeffectors.h:25  src\application\scene\sceneobject.h:36,38  src\application\workspacecontroller.h:28,30
+ENM-9 Two or more bool parameters — boolean trap; use named enums (f(x, LogRule::DontLog)) (8)
+  src\application\scene\scenemodel.cpp:206,213  src\application\scene\scenemodel.h:33,35  src\application\scene\sceneobject.cpp:124,132  src\application\scene\sceneobject.h:85,86
+ERR-1 QFile::open() return not checked — silent failure if file cannot open (1)
+  src\devices\rsi\rsidevice.cpp:377
+ERR-6 QString::arg() has %2 but only 1 .arg() calls (2)
+  src\application\scene\sceneobject.cpp:44  src\devices\abstractdevice.cpp:129
+ERR-6 QString::arg() has %3 but only 2 .arg() calls (1)
+  src\trajectories\motion\motionbuilder.cpp:23
+HDR-3 Unprotected numeric_limits::min/max — use (std::numeric_limits<T>::min)() (4)
+  src\application\scene\scenecalibration.cpp:70  src\devices\plc\plcmessagemanager.cpp:10,46  src\viewport\occt\occscene.cpp:266
+HDR-3 Unprotected std::min/max — use (std::min)(a,b) for Windows macro safety (44)
+  src\application\scene\scenemodel.cpp:61,62,112,113  src\application\scene\sceneobject.cpp:232  src\application\scene\sceneplayback.cpp:80  src\geometry\boundedcylinder.cpp:86,129,143,145,153,199,220,221,225  src\geometry\boundedplane.cpp:48,49,50,51  src\geometry\surfaceintersection.cpp:34,72,73,80,94  src\trajectories\chamfer\chamferarclength.cpp:152,209,210  src\trajectories\chamfer\chamfercentralvalidation.cpp:27,66,98,154  src\trajectories\chamfer\chamferpath.cpp:84,86  src\trajectories\chamfer\chamferrsistream.cpp:60,193,195  src\trajectories\motion\jointsegments.cpp:17,201,203,253  src\trajectories\motion\motionbuilder.cpp:84  src\trajectories\probe\probetouchmotion.cpp:95,101  src\trajectories\probe\probetouchplan.cpp:145
+LCY-3 Q_ASSERT wraps side-effectful call — compiled out in release (21)
+  src\application\devices\devicehub.cpp:28,65,66  src\application\devices\devicerunner.cpp:33  src\application\robot\robotcontroller.cpp:26,109,193  src\application\scene\scenemachiningpreparation.cpp:208,301,318,334,455,481  src\application\scene\sceneplayback.cpp:123  src\application\workspacecontroller.cpp:14  src\devices\abstractdevice.cpp:28,39,48,102  src\viewport\occcontroller.cpp:241,327
+LCY-4 Q_ASSERT(dev) is sole null guard — crashes in release (1)
+  src\application\devices\devicehub.cpp:24
+LCY-4 Q_ASSERT(m_preparedCalibration) is sole null guard — crashes in release (1)
+  src\application\scene\scenemachiningpreparation.cpp:534
+LCY-4 Q_ASSERT(sock) is sole null guard — crashes in release (1)
+  src\devices\abstractdevice.cpp:101
+LCY-5 m_devices grows without size cap — unbounded memory growth (1)
+  src\application\devices\deviceprofilemodel.cpp:175
+LCY-5 m_hiddenIds grows without size cap — unbounded memory growth (1)
+  src\application\scene\scenecalibration.cpp:456
+LCY-5 m_objects grows without size cap — unbounded memory growth (1)
+  src\application\scene\scenemodel.cpp:153
+LCY-5 m_targets grows without size cap — unbounded memory growth (1)
+  src\trajectories\chamfer\chamfercentralvalidation.cpp:202
+LCY-5 m_trace grows without size cap — unbounded memory growth (2)
+  src\devices\rsi\rsidevice.cpp:335,361
+LCY-5 m_traceSaves grows without size cap — unbounded memory growth (1)
+  src\devices\rsi\rsidevice.cpp:364
+PAT-10 return std::move() — pessimizes NRVO; use plain return (4)
+  src\trajectories\chamfer\chamferarclength.cpp:136,140,145  src\viewport\occt\cadloadworker.cpp:27
+PAT-12 Non-const range-for reference — may trigger COW detach; use const auto& if read-only (1)
+  src\devices\rsi\rsidevice.cpp:185
+PAT-2 std::optional default-constructed — use std::nullopt explicitly (GCC warning bug) (45)
+  src\application\scene\scenecalibration.cpp:34  src\application\scene\scenecalibration.h:20,21,22,23,48  src\application\scene\sceneendeffectors.h:63,64,67  src\application\scene\scenemachining.cpp:144  src\application\scene\scenemachiningpreparation.h:122,125  src\application\scene\sceneplayback.h:65  src\application\scene\scenesurfaceimporter.cpp:17  src\devices\include\devices\rsi\rsidevice.h:34  src\devices\rsi\rsidevice.cpp:275,276  src\geometry\boundedcylinder.cpp:202  src\geometry\include\geometry\surfaceintersection.h:36  src\trajectories\chamfer\chamferarclength.cpp:232,233  src\trajectories\chamfer\chamfercentralvalidation.h:34  src\trajectories\chamfer\chamfermotion.cpp:24,131  src\trajectories\include\trajectories\chamferarclength.h:51  src\trajectories\include\trajectories\chamfercentralmotion.h:65  src\trajectories\include\trajectories\chamfermotion.h:30,35  src\trajectories\include\trajectories\chamferpath.h:95  src\trajectories\include\trajectories\chamferrsistream.h:28  src\trajectories\include\trajectories\probecalibrationfit.h:48  src\trajectories\include\trajectories\probersistream.h:35  src\trajectories\include\trajectories\probetouchmotion.h:69  src\trajectories\include\trajectories\probetouchplan.h:65  src\trajectories\motion\jointsegments.h:22  src\trajectories\motion\tcpsolver.h:39  src\trajectories\probe\probecalibrationfit.cpp:50  src\trajectories\probe\probetouchmotion.cpp:17  src\viewport\adapters\occrobotadapter.h:32,33  src\viewport\include\viewport\occcontroller.h:90,97,98,172  src\viewport\occt\occviewwindow.h:58
+PAT-3 std::holds_alternative — prefer std::get_if or std::visit (3)
+  src\application\scene\scenemodel.cpp:184  src\viewport\adapters\occsceneadapter.cpp:157,159
+PAT-7 QMap usage — verify copying is needed; std::map saves ~1.7KiB text (1)
+  src\viewport\include\viewport\occcontroller.h:87
+TMO-1 Integer timeout/interval parameter — use QDeadlineTimer or std::chrono (6)
+  src\devices\fts\ftsdevice.cpp:35  src\devices\plc\plcdevice.cpp:16  src\trajectories\chamfer\chamferarclength.cpp:11  src\trajectories\chamfer\chamfercentralvalidation.cpp:159  src\trajectories\chamfer\chamfercentralvalidation.h:10  src\trajectories\motion\motionbuilder.cpp:84
+VAL-5 qSwap() — use member swap, qt_ptr_swap, or std::swap (1)
+  src\devices\plc\plcdevice.cpp:522
+VAR-3 Direct brace initialization — prefer copy-init (var = {...}) for safety (33)
+  src\application\robot\robotcontroller.cpp:78  src\application\scene\scenecalibration.cpp:180,193,415  src\application\scene\scenemachining.cpp:219  src\application\scene\sceneobject.cpp:143  src\devices\fts\ftsdevice.cpp:493  src\devices\include\devices\fts\ftsdevice.h:78  src\devices\plc\plcdevice.cpp:307  src\devices\plc\plcmessagemanager.cpp:289,457  src\geometry\include\geometry\boundedcylinder.h:29,30,31,32  src\geometry\include\geometry\boundedplane.h:32,33,34,35  src\geometry\include\geometry\mathtypes.h:24,25,26,30,31,32  src\geometry\include\geometry\plane.h:10  src\geometry\spherefit.cpp:43  src\kinematics\include\kinematics\kr10kinematicmodel.h:26,50  src\trajectories\chamfer\chamferarclength.cpp:26  src\trajectories\motion\motionbuilder.cpp:154  src\trajectories\probe\probetouchplan.cpp:137,141

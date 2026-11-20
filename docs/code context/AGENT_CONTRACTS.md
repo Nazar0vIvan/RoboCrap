@@ -96,7 +96,9 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   OccWorldAxes objects.
 - OccScene stores only live parts keyed by PartId; its optional increasing counter starts at zero,
   permits the final representable ID, stays exhausted afterward and is never reset by removal. Erase a
-  part only after OCCT removal succeeds. Track selected visible part IDs (curves included) and keep
+  part only after OCCT removal succeeds; OccSceneAdapter keeps the IDs of application-object parts whose
+  removal threw, retries them at its next removal and reports failures through OccController::message.
+  Track selected visible part IDs (curves included) and keep
   unchanged outlines; equal application IDs can resolve to hidden/replaced parts. Keep unfinished
   outline handles/completion state through external failures; remove selection before hiding/deleting.
   Preserve selection styling and decorative picking/fit exclusion. A part without face boundaries

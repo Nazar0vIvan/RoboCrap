@@ -40,17 +40,19 @@ ViewportOperationResult OccViewport::setRobot(const RobotVisualModel& visuals,
   return result;
 }
 
-bool OccViewport::setActiveTool(RobotTool active)
+ViewportOperationResult OccViewport::setActiveTool(RobotTool active)
 {
-  if (!isValid()) return false;
-  const bool success = m_robot.setActiveTool(active);
+  if (!isValid()) return {false, QStringLiteral("Viewport is unavailable.")};
+  auto result = m_robot.setActiveTool(active);
   requestRender();
-  return success;
+  return result;
 }
 
-void OccViewport::removeObject(quint32 id)
+ViewportOperationResult OccViewport::removeObject(quint32 id)
 {
-  if (m_application.removeObject(id)) requestRender();
+  auto result = m_application.removeObject(id);
+  if (result.accepted) requestRender();
+  return result;
 }
 
 ViewportOperationResult OccViewport::insertObject(const DrawingObject& object)
@@ -75,12 +77,18 @@ ViewportOperationResult OccViewport::setObjectDiagnostics(quint32 id, const Draw
   return result;
 }
 
-void OccViewport::setSelection(const QList<quint32>& objectIds, bool toolSelected)
+ViewportOperationResult OccViewport::setSelection(const QList<quint32>& objectIds, bool toolSelected)
 {
   auto parts = m_application.selectedParts(objectIds);
   if (const auto tool = m_robot.activeToolPart(); tool && toolSelected) parts.push_back(*tool);
-  m_scene.selectParts(parts);
+  ViewportOperationResult result{true, {}};
+  try {
+    m_scene.selectParts(parts);
+  } catch (const Standard_Failure& failure) {
+    result = {false, QStringLiteral("Selection: %1").arg(QString::fromUtf8(failure.what()))};
+  }
   requestRender();
+  return result;
 }
 
 ViewportOperationResult OccViewport::setDraftAxis(const std::optional<DrawingAxis>& axis)
@@ -100,10 +108,11 @@ bool OccViewport::isValid() const
   return m_viewer.isValid();
 }
 
-void OccViewport::setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet)
+ViewportOperationResult OccViewport::setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet)
 {
-  m_robot.setSpindleFrames(tcp, collet);
+  auto result = m_robot.setSpindleFrames(tcp, collet);
   requestRender();
+  return result;
 }
 
 ViewportOperationResult OccViewport::applyTransforms(const DrawingPose& pose)

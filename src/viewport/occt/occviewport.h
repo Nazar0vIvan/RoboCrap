@@ -35,14 +35,14 @@ public:
                 const DrawingPose& pose);
   ViewportOperationResult applyTransforms(const DrawingPose& pose);
   // BASE-relative drawing frames; absent values hide the corresponding axes.
-  void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
-  bool setActiveTool(RobotTool active);
+  ViewportOperationResult setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
+  ViewportOperationResult setActiveTool(RobotTool active);
   ViewportOperationResult insertObject(const DrawingObject& object);
-  void removeObject(quint32 id);
+  ViewportOperationResult removeObject(quint32 id);
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
   // Highlights the listed application objects and, when toolSelected, the displayed end effector.
-  void setSelection(const QList<quint32>& objectIds, bool toolSelected);
+  ViewportOperationResult setSelection(const QList<quint32>& objectIds, bool toolSelected);
   ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
   void setExposed(bool exposed);
   void resize();

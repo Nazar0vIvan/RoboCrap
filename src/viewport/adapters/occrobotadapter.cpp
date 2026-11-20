@@ -120,11 +120,17 @@ ViewportOperationResult OccRobotAdapter::applyTransforms(const DrawingPose& pose
   return {true, {}};
 }
 
-void OccRobotAdapter::setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet)
+ViewportOperationResult OccRobotAdapter::setSpindleFrames(const std::optional<M4d>& tcp,
+                                                          const std::optional<M4d>& collet)
 {
   m_spindleTcpFrame = tcp;
   m_spindleColletFrame = collet;
-  synchronizeSpindleFrames();
+  try {
+    synchronizeSpindleFrames();
+  } catch (const Standard_Failure& failure) {
+    return {false, QStringLiteral("Spindle axes: %1").arg(QString::fromUtf8(failure.what()))};
+  }
+  return {true, {}};
 }
 
 void OccRobotAdapter::synchronizeSpindleFrames()
@@ -135,11 +141,17 @@ void OccRobotAdapter::synchronizeSpindleFrames()
       ? std::optional<gp_Trsf>{toOccTransform(*m_spindleColletFrame)} : std::nullopt);
 }
 
-bool OccRobotAdapter::setActiveTool(RobotTool active)
+ViewportOperationResult OccRobotAdapter::setActiveTool(RobotTool active)
 {
-  if (active != RobotTool::Measuring && active != RobotTool::Spindle) return false;
+  const QString rejected = QStringLiteral("Cannot update the end-effector presentation.");
+  if (active != RobotTool::Measuring && active != RobotTool::Spindle) return {false, rejected};
   m_activeTool = active;
-  return showActiveTool();
+  try {
+    if (!showActiveTool()) return {false, rejected};
+  } catch (const Standard_Failure& failure) {
+    return {false, QStringLiteral("End-effector display: %1").arg(QString::fromUtf8(failure.what()))};
+  }
+  return {true, {}};
 }
 
 std::optional<OccScene::PartId> OccRobotAdapter::activeToolPart() const

@@ -53,6 +53,8 @@ private:
   void attachRobot();
   void attachActiveTool();
   void resizeViewport();
+  // An OCCT failure in a surface operation: drop the viewport, block re-creation and report.
+  void failSurface(const QString& error);
   QPoint nativePosition(const QPointF& position) const;
 
   std::optional<RobotVisualModel> m_visuals;

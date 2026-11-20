@@ -14,7 +14,8 @@ public:
     : m_scene(scene), m_models(models) {}
 
   ViewportOperationResult insertObject(const DrawingObject& object);
-  bool removeObject(quint32 id);
+  // Not accepted for an object that was never installed; the error lists failed part removals.
+  ViewportOperationResult removeObject(quint32 id);
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
   ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
@@ -37,6 +38,8 @@ private:
   const QHash<QString, std::shared_ptr<const CadLoadResult>>& m_models;
   QHash<quint32, Presentation> m_parts;
   std::vector<OccScene::PartId> m_axisParts;
+  // Parts whose OCCT removal failed; retried by every later removeParts call.
+  std::vector<OccScene::PartId> m_unremovedParts;
 };
 
 } // namespace RoboCrap3D

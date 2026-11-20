@@ -53,6 +53,8 @@ private:
 
   bool m_rotating = false;
   bool m_panning = false;
+  // Zoom pixels not yet applied; precision devices send fractions of a notch.
+  double m_wheelPixels = 0.0;
 };
 
 } // namespace RoboCrap3D

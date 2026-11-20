@@ -5,8 +5,6 @@
 
 #include <V3d_View.hxx>
 
-#include <cmath>
-
 namespace RoboCrap3D {
 
 OccInputController::OccInputController(const Handle(AIS_InteractiveContext)& context, const Handle(V3d_View)& view) : m_context(context), m_view(view)
@@ -79,7 +77,13 @@ OccInputResult OccInputController::wheel(const QPoint& pos, const int angleDelta
   // One standard wheel notch = 120 units. Scale pixel offset proportionally.
   constexpr double kNotch = 120.0;
   constexpr double kPixelsPerNotch = 10.0;
-  const int delta = static_cast<int>(std::round((angleDeltaY / kNotch) * kPixelsPerNotch));
+  // Precision touchpads and high-resolution wheels send fractions of a notch: keep the
+  // unapplied part, but drop it when the scroll direction reverses.
+  if ((angleDeltaY > 0) != (m_wheelPixels > 0.0)) m_wheelPixels = 0.0;
+  m_wheelPixels += angleDeltaY / kNotch * kPixelsPerNotch;
+  const int delta = static_cast<int>(m_wheelPixels); // Truncates toward zero.
+  m_wheelPixels -= delta;
+  if (delta == 0) return {};
 
   m_view->Zoom(pos.x(), pos.y(), pos.x() + delta, pos.y() + delta);
 

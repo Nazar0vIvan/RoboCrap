@@ -15,8 +15,8 @@ public:
   bool isLoaded() const { return m_loaded; }
   ViewportOperationResult applyTransforms(const DrawingPose& pose);
   // BASE-relative drawing frames; absent values hide the corresponding axes.
-  void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
-  bool setActiveTool(RobotTool active);
+  ViewportOperationResult setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
+  ViewportOperationResult setActiveTool(RobotTool active);
   // The displayed end-effector part, the only pickable robot part; empty before installation.
   std::optional<OccScene::PartId> activeToolPart() const;
 

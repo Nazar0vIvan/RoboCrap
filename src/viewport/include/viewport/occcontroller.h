@@ -162,6 +162,8 @@ private:
   void onViewWindowDestroyed();
   // The window's current OCCT viewer, or null without a native surface; looked up per call.
   OccViewport* viewport() const;
+  // Re-applies the document selection to that viewer and reports an OCCT failure.
+  void applySelection(OccViewport& drawing);
   void finishRobotLoad(quint64 generation);
   // One model path at a time, separate from the robot job, so a model failure never affects the robot.
   void startModelLoad();

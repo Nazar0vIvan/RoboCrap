@@ -75,7 +75,7 @@ ViewportOperationResult OccController::insertObject(const DrawingObject& object)
   if (!object.id || object.parts.isEmpty()) return {false, QStringLiteral("Empty object drawing.")};
   auto* drawing = viewport();
   const auto result = drawing ? drawing->insertObject(object) : ViewportOperationResult{true, {}};
-  if (result.accepted && drawing) drawing->setSelection(m_document.selected, m_document.toolSelected);
+  if (result.accepted && drawing) applySelection(*drawing);
   if (result.accepted) {
     m_document.objects.insert(object.id, object);
     // A model drawn before its load finishes is skipped; finishModelLoad redraws the object.
@@ -93,8 +93,8 @@ void OccController::removeObject(quint32 id)
 {
   m_document.objects.remove(id);
   if (auto* drawing = viewport()) {
-    drawing->removeObject(id);
-    drawing->setSelection(m_document.selected, m_document.toolSelected);
+    if (const auto removed = drawing->removeObject(id); !removed.error.isEmpty()) emit message(removed.error, true);
+    applySelection(*drawing);
   }
 }
 
@@ -104,7 +104,7 @@ void OccController::setObjectVisible(quint32 id, bool visible)
   if (it == m_document.objects.end() || it->visible == visible) return;
   auto* drawing = viewport();
   const auto result = drawing ? drawing->setObjectVisible(id, visible) : ViewportOperationResult{true, {}};
-  if (result.accepted && drawing) drawing->setSelection(m_document.selected, m_document.toolSelected);
+  if (result.accepted && drawing) applySelection(*drawing);
   if (result.accepted) it->visible = visible;
   if (!result.error.isEmpty()) emit message(result.error, true);
 }
@@ -155,19 +155,27 @@ void OccController::setSpindleFrames(const std::optional<M4d>& tcp, const std::o
 {
   m_pose.tcp = tcp;
   m_pose.collet = collet;
-  if (auto* drawing = viewport()) drawing->setSpindleFrames(tcp, collet);
+  auto* drawing = viewport();
+  if (!drawing) return;
+  if (const auto frames = drawing->setSpindleFrames(tcp, collet); !frames.accepted) emit message(frames.error, true);
 }
 
 void OccController::setSelectedObjects(const QList<quint32>& ids)
 {
   m_document.selected = ids;
-  if (auto* drawing = viewport()) drawing->setSelection(ids, m_document.toolSelected);
+  if (auto* drawing = viewport()) applySelection(*drawing);
 }
 
 void OccController::setToolSelected(bool selected)
 {
   m_document.toolSelected = selected;
-  if (auto* drawing = viewport()) drawing->setSelection(m_document.selected, selected);
+  if (auto* drawing = viewport()) applySelection(*drawing);
+}
+
+void OccController::applySelection(OccViewport& drawing)
+{
+  const auto result = drawing.setSelection(m_document.selected, m_document.toolSelected);
+  if (!result.accepted) emit message(result.error, true);
 }
 
 QString OccController::initializeOcct() const
@@ -317,7 +325,7 @@ void OccController::finishModelLoad()
       const auto redrawn = drawing->insertObject(object);
       if (!redrawn.error.isEmpty()) emit message(redrawn.error, true);
     }
-    drawing->setSelection(m_document.selected, m_document.toolSelected);
+    applySelection(*drawing);
   }
   startModelLoad();
 }

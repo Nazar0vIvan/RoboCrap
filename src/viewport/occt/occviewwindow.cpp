@@ -23,9 +23,21 @@ OccViewWindow::OccViewWindow(const DrawingDocument& document, const DrawingPose&
   QObject::connect(this, &QWindow::screenChanged, this, &OccViewWindow::resizeViewport);
 }
 
+// Connected to QWindow::screenChanged, outside the protection of event().
 void OccViewWindow::resizeViewport()
 {
-  if (m_viewport) m_viewport->resize();
+  try {
+    if (m_viewport) m_viewport->resize();
+  } catch (const Standard_Failure& failure) {
+    failSurface(QStringLiteral("Viewport resize failed: %1").arg(QString::fromUtf8(failure.what())));
+  }
+}
+
+void OccViewWindow::failSurface(const QString& error)
+{
+  releaseSurface();
+  m_presentationFailed = true;
+  emit errorOccurred(error);
 }
 
 OccViewWindow::~OccViewWindow()
@@ -69,8 +81,8 @@ void OccViewWindow::setActiveTool(RobotTool active)
 
 void OccViewWindow::attachActiveTool()
 {
-  if (m_viewport && !m_viewport->setActiveTool(m_activeTool))
-    emit errorOccurred(QStringLiteral("Cannot update the end-effector presentation."));
+  if (!m_viewport) return;
+  if (const auto shown = m_viewport->setActiveTool(m_activeTool); !shown.accepted) emit errorOccurred(shown.error);
 }
 
 bool OccViewWindow::isReady() const
@@ -112,10 +124,7 @@ bool OccViewWindow::event(QEvent* event)
     }
     return QWindow::event(event);
   } catch (const Standard_Failure& failure) {
-    releaseSurface();
-    m_presentationFailed = true;
-    emit errorOccurred(QStringLiteral("Viewport operation failed: %1")
-                           .arg(QString::fromUtf8(failure.what())));
+    failSurface(QStringLiteral("Viewport operation failed: %1").arg(QString::fromUtf8(failure.what())));
     return true;
   }
 }
@@ -187,14 +196,14 @@ void OccViewWindow::initializeViewport()
     m_viewport = std::move(viewport);
     const auto axis = m_viewport->setDraftAxis(m_document.axis);
     if (!axis.accepted) emit errorOccurred(axis.error);
-    m_viewport->setSpindleFrames(m_pose.tcp, m_pose.collet);
-    m_viewport->setSelection(m_document.selected, m_document.toolSelected);
+    if (const auto frames = m_viewport->setSpindleFrames(m_pose.tcp, m_pose.collet); !frames.accepted)
+      emit errorOccurred(frames.error);
+    if (const auto selection = m_viewport->setSelection(m_document.selected, m_document.toolSelected);
+        !selection.accepted)
+      emit errorOccurred(selection.error);
     m_viewport->setExposed(true);
   } catch (const Standard_Failure& failure) {
-    releaseSurface();
-    m_presentationFailed = true;
-    emit errorOccurred(QStringLiteral("Cannot initialize the viewport: %1")
-                           .arg(QString::fromUtf8(failure.what())));
+    failSurface(QStringLiteral("Cannot initialize the viewport: %1").arg(QString::fromUtf8(failure.what())));
     return;
   }
   // Robot failures must not enter the viewport teardown path above.
@@ -213,7 +222,9 @@ void OccViewWindow::attachRobot()
     } else {
       attachActiveTool();
       // The end-effector part exists only now; a recreated surface restores its selection.
-      m_viewport->setSelection(m_document.selected, m_document.toolSelected);
+      if (const auto selection = m_viewport->setSelection(m_document.selected, m_document.toolSelected);
+          !selection.accepted)
+        emit errorOccurred(selection.error);
     }
   } catch (const Standard_Failure& failure) {
     m_presentationFailed = true;
