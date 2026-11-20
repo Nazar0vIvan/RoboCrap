@@ -6,8 +6,9 @@
 
 ## SKILLS
 
-1) qt-cpp-review
+1) /qt-cpp-review + /qt-qml-review
 https://github.com/TheQtCompanyRnD/agent-skills/blob/main/skills/qt-cpp-review/SKILL.md?utm_source=chatgpt.com
 2) performance-patterns
 https://www.skills.sh/intel/intel-performance-skills/performance-patterns?utm_source=chatgpt.com
 
+Architecture Review — flpbalada
