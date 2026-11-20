@@ -69,6 +69,10 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   root cache path ROBOCRAP_RECORDS_DIR (default <repository>/records, git-ignored), passed to every
   target as a compile definition; writers use QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)), never the
   executable folder, so deleting a build keeps the measurements.
+- The probe settings file probe_calibration.json (primary ball centre in {F}, sphere centre in {B},
+  contact distances, last calibration result) is in the root cache path ROBOCRAP_SETTINGS_DIR
+  (default <repository>/settings, tracked by git so the values move between computers), passed to
+  every target as a compile definition; only SceneCalibration reads and writes it.
 
 ## Viewport and CAD
 
@@ -84,7 +88,8 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   re-applies selection after insert/remove/visibility changes. Replay follows stable ID order, restores
   visibility/diagnostics/selection/draft axis, never reallocates IDs, and needs no application QObject
   pointer, curve resampling or FK.
-- RobotController supplies DrawingPose with BASE-relative link, tool and composed TCP/collet matrices;
+- RobotController supplies DrawingPose with BASE-relative link, tool (spindle model), measuringTool
+  (probe model) and composed TCP/collet matrices;
   renderer axis setters take those absolute frames and compose no tool transforms. OccRobotAdapter
   converts matrices to gp_Trsf; OccScene/OccPart keep OCCT types. OccPart applies style/transform at
   creation and keeps its AIS shape/selection/topmost state. World/TCP/ER axes are separate
@@ -126,7 +131,12 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
 - CadLoadWorker accepts absolute .brep paths and returns ordered shapes/errors (CadLoadResult is
   worker-independent); OCCT parsing is serialized. One robot job loads seven links, then
   EE_WP-500.brep (measuring) and EE_GDZ-65-800A.brep (spindle); OccRobotAdapter installs them together
-  and shows only the active tool.
+  and shows only the active tool. The spindle model sits at the flange matrix. The probe model keeps
+  its CAD frame (ball centre at (0; 0; 127) mm) and sits at the flange matrix times the translation by
+  the measuring TCP position minus that point; an applied measuring TCP redraws the current pose.
+  Only the displayed end-effector part is pickable (as a whole; links are not): a left click on it
+  gives OccController::toolSelectionRequested, and DrawingDocument::toolSelected highlights it in
+  the same OccScene selection as the selected objects.
 - A DrawingModel part (absolute BREP path, translation-only origin in {B}) loads once per path on a
   separate worker, one path at a time; finished loads, failures included, stay in
   DrawingDocument::models. Insertion accepts an object whose model is loading or failed and skips that
@@ -218,8 +228,10 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   Commit coupled list/frame values before notifications; unchanged values must not invalidate paths;
   a collet change still emits the TCP notification even when the TCP is equivalent. Preserve the
   flange-based Kr10Kinematics FK/IK APIs; there is no manual FK/IK command. The measuring TCP (TOOL_DATA[5]
-  by default) is applied with applyMeasuringTcp, reconstructed as measuringTcpFrame, not persisted;
-  an unchanged value emits nothing.
+  by default) is applied with applyMeasuringTcp and reconstructed as measuringTcpFrame; an unchanged
+  value emits nothing. SceneCalibration persists only its X, Y, Z: its constructor applies a saved
+  primary ball centre (A, B, C kept) before connecting its save slot, which saves a changed X, Y, Z
+  with source "manual" and writes nothing when they equal the saved value.
 - SceneModel owns SceneObject; QML changes scene state through model methods. SceneObject holds a
   plane, cylinder, intersection edge (with its two source IDs), calibration sphere or calibration path
   (the shared immutable ProbeTouchMotion) by value in a std::variant; only a machining path has a child
@@ -236,9 +248,11 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
 - fitSphere rejects fewer than four or nonfinite points, a smallest singular value below 1e-9 of the
   largest, and a nonpositive squared radius. SceneCalibration reads the deployed sphere file on the GUI
   thread at every entry into Calibration: version 1, positive sphereDiameter, strutDiameter and
-  strutRecess below the diameter, at least four finite roughPoints X/Y/Z; other keys ignored. Centre
-  and ball-centre radius come from the readings; the compensated radius subtracts the ruby ball radius;
-  the nominal radius only sizes the touch plan. A changed sphere replaces the object. While
+  strutRecess below the diameter, at least four finite roughPoints X/Y/Z; other keys ignored.
+  SceneSphere::roughCenter and the ball-centre radius come from the readings; the compensated radius
+  subtracts the ruby ball radius; the nominal radius only sizes the touch plan. SceneSphere::center
+  is the saved primary sphere centre when present, otherwise roughCenter; it places the drawn
+  spheres, table, stand and touch plan. A changed sphere replaces the object. While
   Calibration is active only the sphere and calibration path are visible and listed; entry records and
   hides other visible objects (also ones added meanwhile), exit shows the recorded ones that still
   exist. Neither calibration object can be deleted.
@@ -396,8 +410,13 @@ Apply Geometry and scene to numerical changes.
     replaced job, a PLC disconnect or a failed start ends the run with an error; an interrupted
     program keeps it (Resume continues it). Every run end with detections writes them to
     `records/<id>/calibration_touches_<id>.csv`. On success
-    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is displayed
-    and written to `records/<id>/calibration_result_<id>.csv`, never applied as the measuring TCP.
+    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is written to
+    `records/<id>/calibration_result_<id>.csv` and saved by SceneCalibration::recordCalibrationResult
+    as lastCalibration in the settings file (a write error joins calibrationRunError). It becomes
+    primary only through Reassign (reassignPrimaryCentres): primary = the last result with source =
+    its id, the ball centre applied with A, B, C kept, the sphere moved in the submode; the primary
+    centres come only from the calibration touches, never from the verification refit. Reassign
+    removes the calibration path and so the prepared job and calibration_data.txt.
     The run prints only its errors to the console. `python/calibration/calibration_fit.py` repeats
     the fit offline and must keep matching the result file.
   - Keep numerical work, file I/O, console output and unfinished-worker waits out of ControlIO receive
@@ -426,8 +445,10 @@ registration, module names or resources.
 - A Qt Quick Layout owns its immediate children's geometry: use Layout.* and implicit sizes, not
   concurrent x/y/width/height or anchors. Anchors on a layout are valid when its parent is not a
   layout. Check parent/child size dependencies for binding cycles.
-- WorkspaceController owns mode/submode and selected IDs; Main binds them read-only and sends
-  selection/delete/intersection/mode requests. C++ connects viewport picks/Delete and selection
+- WorkspaceController owns mode/submode, selected IDs and toolSelected (the displayed end-effector
+  model; exclusive with selected IDs, cleared by any object selection or mode change). Picking that
+  model opens its EE settings as the toolbar button does; their Close deselects it. Main binds them
+  read-only and sends selection/delete/intersection/mode requests. C++ connects viewport picks/Delete and selection
   drawing notifications. Before applying new input settings notify QML so Cancel restores the old
   editor settings; a successful Generate closes its editor before requesting selection. Main creation
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
@@ -438,8 +459,13 @@ registration, module names or resources.
   App.Calibration.generate() without an editor; the Scene panel lists only the Calibration group;
   Delete removes nothing. The status bar keeps a fixed "AUT EXT" indicator after the mode label (green
   while the PLC is connected and X1.0 is on, gray otherwise) and shows the calibration run progress
-  first in its existing label in every mode; calibrationRunFinished opens a MessageDialog with the
-  result rows or the error. Otherwise the label shows the playback status while calibration
+  first in its existing label in every mode. lastCalibrationChanged opens CalibrationResultWindow (a
+  modal top-level Window of fixed size, so the viewport cannot cover it: result rows, the bound
+  calibrationRunError, Reassign and Cancel); calibrationRunFinished opens the OK-only "Calibration
+  failed" dialog only when that window is not open. A settings-file error opens the native "Probe
+  settings" dialog at start and on every failed write, never a status message. With nothing selected
+  the Properties panel shows the last calibration rows (label above value) in its scroll region, or
+  "No calibration result.". Otherwise the label shows the playback status while calibration
   playback runs without an error; otherwise the
   calibration error or the reason Generate is unavailable; otherwise the preparation error, summary,
   calibrationUnavailableReason or "Ready for RSI Sampling.", followed by the controller state while

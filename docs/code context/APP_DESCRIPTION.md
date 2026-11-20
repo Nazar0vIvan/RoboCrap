@@ -20,8 +20,9 @@ point on the hole axis, outside the hole.
   Changing it invalidates every generated path until it is regenerated.
 - Measuring EE (Measuring mode): name, ruby ball diameter and stylus length are displayed
   read-only. The ruby ball centre relative to the flange (default: controller TOOL_DATA[5]) is
-  edited and committed with Apply; it is not saved between runs. Changing it removes the
-  calibration path.
+  edited and committed with Apply; its X, Y, Z are saved in `settings/probe_calibration.json` in
+  the repository (A, B, C are not) and loaded at the next start, and the probe model is drawn with
+  its ball at this point. Changing it removes the calibration path.
 - Only workpiece surfaces are imported, as JSON point files measured with a touch probe.
 
 ## Workflow
@@ -30,8 +31,9 @@ point on the hole axis, outside the hole.
    Entering the submode reads `resources/json/calibration_sphere.json` beside the executable
    (copied there by the build only when absent): the 25 mm sphere, the strut that holds it and ten
    ruby ball centres recorded by jogging onto the sphere. The fitted sphere is shown as the
-   ball-centre sphere and the compensated sphere; every other scene object is hidden until the
-   submode is left. *Generate Path* computes a fixed motion from HOME back to HOME: 114
+   ball-centre sphere and the compensated sphere; a sphere centre made primary by *Reassign*
+   (below) replaces the fitted centre, and the table and stand move with it. Every other scene
+   object is hidden until the submode is left. *Generate Path* computes a fixed motion from HOME back to HOME: 114
    calibration touches in six passes and then 44 verification touches in two passes. Each pass
    keeps one probe orientation: G1 stylus down, G2 stylus along +X (as at HOME), G3 stylus down
    with the flange turned 180°; calibration runs G1, G2, G3, G3, G2, G1 and verification G1, G2.
@@ -52,8 +54,11 @@ point on the hole axis, outside the hole.
    AUT EXT. When the program finishes, the application fits the ball centre in the flange frame, the
    sphere centre, the two contact distances (stylus down, stylus horizontal) and the 95 % quantile
    of the verification residuals from the actual joint angles of every touch, shows them in the window
-   "Calibration complete" and writes them to `records/<id>/`; the ball centre is not applied as the
-   measuring TCP. The joint angles of every detected touch are written to
+   "Calibration complete", writes them to `records/<id>/` and saves them as the last result in
+   `settings/probe_calibration.json`. *Reassign* in that window makes the ball centre, the sphere
+   centre and the contact distances primary: the measuring TCP and the sphere change, and the path
+   must be generated again; *Cancel* keeps the previous values. With nothing selected, the
+   Properties panel shows the last result. The joint angles of every detected touch are written to
    `records/<id>/calibration_touches_<id>.csv`, and the packet capture keeps the robot's actual
    joint angles of every cycle; `python/calibration/calibration_fit.py` repeats the fit offline.
 

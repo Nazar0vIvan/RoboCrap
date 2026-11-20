@@ -17,6 +17,8 @@ public:
   // BASE-relative drawing frames; absent values hide the corresponding axes.
   void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
   bool setActiveTool(RobotTool active);
+  // The displayed end-effector part, the only pickable robot part; empty before installation.
+  std::optional<OccScene::PartId> activeToolPart() const;
 
 private:
   QString clear();

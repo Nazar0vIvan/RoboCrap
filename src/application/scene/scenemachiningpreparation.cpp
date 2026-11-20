@@ -136,45 +136,10 @@ constexpr int StartResultStarted = 1;
 const QStringList StartResultNames{QStringLiteral("-"), QStringLiteral("STARTED"), QStringLiteral("RESUMED"),
                                    QStringLiteral("TIMEOUT"), QStringLiteral("ABORTED"), QStringLiteral("AUT EXT LOST")};
 
-QString vectorText(const V3d& value)
+// Both non-empty error texts, separated by a space.
+QString joinedError(const QString& first, const QString& second)
 {
-  return QStringLiteral("[%1; %2; %3]").arg(value.x(), 0, 'f', 4).arg(value.y(), 0, 'f', 4).arg(value.z(), 0, 'f', 4);
-}
-
-QVariantMap resultRow(const QString& label, const QString& value)
-{
-  return {{QStringLiteral("label"), label}, {QStringLiteral("value"), value}};
-}
-
-int setsOutsideBound(const ProbeCalibrationFit& fit)
-{
-  int count = 0;
-  for (const ProbeResidualSet& set : fit.residualSets)
-    if (std::abs(set.mean) > set.bound) ++count;
-  return count;
-}
-
-// Rows of the result window, four decimals like the Properties panel.
-QVariantList resultRows(const ProbeCalibrationFit& fit)
-{
-  return {
-    resultRow(SceneMachiningPreparation::tr("Ball centre in {F}, mm"), vectorText(fit.ballCentre)),
-    resultRow(SceneMachiningPreparation::tr("Sphere centre in {B}, mm"), vectorText(fit.sphereCentre)),
-    resultRow(SceneMachiningPreparation::tr("Contact distance, stylus down, mm"),
-              QString::number(fit.contactVertical, 'f', 4)),
-    resultRow(SceneMachiningPreparation::tr("Contact distance, stylus horizontal, mm"),
-              QString::number(fit.contactHorizontal, 'f', 4)),
-    resultRow(SceneMachiningPreparation::tr("Quantile χ95, mm"), QString::number(fit.quantile95, 'f', 4)),
-    resultRow(SceneMachiningPreparation::tr("Repeatability s_rep, mm"), QString::number(fit.repeatability, 'f', 4)),
-    resultRow(SceneMachiningPreparation::tr("Sphere centre from verification, mm"),
-              vectorText(fit.verificationSphereCentre)),
-    resultRow(SceneMachiningPreparation::tr("Smallest singular value"),
-              QString::number(fit.smallestSingularValue, 'f', 4)),
-    resultRow(SceneMachiningPreparation::tr("Touches (calibration / verification)"),
-              QStringLiteral("%1 / %2").arg(fit.calibrationTouches).arg(fit.verificationTouches)),
-    resultRow(SceneMachiningPreparation::tr("Model check: sets outside 3·s_rep/√m"),
-              SceneMachiningPreparation::tr("%1 of %2").arg(setsOutsideBound(fit)).arg(fit.residualSets.size())),
-  };
+  return first.isEmpty() ? second : second.isEmpty() ? first : first + QLatin1Char(' ') + second;
 }
 
 QByteArray resultLine(const QString& name, const QStringList& values)
@@ -517,7 +482,6 @@ void SceneMachiningPreparation::startCalibration()
   if (!canStartCalibration()) return;
   m_detections.clear();
   m_runError.clear();
-  m_runResult.clear();
   m_run = CalibrationRun::Requested;
   m_plc->invoke(QStringLiteral("runRobotProgram"), {{QStringLiteral("program"), 1}});
   emit calibrationRunChanged();
@@ -576,14 +540,15 @@ void SceneMachiningPreparation::endRun(const QString& error)
   if (error.isEmpty()) {
     const ProbeCalibrationFitResult result = fitProbeCalibration(*m_preparedCalibration->motion, m_detections);
     if (result.fit) {
-      m_runResult = resultRows(*result.fit);
-      m_runError = writeCalibrationResult(*result.fit, m_preparedCalibration->diagnosticId);
+      // Emits lastCalibrationChanged, which opens the result window; it binds calibrationRunError.
+      const QString settingsError = m_calibration->recordCalibrationResult(*result.fit,
+                                                                           m_preparedCalibration->diagnosticId);
+      m_runError = joinedError(writeCalibrationResult(*result.fit, m_preparedCalibration->diagnosticId), settingsError);
     } else {
       m_runError = result.error;
     }
   }
-  if (!touchesError.isEmpty())
-    m_runError = m_runError.isEmpty() ? touchesError : m_runError + QLatin1Char(' ') + touchesError;
+  m_runError = joinedError(m_runError, touchesError);
   if (!m_runError.isEmpty()) qInfo().noquote() << "Probe calibration run:" << m_runError;
   emit calibrationRunChanged();
   emit availabilityChanged();

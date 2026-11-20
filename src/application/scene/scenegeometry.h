@@ -122,7 +122,8 @@ struct CalibrationTable
 // Calibration sphere fitted to the ruby ball centers of the jogged touches.
 struct SceneSphere
 {
-  V3d center = V3d::Zero(); // Fitted center, shared by both fitted spheres.
+  V3d center = V3d::Zero(); // Used center: the saved primary sphere centre, otherwise roughCenter.
+  V3d roughCenter = V3d::Zero(); // Center fitted to the jogged touches; the radii and rms belong to it.
   double radius = 0.0; // mm, nominal: half the sphere file's diameter.
   double ballCenterRadius = 0.0; // mm, sphere through the ball centers.
   double compensatedRadius = 0.0; // mm, ballCenterRadius minus the ruby ball radius.
@@ -135,7 +136,7 @@ struct SceneSphere
 
   bool operator==(const SceneSphere& other) const
   {
-    return center == other.center && radius == other.radius && ballCenterRadius == other.ballCenterRadius
+    return center == other.center && roughCenter == other.roughCenter && radius == other.radius && ballCenterRadius == other.ballCenterRadius
         && compensatedRadius == other.compensatedRadius && rms == other.rms && roughPoints == other.roughPoints
         && strutRadius == other.strutRadius && strutRecess == other.strutRecess && table == other.table
         && standModel == other.standModel;

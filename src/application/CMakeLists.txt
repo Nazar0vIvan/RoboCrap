@@ -85,6 +85,7 @@ else()
       "qml/Views/Workspace/PropertiesPanel.qml"
       "qml/Views/Workspace/EndEffectorPanel.qml"
       "qml/Views/Workspace/MachiningPanel.qml"
+      "qml/Views/Workspace/CalibrationResultWindow.qml"
   )
 endif()
 

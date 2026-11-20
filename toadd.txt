@@ -1,37 +1,13 @@
-1) Должен быть один источник для актуального, текущего центра шарика и центра сферы (назовем их primary centers): 
-- Имеенно из этого источника должны браться центры для генерации траектории, 
-- Значениям именно из этого источника должны соответствовать значения на панели Measuring End Effector
-2) После калибровки: должно выскакивать модальное окно с информацией о результатах калибровки + в конце вопрос "Переназначить центр шарика и центр сферы согласно результатам калибровки?" + две кнопки Reassign и Cancel. Если нажимается Reassign, то назначаются новые значения для primary centers и CALIBRATION_STAND.brep и EE_WP-500.brep должны переместиться на сцене в соответствии с новыми primary centers.
-3) Результаты последней калибровки должны отражаться на Property Panel справа, когда ничего на сцене не выбрано
-4) Можно ли `RSI_Probe_Calibration.src` изменить так, чтобы он брал TOOL_DATA для центра шарика из приложения, а то сейчас берутся значения, установленные вручную и найденные касаниями в jog mode?
-5) Допустим если я переместил стойку со сферой, необходимо снова её общупать в jog mode, изначально все эти точки касания хранятся в KRL файле в формате dat (пример - sphere.dat), далее мне нужно его скорее всего перевести в его в json, потом в Calibration submode на Toolbar нажать Toolbutton "Import Sphere", выбрать этот json, на основе этих точек должен рассчитаться новый центр сферы, записаться как primary center, и CALIBRATION_STAND.brep должна переместиться в этот центр.
+# USEFULL:
 
-1. There must be a single source of truth for the current ball center and sphere center (let's call them **primary centers**):
-   - The centers used for trajectory generation must be taken from this source.
-   - The values displayed in the **Measuring End Effector** panel must match the values from this source.
+## TEXT
 
-2. After calibration, a modal dialog must appear displaying the calibration results, followed by the question: **"Reassign the ball center and sphere center based on the calibration results?"** The dialog must have two buttons: **Reassign** and **Cancel**.
-   - If **Reassign** is clicked, the primary centers must be updated with the new values.
-   - `CALIBRATION_STAND.brep` and `EE_WP-500.brep` must be repositioned in the scene according to the updated primary centers.
+1) asd-ste100 
 
-3. The results of the most recent calibration must be displayed in the **Property Panel** on the right when nothing is selected in the scene.
+## SKILLS
 
-4. Is it possible to modify `RSI_Probe_Calibration.src` so that it retrieves the **TOOL_DATA** for the ball center from the application? Currently, it uses values that were manually configured based on contact points measured in jog mode.
-
-5. Suppose I move the calibration stand with the sphere. I need to probe the sphere again in jog mode.
-   - Initially, all these contact points are stored in a KRL `.dat` file (e.g., `sphere.dat`).
-   - I will most likely need to convert this file to JSON.
-   - Then, in the **Calibration** submode, I should click the **Import Sphere** toolbutton on the toolbar and select the JSON file.
-   - The application must calculate the new sphere center from these contact points and save it as the primary sphere center.
-   - `CALIBRATION_STAND.brep` must then be repositioned in the scene according to the new sphere center.
-	 
-Review my proposals. If you need to analyze something further, analyze it. Is it feasible? Are there any additional questions?
-
-asd-ste100
-
-There are two approaches here, as I see it:
-- I can re-save EE_WP-500.stp in a coordinate system tied to the probe's center. Then EE_WP-500.brep will be loaded into the scene in this coordinate system, and I'll need to somehow calculate its position relative to the coordinate system of the robot's last link.
-- I can keep the current coordinate system and recalculate the new position of the current coordinate system relative to the calibrated probe's center.
-
-
+1) qt-cpp-review
+https://github.com/TheQtCompanyRnD/agent-skills/blob/main/skills/qt-cpp-review/SKILL.md?utm_source=chatgpt.com
+2) performance-patterns
+https://www.skills.sh/intel/intel-performance-skills/performance-patterns?utm_source=chatgpt.com
 

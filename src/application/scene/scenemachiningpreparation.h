@@ -8,7 +8,6 @@
 
 #include <QTimer>
 #include <QVariantHash>
-#include <QVariantList>
 #include <future>
 #include <memory>
 #include <optional>
@@ -36,8 +35,6 @@ class SceneMachiningPreparation final : public QObject
   Q_PROPERTY(int calibrationDetected READ calibrationDetected NOTIFY calibrationRunChanged)
   Q_PROPERTY(int calibrationTouchCount READ calibrationTouchCount NOTIFY preparedChanged)
   Q_PROPERTY(QString calibrationRunError READ calibrationRunError NOTIFY calibrationRunChanged)
-  // Rows {label, value} of the last successful fit.
-  Q_PROPERTY(QVariantList calibrationResult READ calibrationResult NOTIFY calibrationRunChanged)
 
 public:
   SceneMachiningPreparation(SceneModel* scene, SceneMachining* machining, SceneCalibration* calibration);
@@ -63,7 +60,6 @@ public:
   int calibrationDetected() const { return static_cast<int>(m_detections.size()); }
   int calibrationTouchCount() const { return m_preparedCalibration ? m_preparedCalibration->touchCount : 0; }
   QString calibrationRunError() const { return m_runError; }
-  QVariantList calibrationResult() const { return m_runResult; }
   // Starts program 1 (RSI_Probe_Calibration) through the PLC.
   Q_INVOKABLE void startCalibration();
 
@@ -79,7 +75,7 @@ signals:
   // Empty values clear the streams; the table (stream i for TouchIndex i) and its log ID travel together.
   void correctionsReady(const QVector<QVector<V6d>>& streams, const QString& diagnosticId);
   void calibrationRunChanged();
-  // A run ended; calibrationResult or calibrationRunError holds the outcome.
+  // A run ended; a successful fit is SceneCalibration's last result, errors are in calibrationRunError.
   void calibrationRunFinished();
 
 private:
@@ -135,5 +131,4 @@ private:
   CalibrationRun m_run = CalibrationRun::Idle;
   QVector<ProbeTouchDetection> m_detections; // Of the current or last run.
   QString m_runError;
-  QVariantList m_runResult;
 };

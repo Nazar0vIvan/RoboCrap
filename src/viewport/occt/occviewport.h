@@ -14,6 +14,13 @@
 
 namespace RoboCrap3D {
 
+// A left click: an application object (0 clears the selection) or the displayed end-effector model.
+struct OccPick
+{
+  quint32 objectId = 0;
+  bool tool = false;
+};
+
 class OccViewport final
 {
 public:
@@ -34,11 +41,12 @@ public:
   void removeObject(quint32 id);
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
-  void setSelectedObjects(const QList<quint32>& ids);
+  // Highlights the listed application objects and, when toolSelected, the displayed end effector.
+  void setSelection(const QList<quint32>& objectIds, bool toolSelected);
   ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
   void setExposed(bool exposed);
   void resize();
-  std::optional<quint32> mousePress(const QPoint& pos, Qt::MouseButton button);
+  std::optional<OccPick> mousePress(const QPoint& pos, Qt::MouseButton button);
   void mouseMove(const QPoint& pos);
   void mouseRelease(Qt::MouseButton button);
   void wheel(const QPoint& pos, int delta);

@@ -30,6 +30,8 @@ void WorkspaceController::setMode(Mode mode)
 
 void WorkspaceController::synchronizeMode()
 {
+  // The mode shows the other end-effector model.
+  setToolSelected(false);
   if (m_mode != Machining) m_machining->stop();
   // QML cancels the old editor before tool/input settings change.
   emit modeChanged();
@@ -68,10 +70,25 @@ bool WorkspaceController::intersectionAvailable() const
 void WorkspaceController::selectObject(quint32 id, bool additive)
 {
   if (id && !m_scene->findObject(id)) return;
+  setToolSelected(false);
   auto ids = additive ? m_selectedIds : QList<quint32>{};
   if (!id) ids.clear();
   else if (!ids.removeOne(id)) ids.append(id);
   setSelection(std::move(ids));
+}
+
+void WorkspaceController::selectTool()
+{
+  // Objects first, so QML closes their panels before the end-effector panel opens.
+  setSelection({});
+  setToolSelected(true);
+}
+
+void WorkspaceController::setToolSelected(bool selected)
+{
+  if (m_toolSelected == selected) return;
+  m_toolSelected = selected;
+  emit toolSelectedChanged(selected);
 }
 
 void WorkspaceController::setSelection(QList<quint32> ids)

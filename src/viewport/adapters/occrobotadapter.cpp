@@ -40,6 +40,8 @@ ViewportOperationResult OccRobotAdapter::load(const RobotVisualModel& visuals, c
       if (link) {
         const auto& color = visuals.links[i].color;
         props.color = rgb(color[0], color[1], color[2]);
+      } else {
+        props.selectionMode = OccSelectionMode::PartOnly; // A tool is picked as a whole; links are not.
       }
       const auto id = m_scene.createShapePart(shapes.shapes[i], props);
       if (!id) { error = operation + QStringLiteral(" failed."); break; }
@@ -102,9 +104,11 @@ ViewportOperationResult OccRobotAdapter::applyTransforms(const DrawingPose& pose
         return {false, QStringLiteral("link %1 transform rejected").arg(link + 1)};
     }
     operation = QStringLiteral("tool transform");
-    for (qsizetype i = linkCount; i < m_partIds.size(); ++i)
-      if (!m_scene.setPartTransform(m_partIds[i], toOccTransform(pose.tool)))
+    for (qsizetype i = linkCount; i < m_partIds.size(); ++i) {
+      const bool measuring = i - linkCount == static_cast<qsizetype>(RobotTool::Measuring);
+      if (!m_scene.setPartTransform(m_partIds[i], toOccTransform(measuring ? pose.measuringTool : pose.tool)))
         return {false, operation + QStringLiteral(" rejected")};
+    }
     m_spindleTcpFrame = pose.tcp;
     m_spindleColletFrame = pose.collet;
     operation = QStringLiteral("tool axes");
@@ -136,6 +140,12 @@ bool OccRobotAdapter::setActiveTool(RobotTool active)
   if (active != RobotTool::Measuring && active != RobotTool::Spindle) return false;
   m_activeTool = active;
   return showActiveTool();
+}
+
+std::optional<OccScene::PartId> OccRobotAdapter::activeToolPart() const
+{
+  if (!m_loaded) return std::nullopt;
+  return m_partIds[m_partIds.size() - ToolCount + static_cast<qsizetype>(m_activeTool)];
 }
 
 bool OccRobotAdapter::showActiveTool()

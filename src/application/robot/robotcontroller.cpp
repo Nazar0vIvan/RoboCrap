@@ -12,6 +12,13 @@
 
 namespace RoboCrap3D {
 
+namespace {
+
+// Ruby ball centre in the model frame of EE_WP-500.brep, mm.
+const V3d MeasuringModelBallCentre{0.0, 0.0, 127.0};
+
+} // namespace
+
 RobotController::RobotController(OccController* viewport, SceneEndEffectors* effectors, ScenePlayback* playback)
   : m_viewport(viewport), m_endEffectors(effectors), m_playback(playback)
 {
@@ -23,6 +30,7 @@ RobotController::RobotController(OccController* viewport, SceneEndEffectors* eff
   connect(effectors, &SceneEndEffectors::activeToolChanged, this, &RobotController::synchronizeTools);
   connect(effectors, &SceneEndEffectors::spindleTcpChanged, this, &RobotController::synchronizeTools);
   connect(effectors, &SceneEndEffectors::spindleColletChanged, this, &RobotController::synchronizeTools);
+  connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &RobotController::synchronizeMeasuringTool);
   synchronizeTools();
   synchronizeReadiness();
 }
@@ -64,7 +72,10 @@ void RobotController::synchronizeReadiness()
 
 DrawingPose RobotController::drawingPose(const QList<M4d>& links, const std::optional<M4d>& checkedTcp) const
 {
-  DrawingPose result{links, links.back(), {}, {}};
+  // The probe model keeps its CAD frame and moves so that its ball centre is the measuring TCP.
+  const QList<double>& ball = m_endEffectors->measuringTcp();
+  const V3d offset = V3d{ball[0], ball[1], ball[2]} - MeasuringModelBallCentre;
+  DrawingPose result{links, links.back(), {}, {}, links.back() * makeTranslation(offset)};
   if (m_endEffectors->activeTool() != SceneEndEffectors::Spindle) return result;
   if (m_viewport->showSpindleTcp()) {
     if (checkedTcp) result.tcp = checkedTcp;
@@ -83,6 +94,14 @@ void RobotController::synchronizeTools()
   if (!m_pose && !m_initialPose) return;
   const auto drawing = drawingPose(m_pose ? *m_pose : *m_initialPose);
   m_viewport->setSpindleFrames(drawing.tcp, drawing.collet);
+}
+
+void RobotController::synchronizeMeasuringTool()
+{
+  // Before readiness loadRobot has built the installation pose; the next applied pose uses this TCP.
+  if (!isReady()) return;
+  // OccController reports a rejected transform itself.
+  m_viewport->applyRobotTransforms(drawingPose(*m_pose));
 }
 
 ViewportOperationResult RobotController::loadRobot()

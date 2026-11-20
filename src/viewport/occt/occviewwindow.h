@@ -35,6 +35,7 @@ signals:
   void viewportReadyChanged();
   void errorOccurred(const QString& error);
   void applicationSelectionRequested(quint32 objectId, bool additive);
+  void toolSelectionRequested(); // The displayed end-effector model was clicked.
   void deleteSelectionRequested();
 
 protected:

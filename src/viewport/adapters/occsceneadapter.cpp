@@ -275,7 +275,7 @@ ViewportOperationResult OccSceneAdapter::setDraftAxis(const std::optional<Drawin
   return {true, error};
 }
 
-void OccSceneAdapter::setSelectedObjects(const QList<quint32>& ids)
+std::vector<OccScene::PartId> OccSceneAdapter::selectedParts(const QList<quint32>& ids) const
 {
   std::vector<OccScene::PartId> parts;
   for (const auto id : ids) {
@@ -284,7 +284,7 @@ void OccSceneAdapter::setSelectedObjects(const QList<quint32>& ids)
       for (const auto part : it->surfaces)
         if (std::find(parts.cbegin(), parts.cend(), part) == parts.cend()) parts.push_back(part);
   }
-  m_scene.selectParts(parts);
+  return parts;
 }
 
 quint32 OccSceneAdapter::objectIdFor(const Handle(AIS_InteractiveObject)& picked) const

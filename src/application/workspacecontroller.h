@@ -22,6 +22,8 @@ class WorkspaceController final : public QObject
   Q_PROPERTY(QList<quint32> selectedObjectIds READ selectedObjectIds NOTIFY selectionChanged)
   Q_PROPERTY(SceneObject* selectedObject READ selectedObject NOTIFY selectionDetailsChanged)
   Q_PROPERTY(bool intersectionAvailable READ intersectionAvailable NOTIFY selectionDetailsChanged)
+  // The displayed end-effector model is selected; it excludes selected scene objects.
+  Q_PROPERTY(bool toolSelected READ toolSelected NOTIFY toolSelectedChanged)
 public:
   enum Mode { Measuring, Machining };
   Q_ENUM(Mode)
@@ -38,7 +40,11 @@ public:
   const QList<quint32>& selectedObjectIds() const { return m_selectedIds; }
   SceneObject* selectedObject() const;
   bool intersectionAvailable() const;
+  bool toolSelected() const { return m_toolSelected; }
+  // Also deselects the end-effector model.
   Q_INVOKABLE void selectObject(quint32 id, bool additive);
+  // Viewport pick of the end-effector model: replaces the object selection.
+  void selectTool();
   Q_INVOKABLE void deleteSelected();
   Q_INVOKABLE void intersectSelected();
   Q_INVOKABLE void reset();
@@ -48,11 +54,13 @@ signals:
   void submodeChanged();
   void selectionChanged(const QList<quint32>& ids);
   void selectionDetailsChanged();
+  void toolSelectedChanged(bool selected);
   // Measuring with the Calibration submode starts or stops; false precedes the tool change.
   void calibrationActiveChanged(bool active);
 
 private:
   void setSelection(QList<quint32> ids);
+  void setToolSelected(bool selected);
   void pruneSelection();
   void synchronizeMode();
   void synchronizeCalibration();
@@ -65,5 +73,6 @@ private:
   Submode m_submode = Rough;
   bool m_calibrationActive = false;
   QList<quint32> m_selectedIds;
+  bool m_toolSelected = false;
   inline static QPointer<WorkspaceController> s_instance;
 };

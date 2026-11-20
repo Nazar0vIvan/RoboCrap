@@ -45,6 +45,8 @@ private:
   void setError(const QString& error);
   void synchronizeReadiness();
   void synchronizeTools();
+  // Redraws the current pose with the probe model shifted to the new measuring TCP.
+  void synchronizeMeasuringTool();
 
   OccController* m_viewport;
   SceneEndEffectors* m_endEffectors;

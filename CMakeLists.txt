@@ -54,6 +54,10 @@ set(QML_IMPORT_PATH "${QT_QML_OUTPUT_DIRECTORY}" CACHE STRING "QML import paths 
 set(ROBOCRAP_RECORDS_DIR "${PROJECT_SOURCE_DIR}/records" CACHE PATH
   "Folder for run records: RSI plans and captures, calibration results, PLC and FTS logs")
 add_compile_definitions(ROBOCRAP_RECORDS_DIR="${ROBOCRAP_RECORDS_DIR}")
+# Tracked by git, so the primary probe centres survive a deleted build and move between computers.
+set(ROBOCRAP_SETTINGS_DIR "${PROJECT_SOURCE_DIR}/settings" CACHE PATH
+  "Folder for probe_calibration.json: primary ball and sphere centres and the last calibration result")
+add_compile_definitions(ROBOCRAP_SETTINGS_DIR="${ROBOCRAP_SETTINGS_DIR}")
 
 add_subdirectory(src/geometry)
 add_subdirectory(src/kinematics)

@@ -13,13 +13,16 @@ QxPanel {
   required property Backend.SceneObject selectedObject
   required property bool showPoints
   required property bool showNormals
+  // Rows {label, value} of the last calibration result, shown while nothing is selected.
+  required property var calibrationRows
+  readonly property bool calibrationShown: root.selectionCount === 0
   readonly property int labelColumnWidth: Math.ceil(Math.max(Metrics.w120,
       ...[qsTr("Name"), qsTr("Type"), qsTr("State"), qsTr("Source"), qsTr("Visible"),
           qsTr("Show Points"), qsTr("Show Normals"), qsTr("Normal"), qsTr("Origin"),
           qsTr("Width"), qsTr("Height"), qsTr("Points"), qsTr("Offset (d)"),
           qsTr("Radius"), qsTr("Axis"),
           qsTr("Diameter"), qsTr("Length"), qsTr("Nominal radius"), qsTr("Nominal diameter"),
-          qsTr("Radius/Diameter"), qsTr("Fitted center"),
+          qsTr("Radius/Diameter"), qsTr("Center"), qsTr("Fitted center (jog)"),
           qsTr("Fit RMS")].map(label => labelMetrics.advanceWidth(label))))
 
   FontMetrics {
@@ -58,6 +61,21 @@ QxPanel {
     }
   }
 
+  // Selectable one-line value, clipped instead of wrapped.
+  component ValueText: TextEdit {
+    Layout.fillWidth: true
+    Layout.minimumWidth: 0
+    clip: true
+    readOnly: true
+    selectByMouse: true
+    textFormat: TextEdit.PlainText
+    wrapMode: TextEdit.NoWrap
+    selectionColor: Colors.primary.highlight
+    selectedTextColor: Colors.foreground.high
+    color: Colors.foreground.high
+    font: Fonts.body
+  }
+
   component PropertyValue: QxHField {
     property alias valueText: valueLabel.text
 
@@ -65,20 +83,8 @@ QxPanel {
     labelWidth: root.labelColumnWidth
     fixedLabelWidth: true
 
-    TextEdit {
+    ValueText {
       id: valueLabel
-
-      Layout.fillWidth: true
-      Layout.minimumWidth: 0
-      clip: true
-      readOnly: true
-      selectByMouse: true
-      textFormat: TextEdit.PlainText
-      wrapMode: TextEdit.NoWrap
-      selectionColor: Colors.primary.highlight
-      selectedTextColor: Colors.foreground.high
-      color: Colors.foreground.high
-      font: Fonts.body
     }
   }
 
@@ -96,7 +102,7 @@ QxPanel {
 
   Label {
     Layout.fillWidth: true
-    visible: !root.selectedObject
+    visible: !root.selectedObject && !root.calibrationShown
     text: root.selectionCount <= 1 ? qsTr("Select an object.")
                                    : qsTr("%1 objects selected.").arg(root.selectionCount)
     color: Colors.foreground.medium
@@ -111,9 +117,48 @@ QxPanel {
     Layout.fillHeight: true
     clip: true
     contentWidth: availableWidth
-    contentHeight: root.selectedObject ? propertiesContent.implicitHeight : 0
+    contentHeight: root.selectedObject ? propertiesContent.implicitHeight
+                   : root.calibrationShown ? calibrationContent.implicitHeight : 0
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
-    ScrollBar.vertical.policy: root.selectedObject ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+    ScrollBar.vertical.policy: root.selectedObject || root.calibrationShown ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
+
+    // Label above value: the result labels are too long for the label column.
+    ColumnLayout {
+      id: calibrationContent
+      width: propertiesScroll.contentWidth
+      visible: root.calibrationShown
+      spacing: Metrics.sp8
+
+      Label {
+        Layout.fillWidth: true
+        text: root.calibrationRows.length > 0 ? qsTr("Last calibration") : qsTr("No calibration result.")
+        color: Colors.foreground.medium
+        font: Fonts.body
+      }
+
+      Repeater {
+        model: root.calibrationRows
+        delegate: ColumnLayout {
+          id: calibrationRow
+          required property var modelData
+
+          Layout.fillWidth: true
+          spacing: Metrics.sp0
+
+          Label {
+            Layout.fillWidth: true
+            text: calibrationRow.modelData.label
+            color: Colors.foreground.medium
+            font: Fonts.body
+            elide: Text.ElideRight
+          }
+
+          ValueText {
+            text: calibrationRow.modelData.value
+          }
+        }
+      }
+    }
 
     ColumnLayout {
       id: propertiesContent

@@ -39,6 +39,21 @@ ApplicationWindow {
     root.toolSetupOpen = true
   }
 
+  // Closing the panel of a selected end-effector model also deselects the model.
+  function closeToolSetup() {
+    root.toolSetupOpen = false
+    if (App.WorkspaceController.toolSelected) App.WorkspaceController.selectObject(0, false)
+  }
+
+  // A picked end-effector model opens its panel as the Measuring EE and Spindle EE buttons do.
+  Connections {
+    target: App.WorkspaceController
+    function onToolSelectedChanged(selected) {
+      if (selected) root.openToolSetup()
+      else root.toolSetupOpen = false
+    }
+  }
+
   // Editor state stays local; application selection belongs to WorkspaceController.
   property bool chamferEditorOpen: false
   property bool toolSetupOpen: false
@@ -67,7 +82,32 @@ ApplicationWindow {
       App.WorkspaceController.selectObject(objectId, false)
     }
   }
-  Component.onCompleted: App.WorkspaceController.reset()
+  Component.onCompleted: {
+    App.WorkspaceController.reset()
+    // The settings file is read before this window exists.
+    if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
+  }
+
+  // Native dialog: a separate window, so it neither hides behind the viewport nor moves the layout.
+  Dialogs.MessageDialog {
+    id: settingsErrorDialog
+    title: qsTr("Probe settings")
+    text: App.Calibration.settingsError
+    buttons: Dialogs.MessageDialog.Ok
+  }
+
+  Connections {
+    target: App.Calibration
+    function onSettingsErrorChanged() {
+      if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
+    }
+    // Emitted only after a successful fit, inside the run end, before calibrationRunFinished.
+    function onLastCalibrationChanged() {
+      calibrationResultWindow.show()
+      calibrationResultWindow.raise()
+      calibrationResultWindow.requestActivate()
+    }
+  }
 
   App.PlaneImporter {
     id: surfaceImporter
@@ -102,21 +142,26 @@ ApplicationWindow {
   }
 
   Dialogs.MessageDialog {
-    id: calibrationResultDialog
+    id: calibrationFailedDialog
+    title: qsTr("Calibration failed")
+    text: App.MachiningPreparation.calibrationRunError
     buttons: Dialogs.MessageDialog.Ok
   }
 
-  // One "label: value" line per result row; a run error or a result-file error follows the rows.
+  // The error binding also shows write errors that the run end sets after opening the window.
+  CalibrationResultWindow {
+    id: calibrationResultWindow
+    transientParent: root
+    rows: App.Calibration.lastCalibrationRows
+    error: App.MachiningPreparation.calibrationRunError
+    onReassignRequested: App.Calibration.reassignPrimaryCentres()
+  }
+
   Connections {
     target: App.MachiningPreparation
+    // A successful fit has already opened calibrationResultWindow.
     function onCalibrationRunFinished() {
-      const preparation = App.MachiningPreparation
-      const lines = preparation.calibrationResult.map(row => row.label + ": " + row.value)
-      if (preparation.calibrationRunError.length > 0) lines.push(preparation.calibrationRunError)
-      calibrationResultDialog.title = preparation.calibrationResult.length > 0 ? qsTr("Calibration complete")
-                                                                                : qsTr("Calibration failed")
-      calibrationResultDialog.text = lines.join("\n")
-      calibrationResultDialog.open()
+      if (!calibrationResultWindow.visible) calibrationFailedDialog.open()
     }
   }
 
@@ -480,6 +525,7 @@ ApplicationWindow {
         selectedObject: root.selectedSceneObject
         showPoints: root.selectedSceneObject ? root.selectedSceneObject.showPoints : false
         showNormals: root.selectedSceneObject ? root.selectedSceneObject.showNormals : false
+        calibrationRows: App.Calibration.lastCalibrationRows
         onPointsToggled: checked => {
           if (root.selectedSceneObject)
             root.sceneModel.setObjectDiagnosticOverlays(root.selectedSceneObject, checked, root.selectedSceneObject.showNormals)
@@ -496,7 +542,7 @@ ApplicationWindow {
       EndEffectorPanel {
         anchors.fill: parent
         visible: root.toolSetupOpen && root.workflowMode === WorkflowPanel.Measuring
-        onCloseRequested: root.toolSetupOpen = false
+        onCloseRequested: root.closeToolSetup()
         measuring: true
         measuringName: App.EndEffectors.measuringName
         ballDiameter: App.EndEffectors.rubyBallDiameter
@@ -510,7 +556,7 @@ ApplicationWindow {
       EndEffectorPanel {
         anchors.fill: parent
         visible: root.toolSetupOpen && root.workflowMode === WorkflowPanel.Machining
-        onCloseRequested: root.toolSetupOpen = false
+        onCloseRequested: root.closeToolSetup()
         measuring: false
         measuringName: App.EndEffectors.measuringName
         ballDiameter: App.EndEffectors.rubyBallDiameter

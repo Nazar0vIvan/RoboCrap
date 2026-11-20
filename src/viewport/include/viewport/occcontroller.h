@@ -86,15 +86,17 @@ struct CadLoadResult;
 struct DrawingDocument {
   QMap<quint32, DrawingObject> objects;
   QList<quint32> selected;
+  bool toolSelected = false; // The displayed end-effector model is selected.
   std::optional<DrawingAxis> axis;
   QHash<QString, std::shared_ptr<const CadLoadResult>> models; // Finished DrawingModel loads, failures included.
 };
 
 struct DrawingPose {
   QList<M4d> links;
-  M4d tool = M4d::Identity();
+  M4d tool = M4d::Identity(); // Flange; places the spindle model.
   std::optional<M4d> tcp;
   std::optional<M4d> collet;
+  M4d measuringTool = M4d::Identity(); // Places the measuring model.
 };
 
 class CadLoadWorker;
@@ -135,6 +137,7 @@ public:
   void setActiveTool(RobotTool tool);
   void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
   Q_INVOKABLE void setSelectedObjects(const QList<quint32>& ids);
+  void setToolSelected(bool selected);
 
   ViewportOperationResult loadRobot(const RobotVisualModel& visuals, const DrawingPose& pose);
   ViewportOperationResult applyRobotTransforms(const DrawingPose& pose);
@@ -150,6 +153,7 @@ signals:
   void errorStringChanged();
   void message(const QString& text, bool error);
   void applicationSelectionRequested(quint32 objectId, bool additive);
+  void toolSelectionRequested(); // The displayed end-effector model was clicked.
   void deleteSelectionRequested();
 
 private:

@@ -18,7 +18,8 @@ public:
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
   ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
-  void setSelectedObjects(const QList<quint32>& ids);
+  // Surface parts of the visible listed objects, without duplicates.
+  std::vector<OccScene::PartId> selectedParts(const QList<quint32>& ids) const;
   quint32 objectIdFor(const Handle(AIS_InteractiveObject)& picked) const;
 
 private:

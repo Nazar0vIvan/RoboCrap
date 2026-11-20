@@ -84,6 +84,7 @@ QVariantList SceneObject::properties() const
   }
   if (const auto* value = sphere()) {
     const V3d& center = value->center;
+    const V3d& rough = value->roughCenter;
     return {propertyRow(tr("Nominal radius"), formatReal(value->radius)),
             propertyRow(tr("Nominal diameter"), formatReal(2 * value->radius)),
             separatorRow(),
@@ -93,7 +94,8 @@ QVariantList SceneObject::properties() const
             toggleRow(tr("Compensated sphere"), QStringLiteral("showCompensatedSphere")),
             propertyRow(tr("Radius/Diameter"), radiusDiameter(value->compensatedRadius)),
             separatorRow(),
-            propertyRow(tr("Fitted center"), formatVector({center.x(), center.y(), center.z()})),
+            propertyRow(tr("Center"), formatVector({center.x(), center.y(), center.z()})),
+            propertyRow(tr("Fitted center (jog)"), formatVector({rough.x(), rough.y(), rough.z()})),
             propertyRow(tr("Fit RMS"), formatReal(value->rms)),
             propertyRow(tr("Points"), QString::number(value->roughPoints.size()))};
   }

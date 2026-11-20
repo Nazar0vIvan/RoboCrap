@@ -75,9 +75,11 @@ ViewportOperationResult OccViewport::setObjectDiagnostics(quint32 id, const Draw
   return result;
 }
 
-void OccViewport::setSelectedObjects(const QList<quint32>& ids)
+void OccViewport::setSelection(const QList<quint32>& objectIds, bool toolSelected)
 {
-  m_application.setSelectedObjects(ids);
+  auto parts = m_application.selectedParts(objectIds);
+  if (const auto tool = m_robot.activeToolPart(); tool && toolSelected) parts.push_back(*tool);
+  m_scene.selectParts(parts);
   requestRender();
 }
 
@@ -131,7 +133,7 @@ void OccViewport::resize()
   requestRender();
 }
 
-std::optional<quint32> OccViewport::mousePress(const QPoint& pos, Qt::MouseButton button)
+std::optional<OccPick> OccViewport::mousePress(const QPoint& pos, Qt::MouseButton button)
 {
   if (!m_exposed) return std::nullopt;
   const OccInputResult input = m_input.mousePress(pos, button);
@@ -139,10 +141,11 @@ std::optional<quint32> OccViewport::mousePress(const QPoint& pos, Qt::MouseButto
                          || input.cameraScaleChanged)) m_cameraAdjusted = true;
   applyInput(input);
   if (button != Qt::LeftButton || !input.selectionChanged) return std::nullopt;
-  if (m_viewer.context()->HasDetected()) {
-    return m_application.objectIdFor(m_viewer.context()->DetectedInteractive());
-  }
-  return quint32{0}; // Background or non-application geometry clears UI selection.
+  if (!m_viewer.context()->HasDetected()) return OccPick{}; // Background clears UI selection.
+  const auto detected = m_viewer.context()->DetectedInteractive();
+  if (const auto tool = m_robot.activeToolPart(); tool && m_scene.partHandle(*tool) == detected)
+    return OccPick{0, true};
+  return OccPick{m_application.objectIdFor(detected), false}; // Other geometry gives 0.
 }
 
 void OccViewport::mouseMove(const QPoint& pos)

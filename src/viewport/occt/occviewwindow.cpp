@@ -135,8 +135,9 @@ void OccViewWindow::mousePressEvent(QMouseEvent* event)
 {
   if (!isViewportReady()) return;
   const auto picked = m_viewport->mousePress(nativePosition(event->position()), event->button());
-  if (picked) emit applicationSelectionRequested(*picked,
-                                                  (event->modifiers() & Qt::ControlModifier) != 0);
+  if (picked && picked->tool) emit toolSelectionRequested();
+  else if (picked) emit applicationSelectionRequested(picked->objectId,
+                                                       (event->modifiers() & Qt::ControlModifier) != 0);
   event->accept();
 }
 
@@ -187,7 +188,7 @@ void OccViewWindow::initializeViewport()
     const auto axis = m_viewport->setDraftAxis(m_document.axis);
     if (!axis.accepted) emit errorOccurred(axis.error);
     m_viewport->setSpindleFrames(m_pose.tcp, m_pose.collet);
-    m_viewport->setSelectedObjects(m_document.selected);
+    m_viewport->setSelection(m_document.selected, m_document.toolSelected);
     m_viewport->setExposed(true);
   } catch (const Standard_Failure& failure) {
     releaseSurface();
@@ -207,8 +208,13 @@ void OccViewWindow::attachRobot()
   try {
     const auto result = m_viewport->setRobot(*m_visuals, *m_shapes, m_pose);
     m_presentationFailed = !result.accepted;
-    if (m_presentationFailed) emit errorOccurred(result.error);
-    else attachActiveTool();
+    if (m_presentationFailed) {
+      emit errorOccurred(result.error);
+    } else {
+      attachActiveTool();
+      // The end-effector part exists only now; a recreated surface restores its selection.
+      m_viewport->setSelection(m_document.selected, m_document.toolSelected);
+    }
   } catch (const Standard_Failure& failure) {
     m_presentationFailed = true;
     emit errorOccurred(QStringLiteral("Robot installation: %1").arg(QString::fromUtf8(failure.what())));
