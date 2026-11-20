@@ -7,7 +7,13 @@ import Styles 1.0
 Button {
   id: control
 
+  // The longest caption of a button whose text toggles; the button keeps that width in every state.
+  property string reservedText: ""
+
   checkable: false
+  implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
+                          Math.max(implicitContentWidth, Math.ceil(reservedMetrics.advanceWidth))
+                          + leftPadding + rightPadding)
 
   leftPadding: Metrics.sp12
   rightPadding: Metrics.sp12
@@ -26,5 +32,11 @@ Button {
     horizontalAlignment: Text.AlignHCenter
     verticalAlignment: Text.AlignVCenter
     font: Fonts.body
+  }
+
+  TextMetrics {
+    id: reservedMetrics
+    font: Fonts.body
+    text: control.reservedText
   }
 }

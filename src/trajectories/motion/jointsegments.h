@@ -13,8 +13,13 @@
 constexpr double TransferPositionTolerance = 0.01; // mm; prescribed TCP chord criterion only.
 // mm/s, $VEL_MA.CP of the installed KR C4 (controller/snapshots/2026-11-14/R1/Mada/$machine.dat).
 constexpr double MaximumTransferFeed = 3000.0;
+constexpr qsizetype MaximumScheduledPoints = 200000; // Points of one scheduled LIN/CIRC or central path.
+constexpr double TimeResolution = 1e-9; // s; shortest representable interval between motion points.
+constexpr double RateTolerance = 1e-6; // Relative excess allowed over a speed or acceleration limit.
 
 bool rigid(const M4d& transform);
+// The one joint-position rule: empty for finite joints within [qMin, qMax], otherwise the error text.
+QString chamferJointPositionError(const V6d& joints, const RoboCrap3D::Kr10KinematicModel& model);
 bool withinLimits(const V6d& joints, const RoboCrap3D::Kr10KinematicModel& model);
 
 struct RobotSetupResult

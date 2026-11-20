@@ -16,9 +16,7 @@ Kr10Kinematics::Kr10Kinematics(const Kr10KinematicModel& model) : m_model(model)
 bool Kr10Kinematics::isValid() const
 {
   const Kr10KinematicModel::IkParams& ik = m_model.ik;
-  const double b = std::hypot(ik.by, ik.bx);
-
-  return ik.a > GeomConst::Eps && b > GeomConst::Eps && std::abs(ik.dF) > GeomConst::Eps;
+  return ik.a > GeomConst::Eps && forearmLength() > GeomConst::Eps && std::abs(ik.dF) > GeomConst::Eps;
 }
 
 std::array<M4d, LinkCount> Kr10Kinematics::solveFK(const V6d& q) const
@@ -29,10 +27,7 @@ std::array<M4d, LinkCount> Kr10Kinematics::solveFK(const V6d& q) const
   T0i[0] = T;
 
   for (std::size_t i = 0; i < DofCount; ++i) {
-    const JointModel& joint = m_model.joints[i];
-    const double dq = q[i] - m_model.qHome[i];
-
-    T = (T * joint.localTransform * makeRotation(dq, joint.axis)).eval();
+    T = childTransform(T, i, q[i]);
     T0i[i + 1] = T;
   }
 
@@ -52,12 +47,7 @@ Kr10Kinematics::calculateIK(const M4d& targetT06, const IkSolution& previous) co
   const IkBranch branch = branchFromStatus(previous.status);
   const V6d& currentQ = previous.q;
 
-  const V3d flangeOrigin = targetT06.block<3, 1>(0, 3);
-  const V3d flangeZ = targetT06.block<3, 1>(0, 2);
-
-  const V3d wristCenter = flangeOrigin - flangeZ * m_model.ik.dF;
-
-  const std::optional<ArmJoints> arm = solveArm(wristCenter, branch, currentQ);
+  const std::optional<ArmJoints> arm = solveArm(wristCentre(targetT06), branch, currentQ);
   if (!arm) return std::nullopt;
 
   const std::optional<WristJoints> wrist = solveWrist(targetT06, *arm, branch, currentQ);
@@ -97,12 +87,10 @@ Kr10Kinematics::IkBranch Kr10Kinematics::branchFromStatus(uint8_t status) noexce
 Kr10Kinematics::IkBranch
 Kr10Kinematics::branchFrom(const V6d &q, const std::array<M4d, LinkCount>& transforms) const
 {
-  const double alpha = std::atan2(m_model.ik.bx, m_model.ik.by);
-
   const JointModel& joint3 = m_model.joints[2];
   const double dq3 = (q[2] - m_model.qHome[2]) * GeomConst::DegToRad / joint3.axis.z();
 
-  const double elbowRad = alpha - GeomConst::Pi / 2.0 - dq3;
+  const double elbowRad = elbowOffset() - GeomConst::Pi / 2.0 - dq3;
 
   const JointModel& joint5 = m_model.joints[4];
   const double dq5 = (q[4] - m_model.qHome[4]) * GeomConst::DegToRad / joint5.axis.z();
@@ -118,12 +106,21 @@ M4d Kr10Kinematics::armTransform(const ArmJoints& arm) const
 {
   const std::array<double, 3> joints{arm.q1, arm.q2, arm.q3};
   M4d transform = M4d::Identity();
-  for (std::size_t i = 0; i < joints.size(); ++i) {
-    const JointModel& joint = m_model.joints[i];
-    const double dq = joints[i] - m_model.qHome[i];
-    transform = (transform * joint.localTransform * makeRotation(dq, joint.axis)).eval();
-  }
+  for (std::size_t i = 0; i < joints.size(); ++i) transform = childTransform(transform, i, joints[i]);
   return transform;
+}
+
+M4d Kr10Kinematics::childTransform(const M4d& parent, std::size_t index, double q) const
+{
+  const JointModel& joint = m_model.joints[index];
+  return (parent * joint.localTransform * makeRotation(q - m_model.qHome[index], joint.axis)).eval();
+}
+
+V3d Kr10Kinematics::wristCentre(const M4d& flange) const
+{
+  const V3d flangeOrigin = flange.block<3, 1>(0, 3);
+  const V3d flangeZ = flange.block<3, 1>(0, 2);
+  return flangeOrigin - flangeZ * m_model.ik.dF;
 }
 
 
@@ -156,8 +153,8 @@ Kr10Kinematics::solveArm(const V3d &wristCenter,
   if (!std::isfinite(distanceSquared) || distanceSquared <= GeomConst::Eps * GeomConst::Eps)
     return std::nullopt;
 
-  const double forearmLength = std::hypot(ik.bx, ik.by);
-  const double cosElbow = (distanceSquared - ik.a * ik.a - forearmLength * forearmLength) / (2.0 * ik.a * forearmLength);
+  const double forearm = forearmLength();
+  const double cosElbow = (distanceSquared - ik.a * ik.a - forearm * forearm) / (2.0 * ik.a * forearm);
 
   if (!std::isfinite(cosElbow) || cosElbow < -1.0 - GeomConst::Eps || cosElbow >  1.0 + GeomConst::Eps) {
     return std::nullopt;
@@ -165,13 +162,12 @@ Kr10Kinematics::solveArm(const V3d &wristCenter,
 
   const double elbowMagnitudeRad = std::acos(std::clamp(cosElbow, -1.0, 1.0));
   const double elbowRad = branch.elbow == ElbowBranch::Positive ? elbowMagnitudeRad : -elbowMagnitudeRad;
-  const double upperArmRad = std::atan2(planarZ, planarX)- std::atan2(forearmLength * std::sin(elbowRad), ik.a + forearmLength * std::cos(elbowRad));
+  const double upperArmRad = std::atan2(planarZ, planarX)- std::atan2(forearm * std::sin(elbowRad), ik.a + forearm * std::cos(elbowRad));
   const double dq2 = GeomConst::Pi / 2.0 - upperArmRad;
   const std::optional<double> q2 = resolveJointAngle(1, dq2, currentQ[1]);
 
   // q3
-  const double alpha = std::atan2(ik.bx, ik.by);
-  const double dq3 = alpha - GeomConst::Pi / 2.0 - elbowRad;
+  const double dq3 = elbowOffset() - GeomConst::Pi / 2.0 - elbowRad;
   const std::optional<double> q3 = resolveJointAngle(2, dq3, currentQ[2]);
 
   if (!q2 || !q3) return std::nullopt;
@@ -224,13 +220,6 @@ std::optional<double> Kr10Kinematics::resolveJointAngle(std::size_t jointIndex, 
   const double angleDeg = m_model.qHome[jointIndex]+ deltaRad * joint.axis.z() * GeomConst::RadToDeg;
   if (!std::isfinite(angleDeg) || !std::isfinite(currentDeg)) return std::nullopt;
 
-  if (IgnorePreviewJointPositionLimits) {
-    // Keep the nearest continuous winding without clamping it to model limits.
-    const double turn = std::round((currentDeg - angleDeg) / 360.0);
-    const double resolved = angleDeg + 360.0 * turn;
-    return std::isfinite(resolved) ? std::optional<double>{resolved} : std::nullopt;
-  }
-
   const int firstTurn = static_cast<int>(std::ceil((joint.qMin - angleDeg) / 360.0));
 
   const int lastTurn = static_cast<int>(std::floor((joint.qMax - angleDeg) / 360.0));
@@ -247,12 +236,7 @@ std::optional<double> Kr10Kinematics::resolveJointAngle(std::size_t jointIndex, 
 bool Kr10Kinematics::isOverhead(const std::array<M4d, LinkCount>& transforms) const
 {
   const M4d& T01 = transforms[1];
-  const M4d& T06 = transforms.back();
-
-  const V3d flangeOrigin = T06.block<3, 1>(0, 3);
-  const V3d flangeZ = T06.block<3, 1>(0, 2);
-
-  const V3d wristCenter = flangeOrigin - flangeZ * m_model.ik.dF;
+  const V3d wristCenter = wristCentre(transforms.back());
 
   const V3d a1Origin = T01.block<3, 1>(0, 3);
   const V3d a1X = T01.block<3, 1>(0, 0);

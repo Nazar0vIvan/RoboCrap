@@ -1,4 +1,5 @@
 #include "geometry/spherefit.h"
+#include "geometry/utils.h"
 
 #include <Eigen/SVD>
 
@@ -8,19 +9,9 @@ std::optional<SphereFit> fitSphere(const QVector<V3d>& points)
 {
   if (points.size() < 4) return std::nullopt;
 
-  Eigen::MatrixXd centered(points.size(), 3);
-  const V3d anchor = points.front();
-  for (int i = 0; i < points.size(); ++i) {
-    const V3d& point = points[i];
-    if (!point.allFinite()) return std::nullopt;
-    centered.row(i) = (point - anchor).transpose();
-  }
-
-  // Center relative to a sample to avoid summing large world-coordinate offsets.
-  const V3d meanOffset = centered.colwise().mean().transpose();
-  const V3d mean = anchor + meanOffset;
-  centered.rowwise() -= meanOffset.transpose();
-  if (!mean.allFinite() || !centered.allFinite()) return std::nullopt;
+  const auto samples = centerPoints(points);
+  if (!samples) return std::nullopt;
+  const Eigen::MatrixXd& centered = samples->centered;
 
   // ||q||^2 = 2 q.c + k is linear in the centered center c and k = r^2 - ||c||^2.
   Eigen::MatrixXd system(points.size(), 4);
@@ -33,14 +24,14 @@ std::optional<SphereFit> fitSphere(const QVector<V3d>& points)
   // Coplanar points leave a family of spheres: the system loses rank.
   const Eigen::VectorXd& singularValues = svd.singularValues();
   if (!singularValues.allFinite() || singularValues[0] <= 0.0
-      || singularValues[3] < 1e-9 * singularValues[0]) return std::nullopt;
+      || singularValues[3] < GeomConst::Eps * singularValues[0]) return std::nullopt;
 
   const Eigen::VectorXd solution = svd.solve(squares);
   const V3d offset = solution.head<3>();
   const double squaredRadius = solution[3] + offset.squaredNorm();
   if (!std::isfinite(squaredRadius) || squaredRadius <= 0.0) return std::nullopt;
 
-  SphereFit result{mean + offset, std::sqrt(squaredRadius), 0.0};
+  SphereFit result{samples->centroid + offset, std::sqrt(squaredRadius), 0.0};
   double sum = 0.0;
   for (const V3d& point : points) {
     const double residual = (point - result.center).norm() - result.radius;

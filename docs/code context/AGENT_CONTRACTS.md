@@ -22,8 +22,8 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   stream table; no
   Trajectories dependency, QML registration or QQmlPropertyMap; its metatype metadata is extracted for
   consumers. DeviceHub, DeviceRunner and DeviceProfileModel are private Application code.
-  PlcMessageManager remains a QObject with dictionary APIs and a published header for the
-  PlcDevice/PlcMessage enums.
+  PlcMessageManager is a Q_GADGET value held by PlcDevice, with dictionary APIs and a published
+  header for the protocol enums; it has no QML registration.
 - RoboCrap3D (src/viewport, URI RoboCrap.Viewport3D) requires bundled OCCT 8.0.0 and a Windows
   64-bit MinGW Qt kit; it publicly links Geometry and QtCore/Gui/Qml, privately OCCT, and has no
   Application/Trajectories dependency. It exports only include/viewport, including the singleton
@@ -181,7 +181,9 @@ src/application/main.cpp; for QML registration also Build and modules.
   of outstanding saves before destruction.
 - DeviceRunner::invoke(name, args) dispatches public Q_INVOKABLE methods of AbstractDevice subclasses
   returning void with zero arguments or one QVariantMap. Names must be unique (buildApi indexes names,
-  not signatures); inspect string call sites.
+  not signatures); inspect string call sites. Socket devices expose connectDevice/disconnectDevice,
+  never connect/disconnect, which would hide QObject's, and parse their configuration with
+  parseSocketEndpoints into one SocketEndpoints value (struct in abstractdevice.h).
 - Keep device/protocol processing and substantial numerics in C++; never block the GUI or ControlIO
   receive callbacks. Single-file helpers/constants go in an unnamed namespace; match the edited file's
   naming, braces and indentation.
@@ -189,7 +191,8 @@ src/application/main.cpp; for QML registration also Build and modules.
   validation with their consumers; validate with offline inputs or local simulation. The root
   hardware-authorization rule applies.
 - PLC: keep one request in flight with the reply timeout and the idle SNAPSHOT heartbeat (below the
-  PLC socket keep-alive), and send nothing at connect. The IO change frame and the SNAPSHOT reply both
+  PLC socket keep-alive), and send nothing at connect. The PC builds and decodes only WRITE_IO,
+  SET_VAR and SNAPSHOT requests; writeMessage is private. The IO change frame and the SNAPSHOT reply both
   carry the start-sequence step/program/result; `VAR_TYPE` and the step/result codes equal the PLC
   DUTs. A PLC protocol or check change updates `docs/plc_project_snapshot/ISPSoft project.md`, and
   RobotStartPanel's enable rules and `robotResumeBlocked` repeat the PLC's FB_RunSetVar/RobotIo
@@ -246,7 +249,8 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
 - Before import/intersection changes read the geometry factories and SceneSurfaceImporter/SceneModel
   callers; preserve units and probe-compensation semantics. BoundedPlane/BoundedCylinder accept points
   or decoded ProbeSamples, without file factories; SceneSurfaceImporter reads/decodes plane and
-  cylinder inputs; there is no circle import.
+  cylinder inputs; there is no circle import. SceneSurfaceImporter refuses files above 4 MiB before
+  reading them, and decodeProbeSamples refuses more than MaximumProbeSamples (10,000) points.
 - fitSphere rejects fewer than four or nonfinite points, a smallest singular value below 1e-9 of the
   largest, and a nonpositive squared radius. SceneCalibration reads the deployed sphere file on the GUI
   thread at every entry into Calibration: version 1, positive sphereDiameter, strutDiameter and
@@ -388,7 +392,9 @@ Apply Geometry and scene to numerical changes.
     keep that identifier paired with the active corrections.
   - At most one table and its job file are held: every accepted Sampling request (chamfer, calibration
     or test LIN) first removes shared_data.txt and calibration_data.txt and sends an empty table; a removed,
-    incompatible or regenerated source path drops its table and file.
+    incompatible or regenerated source path drops its table and file. A job file that cannot be removed
+    is shown as the preparation error and stops that Sampling or test LIN request before sampling or
+    installing a stream; startup and invalidation show it too.
   - Calibration RSI Sampling (prepareCalibration, App.Calibration path present, no calculation)
     runs sampleProbeCalibrationRsi on the saved ProbeTouchMotion: probeMotionSteps pairs one to one
     with the timed phases (PTP to entry, LIN descend/retract/retreat, CIRC transfer, Search for each
@@ -408,13 +414,17 @@ Apply Geometry and scene to numerical changes.
     through DeviceRunner::dataUpdated, because QQmlPropertyMap::valueChanged does not report insert().
     A start failure counts only when this run's start sequence returns to IDLE without STARTED
     (robotResult repeats with every heartbeat); success needs the program seen running, then
-    robotProgramState finished. While program 1 runs, Sampling and the test LIN are refused; a
-    replaced job, a PLC disconnect or a failed start ends the run with an error; an interrupted
-    program keeps it (Resume continues it). Every run end with detections writes them to
+    robotProgramState finished. From Start Calibration until the run ends (Run requested, PLC start
+    sequence or program 1 running), Sampling and the test LIN are refused; a replaced job, a PLC
+    disconnect or a failed start ends the run with an error; an interrupted program keeps it (Resume
+    continues it). Every run end with detections writes them to
     `records/<id>/calibration_touches_<id>.csv`. On success
     fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is written to
     `records/<id>/calibration_result_<id>.csv` and saved by SceneCalibration::recordCalibrationResult
-    as lastCalibration in the settings file (a write error joins calibrationRunError). It becomes
+    as lastCalibration in the settings file (a write error joins calibrationRunError). A result that
+    the settings reader would reject is neither kept nor saved, opens no result window and is reported
+    as the run error. After a failed read of probe_calibration.json, SceneCalibration writes nothing to
+    it in that session, and every refused save reports the read error through settingsError. It becomes
     primary only through Reassign (reassignPrimaryCentres): primary = the last result with source =
     its id, the ball centre applied with A, B, C kept, the sphere moved in the submode; the primary
     centres come only from the calibration touches, never from the verification refit. Reassign
@@ -447,6 +457,9 @@ registration, module names or resources.
 - A Qt Quick Layout owns its immediate children's geometry: use Layout.* and implicit sizes, not
   concurrent x/y/width/height or anchors. Anchors on a layout are valid when its parent is not a
   layout. Check parent/child size dependencies for binding cycles.
+- Scrollable views never spring past their ends: ListView/Flickable set boundsBehavior:
+  Flickable.StopAtBounds, a ScrollView sets it on its Flickable at completion
+  ((contentItem as Flickable).boundsBehavior).
 - WorkspaceController owns mode/submode, selected IDs and toolSelected (the displayed end-effector
   model; exclusive with selected IDs, cleared by any object selection or mode change). Picking that
   model opens its EE settings as the toolbar button does; their Close deselects it. Main binds them
@@ -459,8 +472,10 @@ registration, module names or resources.
   DeviceRunner's isConnected) and Start Calibration (startCalibration, enabled by
   canStartCalibration and the RSI DeviceRunner's isConnected); Generate Path calls
   App.Calibration.generate() without an editor; the Scene panel lists only the Calibration group;
-  Delete removes nothing. The status bar keeps a fixed "AUT EXT" indicator after the mode label (green
-  while the PLC is connected and X1.0 is on, gray otherwise) and shows the calibration run progress
+  Delete removes nothing. The Settings "RSI test LIN" button (prepareTestLin) requires the RSI
+  DeviceRunner's isConnected, no running Sampling and no active calibration run (calibrationRunning).
+  The status bar keeps a fixed "AUT EXT" indicator after the mode label (green while the PLC is
+  connected and X1.0 is on, gray otherwise) and shows the calibration run progress
   first in its existing label in every mode. lastCalibrationChanged opens CalibrationResultWindow (a
   modal top-level Window of fixed size, so the viewport cannot cover it: result rows, the bound
   calibrationRunError, Reassign and Cancel); calibrationRunFinished opens the OK-only "Calibration
@@ -468,8 +483,11 @@ registration, module names or resources.
   settings" dialog at start and on every failed write, never a status message. With nothing selected
   the Properties panel shows the last calibration rows (label above value) in its scroll region, or
   "No calibration result.". Otherwise the label shows the playback status while calibration
-  playback runs without an error; otherwise the
-  calibration error or the reason Generate is unavailable; otherwise the preparation error, summary,
+  playback runs without an error, or while Dry Run plays or pauses with the chamfer editor open;
+  otherwise the calibration error or the reason Generate is unavailable; with the chamfer editor open,
+  its message (Generate error, reason Generate is unavailable, path incompatibility or invalid fields;
+  red only for a Generate error), so the editor has no playback or message region of its own;
+  otherwise the preparation error, summary,
   calibrationUnavailableReason or "Ready for RSI Sampling.", followed by the controller state while
   the RSI device is connected. WorkspaceController emits calibrationActiveChanged(false) before
   changing the tool, so calibration playback stops first.

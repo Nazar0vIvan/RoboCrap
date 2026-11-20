@@ -53,8 +53,6 @@ MenuBar {
 
     anchors {
       left: parent.left
-      top: parent.top
-
       leftMargin: Metrics.sp8
       verticalCenter: parent.verticalCenter
     }

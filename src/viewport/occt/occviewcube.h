@@ -9,8 +9,6 @@ class OccViewCube final
 public:
   OccViewCube();
 
-  bool isValid() const;
-
   const Handle(AIS_ViewCube)& handle() const;
 
 private:

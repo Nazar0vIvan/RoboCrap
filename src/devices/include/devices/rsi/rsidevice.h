@@ -5,7 +5,6 @@
 
 #include <QByteArray>
 #include <QElapsedTimer>
-#include <QHostAddress>
 #include <QVector>
 
 #include <future>
@@ -45,8 +44,8 @@ public:
 
   explicit RsiDevice(const QString& name, QObject* parent = nullptr);
 
-  Q_INVOKABLE void connect(const QVariantMap& config);
-  Q_INVOKABLE void disconnect();
+  Q_INVOKABLE void connectDevice(const QVariantMap& config);
+  Q_INVOKABLE void disconnectDevice();
 
 public slots:
   // Discard buffered requests and reset run/peer state; install the table in Idle.
@@ -82,9 +81,7 @@ private:
   static QString writeTrace(std::shared_future<QString> previous, QByteArray rows, QString fileName);
 
   QUdpSocket* m_sock = nullptr;
-  QHostAddress m_la;
-  quint16 m_lp = 0;
-  QHostAddress m_pa;
+  std::optional<SocketEndpoints> m_endpoints; // Without a peer port; never cleared after the first valid set.
   quint16 m_pp = 0; // Learned from the first accepted controller packet.
 
   QVector<QVector<V6d>> m_streams;

@@ -28,7 +28,7 @@ private:
 enum class IntersectionStatus {
   Success,
   ParallelCylinderAxis,
-  InvalidGeometry
+  InvalidGeometry,
 };
 
 struct IntersectionResult {

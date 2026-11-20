@@ -22,13 +22,15 @@ QxGroupBox {
 
     spacing: Metrics.sp12
 
+    // Constant text on one elided line, hidden by opacity, so connecting never resizes the window.
     Text {
       Layout.fillWidth: true
-      visible: !root.connected
+      Layout.preferredWidth: 0
+      opacity: root.connected ? 0 : 1
       text: qsTr("Connect FTS in Settings.")
       color: Colors.foreground.medium
       font: Fonts.caption
-      wrapMode: Text.WordWrap
+      elide: Text.ElideRight
     }
 
     FtsBars {
@@ -50,6 +52,7 @@ QxGroupBox {
         enabled: root.connected && !root.startPending && !root.saving
         checked: root.streaming
         text: root.streaming ? qsTr("Stop") : qsTr("Start")
+        reservedText: qsTr("Start")
         onClicked: root.fts.invoke(root.streaming ? "stopStreaming" : "startStreaming")
       }
 
@@ -67,6 +70,7 @@ QxGroupBox {
         enabled: root.connected && (root.fts?.data.canRecord ?? false)
         checked: root.recording
         text: root.recording ? qsTr("Recording…") : qsTr("Record")
+        reservedText: qsTr("Recording…")
         onClicked: root.fts.invoke("startLogRecording")
       }
 
@@ -75,6 +79,7 @@ QxGroupBox {
 
         enabled: root.connected && (root.fts?.data.canSave ?? false)
         text: root.saving ? qsTr("Saving…") : qsTr("Save")
+        reservedText: qsTr("Saving…")
         onClicked: root.fts.invoke("saveLogToDefaultFile")
       }
     }

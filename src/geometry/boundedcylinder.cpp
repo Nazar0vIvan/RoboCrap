@@ -14,7 +14,11 @@
 
 namespace {
 
-using Point = BoundedCylinder::Point;
+constexpr int MaximumIterations = 200; // Levenberg-Marquardt steps from one initial axis.
+constexpr int MaximumDampingTrials = 12; // Damping increases within one step.
+constexpr double MinimumConditioning = 0.01; // Smallest/largest singular value of the scaled Jacobian.
+constexpr double MinimumRmsTolerance = 0.1; // mm
+constexpr double RelativeRmsTolerance = 0.02; // Fraction of the fitted radius.
 
 struct Fit {
   V3d axis = V3d::Zero();
@@ -24,14 +28,9 @@ struct Fit {
   Eigen::VectorXd values; // Radial residuals for these fitted parameters.
 };
 
-Point coordinates(const V3d& value)
-{
-  return {value.x(), value.y(), value.z()};
-}
-
 std::optional<std::array<V3d, 2>> tangentBasis(const V3d& axis)
 {
-  const V3d reference = std::abs(axis.x()) < 0.9 ? V3d{1, 0, 0} : V3d{0, 1, 0};
+  const V3d reference = referenceAxis(axis);
   const auto tangent = normalize(reference - reference.dot(axis) * axis);
   if (!tangent) return std::nullopt;
   const V3d bitangent = axis.cross(*tangent);
@@ -113,7 +112,7 @@ std::optional<Fit> fitFromAxis(const std::vector<V3d>& points, const V3d& initia
   Eigen::MatrixXd jacobian;
   Eigen::VectorXd trialValues;
   double damping = 1e-3;
-  for (int iteration = 0; iteration < 200; ++iteration) {
+  for (int iteration = 0; iteration < MaximumIterations; ++iteration) {
     const auto basis = tangentBasis(fit.axis);
     if (!basis) return std::nullopt;
     auto derivatives = linearize(points, fit, scale, std::move(jacobian));
@@ -124,7 +123,7 @@ std::optional<Fit> fitFromAxis(const std::vector<V3d>& points, const V3d& initia
     const Eigen::Matrix<double, 5, 5> normal = jacobian.transpose() * jacobian;
     if (!gradient.allFinite() || !normal.allFinite()) return std::nullopt;
     bool improved = false;
-    for (int trial = 0; trial < 12; ++trial) {
+    for (int trial = 0; trial < MaximumDampingTrials; ++trial) {
       Eigen::Matrix<double, 5, 5> regularized = normal;
       for (int i = 0; i < 5; ++i) regularized(i, i) += damping * std::max(1.0, normal(i, i));
       const Eigen::Matrix<double, 5, 1> change = regularized.ldlt().solve(-gradient);
@@ -169,7 +168,7 @@ bool wellConstrained(const std::vector<V3d>& points, const Fit& fit, double scal
   const Eigen::JacobiSVD<Eigen::MatrixXd> svd(jacobian);
   const auto singular = svd.singularValues();
   return singular.size() == 5 && singular[0] > 0.0
-      && singular[4] / singular[0] >= 0.01;
+      && singular[4] / singular[0] >= MinimumConditioning;
 }
 
 } // namespace
@@ -209,10 +208,7 @@ std::optional<BoundedCylinder> BoundedCylinder::fromPoints(QVector<V3d> points)
   }
   if (!best || !wellConstrained(centered, *best, scale)) return std::nullopt;
 
-  V3d axis = best->axis;
-  Eigen::Index dominant = 0;
-  axis.cwiseAbs().maxCoeff(&dominant);
-  if (axis[dominant] < 0.0) axis = -axis;
+  const V3d axis = dominantPositive(best->axis);
   double minimum = std::numeric_limits<double>::infinity();
   double maximum = -minimum;
   for (const V3d& point : centered) {
@@ -222,19 +218,19 @@ std::optional<BoundedCylinder> BoundedCylinder::fromPoints(QVector<V3d> points)
   }
   const double length = maximum - minimum;
   const double rms = std::sqrt(best->cost / static_cast<double>(points.size()));
-  const double tolerance = std::max(0.1, 0.02 * best->radius); // mm
+  const double tolerance = std::max(MinimumRmsTolerance, RelativeRmsTolerance * best->radius); // mm
   if (!std::isfinite(length) || length <= GeomConst::Eps
 	 || !std::isfinite(best->radius) || best->radius <= GeomConst::Eps
 	 || !std::isfinite(rms) || rms > tolerance) return std::nullopt;
 
   const V3d origin = centroid + best->center + (minimum + length / 2.0) * axis;
   if (!origin.allFinite()) return std::nullopt;
-  return BoundedCylinder(std::move(points), {coordinates(origin), coordinates(axis)}, {best->radius, length});
+  return BoundedCylinder(std::move(points), {toArray(origin), toArray(axis)}, {best->radius, length});
 }
 
 std::optional<BoundedCylinder> BoundedCylinder::fromSamples(ProbeSamples samples)
 {
-	if (!std::isfinite(samples.radius) || samples.radius < 0.0 || (samples.dir != 1 && samples.dir != -1)) return std::nullopt;
+  if (!samples.hasValidCompensation()) return std::nullopt;
   auto cylinder = fromPoints(std::move(samples.points));
   if (!cylinder) return std::nullopt;
   if (!cylinder->applyProbe(samples.radius, samples.dir)) return std::nullopt;

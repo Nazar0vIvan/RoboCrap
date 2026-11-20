@@ -19,7 +19,7 @@ OccViewport::OccViewport(Aspect_Handle handle, const DrawingDocument& document)
   m_timer.setInterval(0);
   QObject::connect(&m_timer, &QTimer::timeout, &m_timer, std::bind(&OccViewport::flushRender, this));
   if (!m_viewer.isValid()) return;
-  m_scene.displayInfrastructure();
+  m_scene.displayViewCube();
   for (const auto& object : document.objects) {
     const auto result = m_application.insertObject(object);
     if (!result.accepted) qWarning().noquote() << "Object drawing replay:" << result.error;
@@ -32,7 +32,7 @@ ViewportOperationResult OccViewport::setRobot(const RobotVisualModel& visuals,
                                               const DrawingPose& pose)
 {
   if (!isValid()) return {false, QStringLiteral("Robot installation: viewport is unavailable.")};
-  const auto result = m_robot.load(visuals, shapes, pose);
+  auto result = m_robot.load(visuals, shapes, pose);
   if (result.accepted) fitInitialCamera();
   // Draw now rather than on the next event-loop turn, so the robot is on screen
   // when readiness (which hides the loading overlay) is reported after this call.
@@ -98,11 +98,6 @@ ViewportOperationResult OccViewport::setDraftAxis(const std::optional<DrawingAxi
   return result;
 }
 
-OccViewport::~OccViewport()
-{
-  m_timer.stop();
-}
-
 bool OccViewport::isValid() const
 {
   return m_viewer.isValid();
@@ -118,7 +113,7 @@ ViewportOperationResult OccViewport::setSpindleFrames(const std::optional<M4d>& 
 ViewportOperationResult OccViewport::applyTransforms(const DrawingPose& pose)
 {
   if (!isValid()) return {false, QStringLiteral("Viewport is unavailable.")};
-  const auto result = m_robot.applyTransforms(pose);
+  auto result = m_robot.applyTransforms(pose);
   if (result.accepted) requestRender();
   return result;
 }

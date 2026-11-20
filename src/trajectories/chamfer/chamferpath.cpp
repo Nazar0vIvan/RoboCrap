@@ -140,11 +140,9 @@ ChamferPathResult ChamferPath::create(ChamferPathParameters parameters)
     return {{}, QStringLiteral("Chamfer angle is too large for the opening plane tilt; reduce the angle.")};
   if (!matchesCylinder(parameters))
     return {{}, QStringLiteral("The edge does not lie on the specified cylindrical hole.")};
-  const V3d staging = edge.center + (parameters.flipAxis ? -1.0 : 1.0)
-      * parameters.stagingDistance * parameters.cylinderAxis;
-  if (!staging.allFinite())
-    return {{}, QStringLiteral("P_s position exceeds the numerical range.")};
   ChamferPath path(std::move(parameters));
+  if (!path.stagingPoint().allFinite())
+    return {{}, QStringLiteral("P_s position exceeds the numerical range.")};
   const QString error = path.initializeLeadFrames();
   if (!error.isEmpty()) return {{}, error};
   return {std::move(path), {}};

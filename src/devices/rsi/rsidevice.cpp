@@ -22,6 +22,7 @@
 namespace {
 
 constexpr qsizetype TraceCapacity = 64 * 1024 * 1024;
+constexpr int CaptureIdleMs = 250; // Save the capture after this long without accepted-peer traffic.
 
 bool isDigits(const QString& text)
 {
@@ -162,7 +163,7 @@ void RsiDevice::startDevice()
   m_traceClock.start();
   m_traceTimer = new QTimer(this);
   m_traceTimer->setSingleShot(true);
-  m_traceTimer->setInterval(250);
+  m_traceTimer->setInterval(CaptureIdleMs);
   QObject::connect(m_traceTimer, &QTimer::timeout, this, &RsiDevice::saveTrace);
   m_sock = new QUdpSocket(this);
   attachSocket(m_sock);
@@ -181,52 +182,44 @@ void RsiDevice::startDevice()
 void RsiDevice::stopDevice()
 {
   if (!m_sock) return;
-  disconnect();
+  disconnectDevice();
   for (auto& save : m_traceSaves) save.wait();
   saveTrace();
   delete std::exchange(m_traceTimer, nullptr);
   delete std::exchange(m_sock, nullptr);
 }
 
-void RsiDevice::connect(const QVariantMap& config)
+// Reached only through AbstractDevice::invoke, which refuses calls while the device is stopped.
+void RsiDevice::connectDevice(const QVariantMap& config)
 {
-  if (!m_sock) {
-    qInfo().noquote() << "[ERROR]" << objectName() + ":" << "RSI device is not started";
-    return;
-  }
   if (!config.isEmpty()) {
-    const QHostAddress la(config.value("localAddress").toString());
-    const QHostAddress pa(config.value("peerAddress").toString());
-    const auto lp = parseSocketPort(config.value("localPort"));
-    if (la.isNull() || pa.isNull() || !lp) {
+    auto parsed = parseSocketEndpoints(config);
+    if (!parsed) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Invalid socket configuration";
       return;
     }
-    m_la = la;
-    m_lp = *lp;
-    m_pa = pa;
+    parsed->peerPort.reset(); // Learned from the controller (m_pp), never configured.
+    m_endpoints = parsed;
   }
-  if (m_la.isNull() || m_lp == 0 || m_pa.isNull()) {
+  if (!m_endpoints) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Socket configuration is incomplete";
     return;
   }
-  if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnect();
-  emit stateReady({{"connectionConfig", QVariantMap{
-    {"localAddress", m_la.toString()}, {"localPort", m_lp},
-    {"peerAddress", m_pa.toString()}
-  }}});
+  const SocketEndpoints& endpoints = *m_endpoints;
+  if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnectDevice();
+  emit stateReady({{"connectionConfig", connectionConfigMap(endpoints)}});
   m_trace.reserve(TraceCapacity); // Allocate before peer traffic can start.
-  if (!m_sock->bind(m_la, m_lp)) {
+  if (!m_sock->bind(endpoints.localAddress, endpoints.localPort)) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << QString("Bind failed: %1").arg(m_sock->errorString());
     return;
   }
   qInfo().noquote() << "[OK]" << objectName() + ":"
-      << QString("Socket connected: %1:%2").arg(m_la.toString()).arg(m_lp);
+      << QString("Socket connected: %1:%2").arg(endpoints.localAddress.toString()).arg(endpoints.localPort);
 }
 
-void RsiDevice::disconnect()
+// Callers run while the device is started (stopDevice, connectDevice, invoke), so m_sock exists.
+void RsiDevice::disconnectDevice()
 {
-  if (!m_sock) return;
   m_sock->close();
   // The controller peer port is learned again from the next connection.
   m_pp = 0;
@@ -261,7 +254,7 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
 
 bool RsiDevice::acceptsSender(const QNetworkDatagram& datagram) const
 {
-  return !m_pa.isNull() && datagram.senderAddress() == m_pa && datagram.senderPort() > 0
+  return m_endpoints && datagram.senderAddress() == m_endpoints->peerAddress && datagram.senderPort() > 0
       && (m_pp == 0 || datagram.senderPort() == m_pp);
 }
 
@@ -297,7 +290,8 @@ void RsiDevice::onReadyRead()
   reply.ipoc = newest->ipoc;
   const QByteArray encoded = encodeReply(reply);
   const qint64 sentNs = m_traceClock.nsecsElapsed();
-  const qint64 written = m_sock->writeDatagram(encoded, m_pa, m_pp);
+  // A reply follows an accepted request, so the endpoints exist.
+  const qint64 written = m_sock->writeDatagram(encoded, m_endpoints->peerAddress, m_pp);
   const qint64 writeNs = m_traceClock.nsecsElapsed() - sentNs;
   // Capture the whole exchange after replying, outside the reply's measured latency.
   for (const auto& row : std::as_const(receivedRows)) appendTrace(row);

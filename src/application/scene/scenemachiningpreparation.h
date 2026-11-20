@@ -101,11 +101,14 @@ private:
   SceneMachiningPath* pathById(quint32 objectId) const;
   bool isCurrent(const PreparedRsiStream& prepared) const;
   bool isCurrentCalibration(const std::shared_ptr<const ProbeTouchMotion>& motion) const;
+  // Shutdown, a calibration run in any non-Idle state or a running Sampling; empty otherwise.
+  QString busyReason() const;
   void onAvailabilityChanged();
   void onCalibrationAvailabilityChanged();
   void finishPreparation();
   void finishCalibration();
-  void clearPrepared();
+  // Drops the held table and job files; returns the text of failed removals, empty when none remain.
+  QString clearPrepared();
   void setError(const QString& error);
   bool plcReady() const;
   void onPlcData(const QVariantHash& values);

@@ -8,11 +8,9 @@ namespace RoboCrap3D {
 class OccWorldAxes final
 {
 public:
-  explicit OccWorldAxes(double initialLength = 10.0);
+  // A non-positive length uses kDefaultAxisLength.
+  explicit OccWorldAxes(double initialLength);
 
-  [[nodiscard]] bool isValid() const;
-
-  [[nodiscard]] double length() const;
   void setLength(double length);
 
   [[nodiscard]] const Handle(AIS_Line)& xAxis() const;
@@ -24,7 +22,7 @@ private:
   void configureAxes();
 
 private:
-  double m_length = 10.0;
+  double m_length = 0.0; // Set by createAxes.
 
   Handle(Geom_CartesianPoint) m_originPoint;
   Handle(Geom_CartesianPoint) m_xEndPoint;

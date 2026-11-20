@@ -203,6 +203,15 @@ Administrator PowerShell (one line):
 New-NetFirewallRule -DisplayName "KR C4 share access (TCP 139)" -Direction Inbound -Protocol TCP -LocalPort 139 -RemoteAddress 192.168.2.200 -InterfaceAlias "KRC4-Direct" -Profile Private -Action Allow
 ```
 
+The rule is bound to the adapter, not to its Windows name: after "KRC4-Direct" moves to another
+adapter, the rule still applies to the old one, the KR C4's SMB connection on TCP 139 is dropped and
+KRL waits (observed 2026-11-20 in `krl_fopen`). Point it at the current adapter and check:
+
+```powershell
+Set-NetFirewallRule -DisplayName "KR C4 share access (TCP 139)" -InterfaceAlias "KRC4-Direct"
+Get-NetFirewallRule -DisplayName "KR C4 share access (TCP 139)" | Get-NetFirewallInterfaceFilter   # InterfaceAlias KRC4-Direct
+```
+
 ## 6a. Answer NetBIOS on 192.168.2.100
 
 Before mounting, the KR C4 asks the PC for its NetBIOS name (UDP 137) at 192.168.2.100. Windows
@@ -218,6 +227,14 @@ Then disable and enable `KRC4-Direct` (`ncpa.cpl`, right-click). Check with `nbt
 `KRC4-Direct` it must show `Node IpAddress: [192.168.2.100]`. RSI is unaffected because the
 application binds its socket to 172.31.1.47; test that address with
 `ping -S 172.31.1.47 172.31.1.147`.
+
+A re-created 172.31.1.47 (for example on another adapter) starts with `SkipAsSource` False, the
+`New-NetIPAddress` default; NetBIOS then answers on 172.31.1.47 again, and KRL waits in `krl_mount`
+(observed 2026-11-20). Create the address with the flag set, then check `nbtstat -n` as above:
+
+```powershell
+New-NetIPAddress -InterfaceAlias "KRC4-Direct" -IPAddress 172.31.1.47 -PrefixLength 24 -SkipAsSource $true
+```
 
 ---
 

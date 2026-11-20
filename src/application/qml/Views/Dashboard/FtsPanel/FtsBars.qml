@@ -13,6 +13,8 @@ QxPanel {
   required property Backend.DeviceRunner fts
 
   readonly property int barWidth: 160
+  // The largest range magnitude below (Fx), so all six value labels share one width.
+  readonly property real widestValue: 1980.0
 
   spacing: Metrics.sp8
 
@@ -35,6 +37,7 @@ QxPanel {
       required property real maxValue
 
       barWidth: root.barWidth
+      widestValue: root.widestValue
       from: bar.minValue
       to: bar.maxValue
       labelText: bar.tag

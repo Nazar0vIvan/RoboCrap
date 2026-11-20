@@ -3,7 +3,6 @@
 #include "viewport/occcontroller.h"
 #include "cadloadresult.h"
 
-#include <QPointer>
 #include <QWindow>
 #include <memory>
 
@@ -18,10 +17,10 @@ class OccViewWindow final : public QWindow
 public:
   // Borrows the controller's accepted document and pose; replays both on surface recreation.
   OccViewWindow(const DrawingDocument& document, const DrawingPose& pose);
-  ~OccViewWindow() override;
+  ~OccViewWindow() override; // Defined where OccViewport is complete.
 
   // The OCCT viewer while a native surface exists, otherwise null. Never retain it.
-  OccViewport* viewport() const { return m_viewport.get(); }
+  OccViewport* viewport() { return m_viewport.get(); }
   // Graphics and parsed shapes define one restorable robot presentation.
   void setScene(const RobotVisualModel& visuals, std::shared_ptr<const CadLoadResult> shapes);
   ViewportOperationResult applyTransforms(const DrawingPose& pose);

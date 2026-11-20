@@ -54,10 +54,8 @@ PlcDevice::PlcDevice(const QString& name, QObject* parent) : AbstractDevice(name
 void PlcDevice::startDevice()
 {
   Q_ASSERT(!m_sock);
-  Q_ASSERT(!m_mgr);
 
   m_sock = new QTcpSocket(this);
-  m_mgr = new PlcMessageManager(this);
 
   m_replyTimer = new QTimer(this);
   m_replyTimer->setSingleShot(true);
@@ -79,13 +77,10 @@ void PlcDevice::stopDevice()
 {
   if (!m_sock) return;
 
-  disconnect();
+  disconnectDevice();
 
   delete m_sock;
   m_sock = nullptr;
-
-  delete m_mgr;
-  m_mgr = nullptr;
 
   delete m_replyTimer;
   m_replyTimer = nullptr;
@@ -93,65 +88,45 @@ void PlcDevice::stopDevice()
   m_heartbeat = nullptr;
   delete m_log;
   m_log = nullptr;
-
-  m_rx.clear();
-  m_pend.clear();
 }
 
-void PlcDevice::connect(const QVariantMap& config)
+// Reached only through AbstractDevice::invoke, which refuses calls while the device is stopped.
+void PlcDevice::connectDevice(const QVariantMap& config)
 {
-  if (!m_sock) {
-    qInfo().noquote() << "[ERROR]" << objectName() + ":" << "PLC device is not started";
-    return;
-  }
-
   if (!config.isEmpty()) {
-    const QHostAddress localAddr(config.value("localAddress").toString());
-    const QHostAddress addr(config.value("peerAddress").toString());
-
-    const auto localPort = parseSocketPort(config.value("localPort"));
-    const auto port = parseSocketPort(config.value("peerPort"));
-
-    if (localAddr.isNull() || !localPort || addr.isNull() || !port) {
+    const auto parsed = parseSocketEndpoints(config);
+    if (!parsed || !parsed->peerPort) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Invalid socket configuration";
       return;
     }
-
-    m_la = localAddr;
-    m_lp = *localPort;
-    m_pa = addr;
-    m_pp = *port;
+    m_endpoints = parsed;
   }
 
-  if (m_la.isNull() || m_lp == 0 || m_pa.isNull() || m_pp == 0) {
+  if (!m_endpoints) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Socket configuration is incomplete";
     return;
   }
+  const SocketEndpoints& endpoints = *m_endpoints;
 
-  if (m_sock->state() != QAbstractSocket::UnconnectedState) {
-    m_sock->abort();
-  }
+  if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnectDevice();
 
-  emit stateReady({{"connectionConfig", QVariantMap{
-    {"localAddress", m_la.toString()}, {"localPort", m_lp},
-    {"peerAddress", m_pa.toString()}, {"peerPort", m_pp}
-  }}});
+  emit stateReady({{"connectionConfig", connectionConfigMap(endpoints)}});
 
   // The PLC program expects this PC endpoint, including its source port.
-  if (!m_sock->bind(m_la, m_lp)) {
+  if (!m_sock->bind(endpoints.localAddress, endpoints.localPort)) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << QString("Bind failed: %1").arg(m_sock->errorString());
     m_sock->abort();
     return;
   }
 
-  m_sock->connectToHost(m_pa, m_pp, QIODevice::ReadWrite);
+  m_sock->connectToHost(endpoints.peerAddress, *endpoints.peerPort, QIODevice::ReadWrite);
 }
 
-void PlcDevice::disconnect()
+// Callers run while the device is started (stopDevice, connectDevice, invoke, sendNext), so m_sock exists.
+void PlcDevice::disconnectDevice()
 {
   m_rx.clear();
   m_pend.clear();
-  if (!m_sock) return;
 
   // A FIN close keeps the fixed-port connection in TIME_WAIT and the next connect fails with
   // WSAEADDRINUSE; SO_LINGER {1, 0} makes closesocket send RST, which leaves no TIME_WAIT.
@@ -169,12 +144,12 @@ void PlcDevice::disconnect()
 
 void PlcDevice::setOutput(const QVariantMap& args)
 {
-  if (!m_sock || !m_mgr || m_sock->state() != QAbstractSocket::ConnectedState) {
+  if (m_sock->state() != QAbstractSocket::ConnectedState) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "PLC is not connected";
     return;
   }
 
-  const PlcMessageManager::ParseResult request = m_mgr->outputRequest(args);
+  const PlcMessageManager::ParseResult request = m_mgr.outputRequest(args);
   if (!request.ok()) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "WRITE ERROR: " + QString::number(request.error);
     return;
@@ -186,7 +161,8 @@ void PlcDevice::setOutput(const QVariantMap& args)
 void PlcDevice::writeMessage(const QVariantMap& msg)
 {
   // A request made without a connection is dropped, never sent at a later connect.
-  if (!m_sock || m_sock->state() != QAbstractSocket::ConnectedState) {
+  // Callers are invoke-only methods and the heartbeat, which exists only while started.
+  if (m_sock->state() != QAbstractSocket::ConnectedState) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "PLC is not connected";
     return;
   }
@@ -197,7 +173,7 @@ void PlcDevice::writeMessage(const QVariantMap& msg)
 
 void PlcDevice::runRobotProgram(const QVariantMap& args)
 {
-  const PlcMessageManager::ParseResult request = m_mgr->robotProgramRequest(args);
+  const PlcMessageManager::ParseResult request = m_mgr.robotProgramRequest(args);
   if (!request.ok()) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "WRITE ERROR: " + QString::number(request.error);
     return;
@@ -229,7 +205,7 @@ void PlcDevice::sendNext()
   while (m_pend.isEmpty() && !m_queue.isEmpty()) {
     const QVariantMap msg = m_queue.dequeue();
     const auto tid = static_cast<quint8>(m_nextTid + 1);
-    const PlcMessageManager::ParseResult built = m_mgr->buildReq(msg, tid);
+    const PlcMessageManager::ParseResult built = m_mgr.buildReq(msg, tid);
 
     if (!built.ok()) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "WRITE ERROR: " + QString::number(built.error);
@@ -242,8 +218,9 @@ void PlcDevice::sendNext()
     if (count != data.size()) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":"
           << QString("Incomplete PLC write: %1 of %2 bytes queued").arg(count).arg(data.size());
-      // A partially queued frame cannot safely be followed by another request; abort clears the queue.
-      if (count > 0) m_sock->abort();
+      // A partially queued frame cannot safely be followed by another request. The RST close
+      // clears the pending replies, and onStateChanged clears the queue, which ends this loop.
+      if (count > 0) disconnectDevice();
       continue;
     }
 
@@ -285,7 +262,7 @@ void PlcDevice::openLog()
 {
   const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
   const QString fileName = QStringLiteral("plc_io_%1.csv")
-      .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss")));
+      .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")));
 
   m_log->setFileName(records.filePath(fileName));
   if (!QDir().mkpath(records.absolutePath()) || !m_log->open(QIODevice::WriteOnly)) {
@@ -327,18 +304,9 @@ bool PlcDevice::matchResponse(const QVariantMap& data)
   // Error replies contain only command/error/code, so no endpoint fields can be matched.
   if (data.value("type").toUInt() == PlcMessageManager::RESP_OK) {
     switch (cmd) {
-      case PlcMessageManager::READ_IO:
       case PlcMessageManager::WRITE_IO:
-        if (!matchesResponseField(data, "dev", cmd == PlcMessageManager::WRITE_IO
-                             ? uint(PlcMessageManager::Y) : request.value("dev").toUInt())
+        if (!matchesResponseField(data, "dev", PlcMessageManager::Y)
             || !matchesResponseField(data, "module", request.value("module").toUInt())) return false;
-        break;
-      case PlcMessageManager::READ_REG:
-      case PlcMessageManager::WRITE_REG:
-        if (!matchesResponseField(data, "dev", PlcMessageManager::D)
-            || !matchesResponseField(data, "addr", request.value("addr").toUInt())) return false;
-        if (cmd == PlcMessageManager::WRITE_REG
-            && !matchesResponseField(data, "value", request.value("value").toUInt())) return false;
         break;
       case PlcMessageManager::SET_VAR:
         if (!matchesResponseField(data, "var", request.value("var").toUInt())
@@ -366,7 +334,7 @@ void PlcDevice::processIncoming(const QByteArray& bytes)
 
     m_rx.remove(0, PlcMessageManager::RESP_SIZE);
 
-    const PlcMessageManager::ParseResult parsed = m_mgr->parseMessage(frame);
+    const PlcMessageManager::ParseResult parsed = m_mgr.parseMessage(frame);
 
     if (!parsed.ok()) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "READ ERROR: " + QString::number(parsed.error);

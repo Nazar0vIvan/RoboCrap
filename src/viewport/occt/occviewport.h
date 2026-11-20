@@ -25,7 +25,6 @@ class OccViewport final
 {
 public:
   OccViewport(Aspect_Handle handle, const DrawingDocument& document);
-  ~OccViewport();
   OccViewport(const OccViewport&) = delete;
   OccViewport& operator=(const OccViewport&) = delete;
 

@@ -9,7 +9,6 @@ namespace {
 
 constexpr qsizetype MaximumPoints = 400000;
 constexpr double RateStep = 1e-4; // s, shortest interval for grouped rate validation.
-constexpr double RateTolerance = 1e-6;
 
 struct Rates
 {
@@ -36,12 +35,6 @@ QString accelerationError(const Rates& before, const Rates& after, const Chamfer
   const V6d acceleration = (after.joints - before.joints) / elapsed;
   const V3d xyz = (after.xyz - before.xyz) / elapsed;
   if (!acceleration.allFinite() || !xyz.allFinite()) return QStringLiteral("Nonfinite sampled acceleration.");
-  // Temporary Dry Run diagnostic: per-joint acceleration rejection disabled.
-  // for (int axis = 0; axis < 6; ++axis)
-  //   if (std::abs(acceleration[axis]) > timing.jointAcceleration[axis] * (1.0 + RateTolerance))
-  //     return QStringLiteral("A%1 acceleration %2 deg/s^2 exceeds configured simulation bound %3.")
-  //         .arg(axis + 1).arg(std::abs(acceleration[axis]), 0, 'g', 12)
-  //         .arg(timing.jointAcceleration[axis]);
   if (xyz.norm() > timing.cartesianAcceleration * (1.0 + RateTolerance))
     return QStringLiteral("XYZ acceleration %1 mm/s^2 exceeds configured simulation bound %2.")
         .arg(xyz.norm(), 0, 'g', 12).arg(timing.cartesianAcceleration);
@@ -131,7 +124,7 @@ QString MotionBuilder::appendPath(const TimedPath& path, MotionInterpolation int
     const double local = times[index - 1];
     const double time = startTime + local;
     const double step = time - points.back().time;
-    if (!std::isfinite(time) || !(step > 1e-9))
+    if (!std::isfinite(time) || !(step > TimeResolution))
       return atTime(pointLabel, QStringLiteral("Path timestamps lost numerical resolution."), local);
     const auto target = path.target(index, local);
     if (!target) return atTime(pointLabel, QStringLiteral("Cannot evaluate prescribed TCP target."), local);

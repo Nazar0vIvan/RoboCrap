@@ -10,7 +10,6 @@ import Styles 1.0
 QxPanel {
   id: root
   required property Backend.Machining coordinator
-  required property Backend.Playback playback
   required property string inputName
   property Backend.MachiningPath savedPath: null
   signal generateRequested()
@@ -38,6 +37,10 @@ QxPanel {
     return text !== undefined && String(text).trim().length > 0 && isFinite(value)
         && value >= field.min && (field.max === undefined || value <= field.max)
   })
+  // Shown by the status bar while the editor is open: the Generate error or why Generate is unavailable.
+  readonly property string message: root.coordinator.error || root.coordinator.unavailableReason
+                                    || (root.savedPath ? root.savedPath.incompatibility : "")
+                                    || (!root.validDraft ? qsTr("Enter valid values in all fields.") : "")
   function isPercentage(key) {
     return key === "auxiliaryScale" || key === "accelerationDistanceFraction"
   }
@@ -47,7 +50,8 @@ QxPanel {
     for (const field of root.fields) {
       const value = root.coordinator.settings[field.key]
       original[field.key] = value
-      values[field.key] = String(root.isPercentage(field.key) ? value * 100 : value)
+      // 8 decimals as the validator allows; drops the floating-point tail of value * 100 (7.000000000000001).
+      values[field.key] = root.isPercentage(field.key) ? String(Number((value * 100).toFixed(8))) : String(value)
     }
     root.drafts = values
     root.originalSettings = original
@@ -97,22 +101,12 @@ QxPanel {
     Layout.fillWidth: true
     Layout.fillHeight: true
     clip: true
+    Component.onCompleted: (contentItem as Flickable).boundsBehavior = Flickable.StopAtBounds
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
     ColumnLayout {
       width: scroll.availableWidth
       spacing: Metrics.sp8
-      Label {
-        Layout.fillWidth: true
-        visible: root.playback.duration > 0
-        text: qsTr("%1 · %2\n%3 / %4 s")
-              .arg(root.playback.playing ? qsTr("Playing") : root.playback.active ? qsTr("Paused") : qsTr("Stopped"))
-              .arg(root.playback.phase)
-              .arg(root.playback.elapsed.toFixed(2)).arg(root.playback.duration.toFixed(2))
-        wrapMode: Text.Wrap
-        color: Colors.foreground.high
-        font: Fonts.caption
-      }
       Label {
         Layout.fillWidth: true
         text: root.inputName.length ? root.inputName : qsTr("Select one hole edge or machining path.")
@@ -167,16 +161,6 @@ QxPanel {
         visible: root.savedPath !== null
         text: root.savedPath ? qsTr("Dry Run: %1 s\nCentral path: %2 s")
               .arg(root.savedPath.duration.toFixed(3)).arg(root.savedPath.centralDuration.toFixed(3)) : ""
-        wrapMode: Text.Wrap
-        color: Colors.foreground.medium
-        font: Fonts.caption
-      }
-      Label {
-        Layout.fillWidth: true
-        text: root.coordinator.error || root.coordinator.unavailableReason
-              || (root.savedPath ? root.savedPath.incompatibility : "")
-              || (!root.validDraft ? qsTr("Enter valid values in all fields.") : "")
-        visible: text.length > 0
         wrapMode: Text.Wrap
         color: Colors.foreground.medium
         font: Fonts.caption

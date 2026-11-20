@@ -89,9 +89,9 @@ private:
       const auto& point = points[i];
       const V3d ball = point.tcp.block<3, 1>(0, 3);
       const double strut = parameters.strutClearance(ball);
-      if (strut < ProbeApproachGap - ClearanceTolerance)
+      if (strut < required)
         return QStringLiteral("strut clearance %1 mm is below %2 mm at %3 s.")
-            .arg(strut, 0, 'f', 4).arg(ProbeApproachGap).arg(point.time, 0, 'g', 12);
+            .arg(strut, 0, 'f', 4).arg(required, 0, 'f', 4).arg(point.time, 0, 'g', 12);
       m_clearances.strut = std::min(m_clearances.strut, strut);
       if (touchSegment(phase.segment)) continue;
       const double gap = (ball - parameters.sphereCentre).norm() - contact;

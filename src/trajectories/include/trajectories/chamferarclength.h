@@ -5,16 +5,6 @@
 #include <array>
 #include <QVector>
 
-struct ChamferArcLengthParameters
-{
-  // u is phase progress, s is distance in mm, g = norm(d TCP origin / du).
-  // Numerical error estimates, independent of display sampling or robot limits.
-  double lengthTolerance = 1e-9; // Total quadrature error budget, mm.
-  double lookupTolerance = 1e-10; // Local inverse distance residual, mm.
-  double relativeSpeedTolerance = 1e-8; // abs(g * du/ds - 1).
-  double speedDerivativeTolerance = 1e-7; // abs(d(g * du/ds)/ds), per mm.
-};
-
 struct ChamferArcLengthKnot
 {
   double progress = 0.0;
@@ -28,8 +18,7 @@ struct ChamferArcLengthResult;
 class ChamferArcLength
 {
 public:
-  static ChamferArcLengthResult create(const ChamferPath& path, ChamferPhase phase,
-                                      const ChamferArcLengthParameters& parameters = {});
+  static ChamferArcLengthResult create(const ChamferPath& path, ChamferPhase phase);
 
   double length() const { return m_knots.last().distance; }
   // Locate the distance interval by binary search and evaluate its saved quintic.

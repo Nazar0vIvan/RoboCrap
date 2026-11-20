@@ -56,19 +56,16 @@ std::optional<ProbeSamples> decodeProbeSamples(const QJsonDocument& document)
     if (!points.isArray() || !radius.isDouble() || !dir.isDouble()) return std::nullopt;
     result.radius = radius.toDouble();
     const double direction = dir.toDouble();
-    if (!std::isfinite(result.radius) || result.radius < 0.0
-        || (direction != 1.0 && direction != -1.0)) return std::nullopt;
-    result.dir = static_cast<int>(direction);
+    result.dir = direction == 1.0 ? 1 : direction == -1.0 ? -1 : 0; // 0 fails the check below.
+    if (!result.hasValidCompensation()) return std::nullopt;
     array = points.toArray();
   } else {
     return std::nullopt;
   }
 
+  if (array.size() > MaximumProbeSamples) return std::nullopt;
   const auto points = jsonArrayToPoints(array);
   if (!points) return std::nullopt;
-  for (const V3d& point : *points) {
-    if (!point.allFinite()) return std::nullopt;
-  }
   result.points = *points;
   return result;
 }
@@ -76,6 +73,52 @@ std::optional<ProbeSamples> decodeProbeSamples(const QJsonDocument& document)
 bool nearlyEqual(double lhs, double rhs, double eps)
 {
   return std::abs(lhs - rhs) <= eps;
+}
+
+bool positiveFinite(double value)
+{
+  return std::isfinite(value) && value > 0.0;
+}
+
+V3d dominantPositive(V3d direction)
+{
+  int index = 0;
+  for (int i = 1; i < 3; ++i)
+    if (std::abs(direction[i]) > std::abs(direction[index])) index = i;
+  if (direction[index] < 0.0) direction = -direction;
+  return direction;
+}
+
+V3d referenceAxis(const V3d& direction)
+{
+  return std::abs(direction.x()) < 0.9 ? V3d::UnitX() : V3d::UnitY();
+}
+
+std::optional<CenteredPoints> centerPoints(const QVector<V3d>& points)
+{
+  if (points.isEmpty()) return std::nullopt;
+  CenteredPoints result;
+  result.centered.resize(points.size(), 3);
+  const V3d anchor = points.front();
+  for (int i = 0; i < points.size(); ++i) {
+    if (!points[i].allFinite()) return std::nullopt;
+    result.centered.row(i) = (points[i] - anchor).transpose();
+  }
+  const V3d meanOffset = result.centered.colwise().mean().transpose();
+  result.centroid = anchor + meanOffset;
+  result.centered.rowwise() -= meanOffset.transpose();
+  if (!result.centroid.allFinite() || !result.centered.allFinite()) return std::nullopt;
+  return result;
+}
+
+V3d toV3d(const std::array<double, 3>& point)
+{
+  return {point[0], point[1], point[2]};
+}
+
+std::array<double, 3> toArray(const V3d& value)
+{
+  return {value.x(), value.y(), value.z()};
 }
 
 std::optional<V3d> normalize(const V3d& v, double eps)

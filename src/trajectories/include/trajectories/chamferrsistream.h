@@ -13,7 +13,7 @@ struct ChamferRsiStream
   V6d initialCoordinates = V6d::Zero(); // Six-decimal LeadStart XYZABC, principal Euler branch.
   V6d finalCoordinates = V6d::Zero(); // Six-decimal composed LeadEnd XYZABC, principal branch.
   V3d stagingPoint = V3d::Zero(); // P_s, mm.
-  V6d toolCoordinates = V6d::Zero(); // Saved flange-to-TCP transform for KRL $TOOL.
+  V6d toolCoordinates = V6d::Zero(); // Six-decimal flange-to-TCP XYZABC for KRL $TOOL.
   // One increment per controller cycle after Start = 1, then settle zeros.
   QVector<V6d> increments;
   QString diagnosticId; // Shared number in the plan and its packet-log filenames.

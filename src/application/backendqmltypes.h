@@ -4,7 +4,6 @@
 #include "devices/deviceprofilemodel.h"
 #include "devices/devicehub.h"
 #include "devices/devicerunner.h"
-#include "devices/plc/plcmessagemanager.h"
 #include "scene/scenesurfaceimporter.h"
 #include "scene/scenemodel.h"
 #include "scene/scenegeometry.h"
@@ -154,14 +153,6 @@ struct DeviceProfileModelQml
   Q_GADGET
   QML_FOREIGN(DeviceProfileModel)
   QML_NAMED_ELEMENT(DeviceProfileModel)
-};
-
-struct PlcMessageQml
-{
-  Q_GADGET
-  QML_FOREIGN(PlcMessageManager)
-  QML_NAMED_ELEMENT(PlcMessage)
-  QML_UNCREATABLE("PlcMessage is not creatable from QML")
 };
 
 struct DeviceHubQml

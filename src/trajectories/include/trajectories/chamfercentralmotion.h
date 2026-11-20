@@ -16,16 +16,18 @@ struct ChamferCentralProfile
   double acceleration = 0.0; // Tangential ramp magnitude, mm/s^2; zero for machining.
 
   double duration() const { return rampSeconds + cruiseSeconds; }
+  // Phase-local time of the ramp/cruise switch; none for machining or a ramp-only lead.
+  std::optional<double> switchSeconds(ChamferPhase phase) const
+  {
+    if (phase == ChamferPhase::Machining || cruiseSeconds <= 0.0) return std::nullopt;
+    return phase == ChamferPhase::LeadIn ? rampSeconds : cruiseSeconds;
+  }
 };
 
 struct ChamferCentralPose
 {
   M4d tcp = M4d::Identity(); // BASE-relative analytical pose.
-  ChamferPhase phase = ChamferPhase::LeadIn;
   double progress = 0.0; // Geometric phase parameter in [0, 1].
-  double distance = 0.0; // From this phase's start, mm.
-  double speed = 0.0; // Tangential speed, mm/s.
-  double tangentialAcceleration = 0.0; // Signed mm/s^2; excludes curvature acceleration.
 };
 
 struct ChamferCentralMotionResult;

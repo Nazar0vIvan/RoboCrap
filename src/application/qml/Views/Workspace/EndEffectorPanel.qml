@@ -56,6 +56,8 @@ QxPanel {
   }
   onColletPoseChanged: root.loadColletDraft()
   onTcpChanged: root.loadTcpDraft()
+  // Reopening shows the stored poses, not edits left unapplied at Close.
+  onVisibleChanged: if (root.visible) { root.loadColletDraft(); root.loadTcpDraft() }
   Component.onCompleted: {
     root.loadColletDraft()
     root.loadTcpDraft()
@@ -68,6 +70,7 @@ QxPanel {
     Layout.fillWidth: true
     Layout.fillHeight: true
     clip: true
+    Component.onCompleted: (contentItem as Flickable).boundsBehavior = Flickable.StopAtBounds
     contentWidth: availableWidth
     ScrollBar.horizontal.policy: ScrollBar.AlwaysOff
     ColumnLayout {

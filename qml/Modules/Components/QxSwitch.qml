@@ -41,7 +41,7 @@ Switch {
       radius: width / 2
       anchors.verticalCenter: parent.verticalCenter
       x: !root.available ? (parent.width - width) / 2
-                   : root.isOn ? parent.width - width - Metrics.w1
+                   : root.isOn ? parent.width - width - 2 * Metrics.w1
                    : 2 * Metrics.w1
       color: root.available ? Colors.foreground.high : Colors.foreground.disabled
       Behavior on x {

@@ -1,12 +1,24 @@
 #pragma once
 
 #include <QAbstractSocket>
+#include <QHostAddress>
 #include <QObject>
 #include <QString>
 #include <QVariantHash>
 #include <QVariantMap>
 #include <QHash>
 #include <QMetaMethod>
+
+#include <optional>
+
+// A socket device's configured endpoints (parsed by the library's parseSocketEndpoints).
+struct SocketEndpoints
+{
+  QHostAddress localAddress;
+  quint16 localPort = 0;
+  QHostAddress peerAddress;
+  std::optional<quint16> peerPort; // Absent when the peer port is learned (RSI).
+};
 
 class AbstractDevice : public QObject
 {

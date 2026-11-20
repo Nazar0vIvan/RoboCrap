@@ -4,7 +4,6 @@
 #include "devices/fts/rdtmessage.h"
 
 #include <QElapsedTimer>
-#include <QHostAddress>
 #include <QVector>
 
 #include <future>
@@ -23,8 +22,8 @@ public:
 	Q_INVOKABLE void startStreaming();
 	Q_INVOKABLE void stopStreaming();
 	Q_INVOKABLE void bias();
-	Q_INVOKABLE void connect(const QVariantMap& config);
-	Q_INVOKABLE void disconnect();
+	Q_INVOKABLE void connectDevice(const QVariantMap& config);
+	Q_INVOKABLE void disconnectDevice();
 	Q_INVOKABLE void startLogRecording();
 	Q_INVOKABLE void stopLogRecording();
 	Q_INVOKABLE void saveLogToDefaultFile();
@@ -56,10 +55,9 @@ private:
 	bool canSave() const;
 	void publishControlState();
 	void appendLogSample(const RDTResponse& sample);
-	void saveLogToFileImpl(const QString& filePath);
 	static LogSaveResult writeLogFile(QVector<RDTResponse> samples, QString filePath);
 	void publishState(const RDTResponse& sample);
-	bool sendRequest(quint16 cmd, quint32 count = 0);
+	bool sendRequest(quint16 cmd);
 	void processBatch();
 
 	QUdpSocket* m_sock = nullptr;
@@ -81,10 +79,8 @@ private:
 	quint32 m_baseSeq = 0;
 	bool m_needBase = true;
 
-	QHostAddress m_la;
-	quint16 m_lp = 0;
-	QHostAddress m_pa;
-	quint16 m_pp = 0;
+	// Set by the first valid connectDevice and never cleared, so a bound socket always has it.
+	std::optional<SocketEndpoints> m_endpoints;
 
 	bool m_logEnabled = false;
 	QVector<RDTResponse> m_log;

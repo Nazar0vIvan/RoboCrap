@@ -64,7 +64,7 @@ bool OccController::isViewportReady() const
   return m_window && m_window->isViewportReady();
 }
 
-OccViewport* OccController::viewport() const
+OccViewport* OccController::viewport()
 {
   return m_window ? m_window->viewport() : nullptr;
 }

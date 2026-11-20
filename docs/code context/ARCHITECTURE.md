@@ -40,6 +40,23 @@ several at once, and the controller rejected the late replies; over a direct cab
 was not examined). RSI also requires a Windows firewall rule and a Private profile on
 "KRC4-Direct" ([HARDWARE_SETUP.md](../hardware%20context/HARDWARE_SETUP.md)).
 
+The KLI cable stays on the ASIX adapter. Moving it to the onboard Intel I219-V (driver 12.19.1.37)
+was tried on 2026-11-20 and reverted: the ASIX adapter shares the PC's only USB host controller with
+the Realtek USB Wi-Fi adapter, which was suspected of causing the occasional late requests of
+2026-11-17/18. On the I219-V the late requests became 20–60 times more frequent: requests reached
+the adapter driver 2–16 ms late (Npcap time stamps against IPOC), the controller's Delay counter
+reached 10 and the runs stopped with KSS29002 `RSITimeout` after 2.5–9 min, also with Interrupt
+Moderation enabled. Back on the ASIX adapter, the full calibration run had no request late at the
+driver and a maximum Delay of 2, against 46 and 140 delayed requests in the ASIX runs of 2026-11-18.
+USB sharing alone therefore does not produce the delays; those of 2026-11-17/18 remain unexplained.
+
+Probable cause (not proven): the I219-V receive path, that is the adapter or its driver, holds
+received frames before Windows sees them. Windows and RoboCrap added at most 1.7 ms after the
+driver; LatencyMon during the runs showed no ISR or DPC longer than 1 ms; the held times are spread
+evenly up to 16 ms (4 RSI cycles) and are not aligned to the Windows timer tick. The KR C4 and the
+cable are unlikely, because they were the same in the ASIX run. Separating the adapter from the
+cable or the KR C4 would need a capture outside the PC (network tap or mirroring switch port).
+
 ### Key device specifications
 
 Datasheet values per component, not measurements of this installation, from the manuals folder
@@ -131,8 +148,8 @@ AGENT_CONTRACTS.md. `old_imp/` is not built; `python/` holds analysis scripts.
   `busy` is set before reading and cleared before returning, so painting waits for the call.
 - `SceneMachining::generate`: the chamfer parameters use only the ellipse and the cylinder
   origin/axis, but the plane must still exist.
-- `PlcDevice`: `disconnect` sets `SO_LINGER` {1, 0} and aborts, so the close sends RST and the fixed
-  source port has no TIME_WAIT that would make the next connect fail with "The bound address is
+- `PlcDevice`: `disconnectDevice` sets `SO_LINGER` {1, 0} and aborts, so the close sends RST and the
+  fixed source port has no TIME_WAIT that would make the next connect fail with "The bound address is
   already in use". Requests are queued and sent one at a time (the PLC has one receive buffer); a
   reply must arrive within 1 s, otherwise "PLC reply timeout" is logged and the next request is
   sent; requests while not connected are dropped. A SNAPSHOT heartbeat every 2 s while idle keeps

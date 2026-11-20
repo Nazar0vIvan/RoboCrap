@@ -3,6 +3,7 @@
 #include "geometry/surfaceintersection.h"
 
 #include <QString>
+#include <array>
 #include <optional>
 
 struct ChamferLeadParameters
@@ -12,6 +13,18 @@ struct ChamferLeadParameters
 };
 
 enum class ChamferPhase { LeadIn, Machining, LeadOut };
+constexpr std::array<ChamferPhase, 3> ChamferPhases{ChamferPhase::LeadIn, ChamferPhase::Machining, ChamferPhase::LeadOut};
+
+// "Lead-in", "Machining" or "Lead-out"; the playback status and error texts show these.
+inline QString chamferPhaseLabel(ChamferPhase phase)
+{
+  switch (phase) {
+  case ChamferPhase::LeadIn: return QStringLiteral("Lead-in");
+  case ChamferPhase::Machining: return QStringLiteral("Machining");
+  case ChamferPhase::LeadOut: return QStringLiteral("Lead-out");
+  }
+  return {};
+}
 
 struct ChamferPathParameters
 {

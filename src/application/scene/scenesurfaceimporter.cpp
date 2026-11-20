@@ -11,7 +11,10 @@
 
 namespace {
 
-enum class ReadError { None, Source, File, Json, Samples };
+enum class ReadError { None, Source, File, TooLarge, Json, Samples };
+
+// 10,000 points of about 70 characters each are about 0.7 MB.
+constexpr qint64 MaximumImportBytes = 4 * 1024 * 1024;
 
 struct ReadResult {
   std::optional<ProbeSamples> samples;
@@ -29,6 +32,7 @@ ReadResult readSamples(const QUrl& source)
 
   QFile file(path);
   if (!file.open(QIODevice::ReadOnly)) return {{}, {}, ReadError::File};
+  if (file.size() > MaximumImportBytes) return {{}, {}, ReadError::TooLarge};
   const QByteArray contents = file.readAll();
   if (file.error() != QFileDevice::NoError) return {{}, {}, ReadError::File};
   const QJsonDocument document = QJsonDocument::fromJson(contents);
@@ -43,10 +47,12 @@ QString readErrorText(ReadError error)
   switch (error) {
     case ReadError::Source: return SceneSurfaceImporter::tr("Choose a local JSON point file.");
     case ReadError::File: return SceneSurfaceImporter::tr("Cannot read the selected JSON file.");
+    case ReadError::TooLarge: return SceneSurfaceImporter::tr("The selected file is larger than %1 MiB.")
+        .arg(MaximumImportBytes / (1024 * 1024));
     case ReadError::Json: return SceneSurfaceImporter::tr("The selected file is not valid JSON.");
     case ReadError::Samples: return SceneSurfaceImporter::tr(
-        "Expected finite [x, y, z] points in an array, or an object with points, "
-        "a finite nonnegative radius and dir equal to 1 or -1.");
+        "Expected at most %1 finite [x, y, z] points in an array, or an object with points, "
+        "a finite nonnegative radius and dir equal to 1 or -1.").arg(MaximumProbeSamples);
     case ReadError::None: return {};
   }
   return {};

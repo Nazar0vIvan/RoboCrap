@@ -29,17 +29,45 @@ None of it changes behaviour, but it makes the files longer and harder to follow
 ## Progress
 
 - [x] (2026-11-20) Plan written after reading `src/viewport/occt/occscene.{h,cpp}`, `occworldaxes.{h,cpp}`, `occpart.{h,cpp}`, `occpartprops.h`, `occviewcube.h` (and the guard lines of `occviewcube.cpp`), the colour lines of `occviewer.cpp`, `occviewport.{h,cpp}`, `occviewwindow.{h,cpp}`, `cadloadworker.h`, `src/viewport/include/viewport/robotgraphics.h`, `src/viewport/include/viewport/occcontroller.h` (properties) and `src/viewport/adapters/occrobotadapter.cpp`. The OCCT sources are not in the repository (`libs/OCCT_8_0_0/install-gcc1310_64` holds headers and binaries only).
-- [ ] Start counts recorded (run the command in Concrete Steps; the files of `src/viewport` totalled 3264 lines at commit 0cd8996, before the prerequisite plan).
-- [ ] Milestone 1: unreachable guards and the unused `OccWorldAxes::length()` removed.
-- [ ] Milestone 2: world axes drawn through the frame-axes functions; duplicate display code, flags and forwarder removed; selection-mode loop.
-- [ ] Milestone 3: shared constants, small API corrections, destructors, double expose resize, the drawer fetched once.
-- [ ] Builds of `RoboCrap3D` and `robocrap` and a disconnected session (user's).
-- [ ] Final compliance pass, line counts, `git diff --check`.
+- [x] (2026-11-20) Prerequisite checked: plan 01 complete; `OccViewWindow::failSurface` exists and `setSelection`, `setSpindleFrames`, `setActiveTool` return `ViewportOperationResult`. All line references of this plan re-verified against the current code; the `OccViewWindow` items, named by function, still hold after plan 01.
+- [x] (2026-11-20) Start counts (physical lines, the Concrete Steps file set): 3401 in total (3264 at 0cd8996 was before plan 01). Per file: cadloadresult.h 15, cadloadworker.h 26, occinputcontroller.h 60, occpart.h 37, occpartprops.h 38, occscene.h 82, occviewcube.h 29, occviewer.h 60, occviewport.h 71, occviewwindow.h 69, occworldaxes.h 39, cadloadworker.cpp 66, occinputcontroller.cpp 208, occpart.cpp 65, occscene.cpp 379, occviewcube.cpp 187, occviewer.cpp 243, occviewport.cpp 213, occviewwindow.cpp 242, occworldaxes.cpp 104, occrobotadapter.h 37, occsceneadapter.h 45, occrobotadapter.cpp 174, occsceneadapter.cpp 304, occcontroller.h 192, robotgraphics.h 33, viewportqmltypes.h 34, occcontroller.cpp 349.
+- [x] (2026-11-20) Milestone 1 implemented:
+  - `OccViewCube`: `isValid()` and the seven `if (m_cube.IsNull()) return;` removed; the OCCT style checks (`Attributes()`, `BoxSideStyle()`, `DynamicHilightAttributes()` …) kept;
+  - `OccWorldAxes`: `isValid()`, `length()`, the null branch of `setLength` and the `configureAxes` guard removed; `if (length <= 0.0) return;` kept;
+  - `OccPart`: `isValid()` removed, `setTransform` without its null check; the public constructor keeps `if (shape.IsNull()) return;`;
+  - `OccScene`: the axes/cube/part validity checks and warnings removed; `hasVisibleParts`, `setPartVisible`, `removePart`, `displayPart` and `activateAllSelectionModes` without the scene `isValid()` term; `displayPart` is `void` with a `const OccPart&`; the unknown-identifier branches and the scene `isValid()` in `updateCameraDependentObjects`, `setFrameAxes`, `createShapePart`, `selectParts` and `displayViewCube` kept.
+  Proofs re-verified: `OccViewCube` and `OccWorldAxes` create every handle unconditionally (`new` returns an object or throws); `createShapePart` checks the scene and rejects a null shape before constructing the part, so every stored part has a handle and exists only in a valid scene; `m_context`/`m_view` never change after construction; `resizeFrameAxes` is called only from `updateCameraDependentObjects`, which checks the scene. Searches of Concrete Steps: no `isValid` in occviewcube/occworldaxes/occpart, no `.length()` in `src/viewport/occt`.
+  Compliance pass: no lambdas, templates, exceptions or output parameters; no new helper; parameter counts unchanged. No violations found.
+  Counts (physical / nonblank): occviewcube.h 29/21 → 27/20, occviewcube.cpp 187/141 → 168/130, occworldaxes.h 39/28 → 36/26, occworldaxes.cpp 104/79 → 81/61, occpart.h 37/29 → 36/28, occpart.cpp 65/57 → 61/54, occscene.h 82/66 → 82/66, occscene.cpp 379/313 → 349/294; file set 3401 → 3319.
+- [x] (2026-11-20) Milestone 1 user check: `RoboCrap3D`, `robocrap` and the disconnected session passed (user report).
+- [x] (2026-11-20) Milestone 2 implemented:
+  - `updateCameraDependentObjects`: displayed world axes are resized with `resizeFrameAxes`; otherwise, once a part is visible, they are shown with `setFrameAxes(m_worldAxes, gp_Trsf())`;
+  - removed: `displayWorldAxes`, `redisplayWorldAxes`, `displayInfrastructure`, `m_worldAxesDisplayed`, `m_viewCubeDisplayed`; `displayViewCube` is public and called by the `OccViewport` constructor;
+  - the three `SetSelectionModeActive` calls are one range-for over `{TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX}`, placed in `displayPart` (see Decision Log);
+  - `hasVisibleParts` filters with `!part.fitExcluded()`.
+  Search of Concrete Steps: no `displayWorldAxes`, `redisplayWorldAxes`, `displayInfrastructure`, `m_worldAxesDisplayed`, `m_viewCubeDisplayed` (nor `activateAllSelectionModes`, `IsInfinite`) in `src/viewport`.
+  Compliance pass: no lambdas, templates, exceptions or output parameters; one function and two flags fewer; no new helper. No violations found.
+  Counts (physical / nonblank, from the Milestone 1 state): occscene.h 82/66 → 77/61, occscene.cpp 349/294 → 283/245, occviewport.cpp 213/185 → 213/185; file set 3319 → 3248.
+- [x] (2026-11-20) Milestone 2 user check: `RoboCrap3D`, `robocrap` and the disconnected session passed (user report).
+- [x] (2026-11-20) Milestone 3 implemented:
+  - `occpartprops.h`: `kSelectionOutlineColor`, `kSelectionOutlineWidth`, `kHoverColor`, `kDefaultAxisLength`, used in `occscene.cpp` (outline, both fallbacks), `occviewer.cpp` (hover, selection face boundary), `occviewcube.cpp` (hover, two uses) and `occworldaxes.cpp` (fallback); `AxisLengthPerCameraScale = 0.05` in `occscene.cpp`'s anonymous namespace; `OccWorldAxes(double initialLength)` without default, `m_length = 0.0` until `createAxes`;
+  - `OccViewWindow`: `viewport()` non-const, `~OccViewWindow() = default` in the .cpp, `<QPointer>` removed, `exposeEvent` as recorded in the Decision Log, `resizeEvent` and the DevicePixelRatioChange branch call `resizeViewport()`, `applyTransforms` keeps a non-const `result`;
+  - `OccViewport`: no user-declared destructor; non-const `result` in `setRobot` and `applyTransforms`; `OccController::viewport()` non-const;
+  - `OccPart`: the drawer fetched once, before the point/line aspects; order of aspects, `SetColor`, `SetTransparency`, face-boundary settings kept;
+  - enums `OccSelectionMode` and `RobotTool` one enumerator per line with trailing commas; `RobotToolCount` in `robotgraphics.h` replaces `ToolCount` (six uses) in `occrobotadapter.cpp`;
+  - `CadLoadWorker`: `Q_OBJECT` (AUTOMOC through `qt_standard_project_setup`, header listed in `RoboCrap3D`);
+  - `OccController`: `FINAL` on its seven properties.
+  Searches: no copied outline grey, hover colour, `10.0` axis fallback or `0.05` literal left outside `occpartprops.h` and the named ratio; no `QPointer` in `occviewwindow.h`.
+  Compliance pass: no lambdas, project templates, exceptions or output parameters; constants are inline/constexpr values, not templates; destruction order unchanged (`m_timer` is the last-declared non-trivial member of `OccViewport`, so it is still destroyed, and stopped, first; `m_viewport` is still destroyed before the window's other members). No violations found.
+  Counts (physical, from HEAD): occpartprops.h 38 → 49, occscene.cpp 379 → 290, occviewer.cpp 243 → 243, occviewcube.cpp 187 → 166, occworldaxes.h 39 → 37, occworldaxes.cpp 104 → 81, occviewwindow.h 69 → 68, occviewwindow.cpp 242 → 240, occviewport.h 71 → 70, occviewport.cpp 213 → 208, occpart.cpp 65 → 55, cadloadworker.h 26 → 28, robotgraphics.h 33 → 37, occcontroller.h 192 → 192, occcontroller.cpp 349 → 349, occrobotadapter.cpp 174 → 172; file set 3248 → 3254 in this milestone (the shared constants and one-enumerator-per-line add lines), 3401 → 3254 over the plan.
+- [x] (2026-11-20) Milestone 3 user check: `RoboCrap3D`, `robocrap` and the full disconnected session passed (user report).
+- [x] (2026-11-20) Builds of `RoboCrap3D` and `robocrap` and a disconnected session after Milestones 1 and 2 (user's); after Milestone 3 pending with its check.
+- [x] (2026-11-20) Final compliance pass, line counts, `git diff --check` (clean).
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: the working copy mixes line endings (with `core.autocrlf=true`): many files are CRLF, while others such as `ModeToolBar.qml`, `occviewcube.h`, `occworldaxes.h` and the Markdown documents are LF. Git's "LF will be replaced by CRLF" warnings for edited LF files are therefore pre-existing, not caused by the edits; the index holds LF either way, and the content diffs show only the intended lines.
 
 
 ## Decision Log
@@ -53,11 +81,30 @@ None of it changes behaviour, but it makes the files longer and harder to follow
 - Decision: `hasVisibleParts` uses `OccPart::fitExcluded()` instead of `AIS_Shape::IsInfinite()`.
   Rationale: no part's AIS object is ever marked infinite. The contract forbids it, because AIS_Shape would then draw its shaded presentation as wireframe; only presentations are marked (`occscene.cpp` displayPart). The current filter therefore excludes nothing. The intended rule, ignoring decorations for "has something to fit", is exactly `fitExcluded()`. The visible effect is limited to scenes holding only decorative parts, which do not occur after robot installation.
   Date/Author: 2026-11-20, plan author.
+- Decision: `OccScene::displayPart` becomes `void displayPart(const OccPart& part)`.
+  Rationale: after Milestone 1 removes its two checks it can only return true; its single caller, `setPartVisible`, then returns true itself. It only reads the part (the handle is a pointer), so the reference becomes const.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: the selection-mode loop replaces `activateAllSelectionModes` inside `displayPart` instead of becoming that function's body.
+  Rationale: `displayPart` is its only caller and already holds the part's handle; after Milestone 1 the function had no checks of its own, so it was only a forwarding layer.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `OccController::viewport()` also becomes non-const, together with `OccViewWindow::viewport()` (Milestone 3).
+  Rationale: it has the same defect, a const method returning a pointer its callers modify through; all nine callers are non-const `OccController` methods.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `OccWorldAxes(double initialLength = 10.0)` loses its default argument (Milestone 3), and `kDefaultAxisLength` is used only in `occworldaxes.cpp` (the non-positive fallback) and `occscene.cpp`.
+  Rationale: no caller uses the default; `OccScene` always passes the camera-based length. Keeping it would make `occworldaxes.h` include `occpartprops.h` only for this value.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `OccViewWindow::exposeEvent` becomes `if (!m_viewport) initializeViewport(); else m_viewport->setExposed(isExposed());` (Milestone 3).
+  Rationale: `initializeViewport` already returns when the window is not exposed, so the planned `isExposed()` test is not repeated. Routing `resizeEvent` through `resizeViewport()` nests that function's try/catch inside `event()`'s; an OCCT failure during a resize then reports "Viewport resize failed" instead of "Viewport operation failed", with the same `failSurface` handling.
+  Date/Author: 2026-11-20, implementing agent.
 
 
 ## Outcomes & Retrospective
 
-(To be written at completion.)
+Completed and accepted by the user on 2026-11-20. The OCCT viewport draws the same scene, selection, axes and view cube with 147 fewer lines in the plan's file set (3401 → 3254, against the expected 60): the unreachable null guards and `isValid()` members are gone; the world axes use the same display and resize functions as the spindle axes; two flags, a forwarder and the per-type selection-mode calls are gone; the outline grey and width, the hover colour and the axis length are defined once; `OccPart` fetches its drawer once; two destructors and an include are gone, the first expose resizes once, and resizing goes through one guarded function. The checks kept by the Decision Log (`Attributes()`/`Camera()` without OCCT sources, `loadRobot`'s single-load guard, the scene entry points) remain.
+
+Beyond the plan: `displayPart` returns nothing and takes a const part, the selection-mode loop sits in its only caller, `OccController::viewport()` is non-const like the window's, and `OccWorldAxes` lost its unused default argument instead of making its header depend on the shared constants.
+
+Lesson: re-verifying each removal proof against the current code (after plan 01 had moved lines) was quick and found no broken proof; most extra reductions came from functions whose last check disappeared and that were left as one-caller forwarders.
 
 
 ## Context and Orientation

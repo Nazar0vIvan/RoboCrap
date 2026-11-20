@@ -50,16 +50,13 @@ public:
   void setSpindleTcpFrame(const std::optional<gp_Trsf>& frame);
   // BASE-relative frame; empty hides the non-selectable ER axes.
   void setSpindleColletFrame(const std::optional<gp_Trsf>& frame);
-  void displayInfrastructure();
+  // Called once, by the viewport after construction.
+  void displayViewCube();
 
 private:
-  void displayWorldAxes();
-  void redisplayWorldAxes();
   void setFrameAxes(OccWorldAxes& axes, const std::optional<gp_Trsf>& frame);
   void resizeFrameAxes(OccWorldAxes& axes);
-  void displayViewCube();
-  bool displayPart(OccPart& part);
-  void activateAllSelectionModes(const OccPart& part);
+  void displayPart(const OccPart& part);
   void unselectPart(PartId id);
   [[nodiscard]] double currentWorldAxisLength() const;
 
@@ -75,8 +72,6 @@ private:
   OccWorldAxes m_spindleTcpAxes;
   OccWorldAxes m_spindleColletAxes;
   OccViewCube m_viewCube;
-  bool m_worldAxesDisplayed = false;
-  bool m_viewCubeDisplayed = false;
 };
 
 } // namespace RoboCrap3D

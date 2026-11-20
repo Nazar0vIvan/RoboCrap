@@ -22,6 +22,13 @@
 
 namespace RoboCrap3D {
 
+namespace {
+
+// Axis length per unit of camera scale, so the axes keep a constant size on screen.
+constexpr double AxisLengthPerCameraScale = 0.05;
+
+} // namespace
+
 OccScene::OccScene(
     const Handle(AIS_InteractiveContext)& context,
     const Handle(V3d_View)& view)
@@ -38,11 +45,11 @@ bool OccScene::isValid() const
   return !m_context.IsNull() && !m_view.IsNull();
 }
 
+// Parts are stored only while the scene is valid (createShapePart), so no validity check is needed.
 bool OccScene::hasVisibleParts() const
 {
-  if (!isValid()) return false;
   for (const auto& [id, part] : m_parts) {
-    if (!part.handle()->IsInfinite() && m_context->IsDisplayed(part.handle())) return true;
+    if (!part.fitExcluded() && m_context->IsDisplayed(part.handle())) return true;
   }
   return false;
 }
@@ -50,13 +57,9 @@ bool OccScene::hasVisibleParts() const
 void OccScene::updateCameraDependentObjects()
 {
   if (!isValid()) return;
-
-  if (!m_worldAxesDisplayed) {
-    if (hasVisibleParts()) displayWorldAxes();
-  } else {
-    m_worldAxes.setLength(currentWorldAxisLength());
-    redisplayWorldAxes();
-  }
+  // The world axes appear with the first visible part, at the origin (identity frame).
+  if (m_context->IsDisplayed(m_worldAxes.xAxis())) resizeFrameAxes(m_worldAxes);
+  else if (hasVisibleParts()) setFrameAxes(m_worldAxes, gp_Trsf());
   resizeFrameAxes(m_spindleTcpAxes);
   resizeFrameAxes(m_spindleColletAxes);
 }
@@ -73,7 +76,7 @@ void OccScene::setSpindleColletFrame(const std::optional<gp_Trsf>& frame)
 
 void OccScene::setFrameAxes(OccWorldAxes& axes, const std::optional<gp_Trsf>& frame)
 {
-  if (!isValid() || !axes.isValid()) return;
+  if (!isValid()) return;
   const bool displayed = m_context->IsDisplayed(axes.xAxis());
   if (!frame) {
     if (!displayed) return;
@@ -94,77 +97,22 @@ void OccScene::setFrameAxes(OccWorldAxes& axes, const std::optional<gp_Trsf>& fr
 
 void OccScene::resizeFrameAxes(OccWorldAxes& axes)
 {
-  if (!axes.isValid() || !m_context->IsDisplayed(axes.xAxis())) return;
+  if (!m_context->IsDisplayed(axes.xAxis())) return;
   axes.setLength(currentWorldAxisLength());
   for (const auto& axis : {axes.xAxis(), axes.yAxis(), axes.zAxis()})
     m_context->Redisplay(axis, false);
 }
 
-void OccScene::displayInfrastructure()
-{
-  displayViewCube();
-}
-
-void OccScene::displayWorldAxes()
-{
-  if (!isValid()) return;
-
-  if (m_worldAxesDisplayed) return;
-
-  if (!m_worldAxes.isValid()) {
-    qWarning() << "Cannot display world axes: OccWorldAxes is invalid";
-    return;
-  }
-
-  m_worldAxes.setLength(currentWorldAxisLength());
-
-  m_context->Display(m_worldAxes.xAxis(), false);
-  m_context->Display(m_worldAxes.yAxis(), false);
-  m_context->Display(m_worldAxes.zAxis(), false);
-
-  m_context->Deactivate(m_worldAxes.xAxis());
-  m_context->Deactivate(m_worldAxes.yAxis());
-  m_context->Deactivate(m_worldAxes.zAxis());
-
-  m_worldAxesDisplayed = true;
-}
-
-void OccScene::redisplayWorldAxes()
-{
-  if (!isValid()) return;
-
-  if (!m_worldAxesDisplayed) return;
-
-  if (!m_worldAxes.isValid()) return;
-
-  m_context->Redisplay(m_worldAxes.xAxis(), false);
-  m_context->Redisplay(m_worldAxes.yAxis(), false);
-  m_context->Redisplay(m_worldAxes.zAxis(), false);
-}
-
 void OccScene::displayViewCube()
 {
   if (!isValid()) return;
-
-  if (m_viewCubeDisplayed) return;
-
-  if (!m_viewCube.isValid()) {
-    qWarning() << "Cannot display ViewCube: OccViewCube is invalid";
-    return;
-  }
-
   m_context->Display(m_viewCube.handle(), false);
   m_context->Activate(m_viewCube.handle(), 0, false);
-
-  m_viewCubeDisplayed = true;
 }
 
-bool OccScene::displayPart(OccPart& part)
+// Only stored parts are displayed: the scene is valid and the part has a handle (createShapePart).
+void OccScene::displayPart(const OccPart& part)
 {
-  if (!isValid()) return false;
-
-  if (!part.isValid()) return false;
-
   const int selectionMode = part.selectionMode() == OccSelectionMode::None ? -1 : 0;
 
   // Transparent parts keep their transparency when selected or hovered, so parts behind them
@@ -187,54 +135,26 @@ bool OccScene::displayPart(OccPart& part)
 
   if (part.topmost()) m_context->SetZLayer(handle, Graphic3d_ZLayerId_Topmost);
 
-  if (part.selectionMode() == OccSelectionMode::All) {
-    activateAllSelectionModes(part);
-  }
-
-  return true;
-}
-
-void OccScene::activateAllSelectionModes(const OccPart& part)
-{
-  if (!isValid()) return;
-
-  if (!part.isValid()) return;
-
-  m_context->SetSelectionModeActive(
-    part.handle(),
-    AIS_Shape::SelectionMode(TopAbs_FACE),
-    true,
-    AIS_SelectionModesConcurrency_Multiple
-  );
-
-  m_context->SetSelectionModeActive(
-    part.handle(),
-    AIS_Shape::SelectionMode(TopAbs_EDGE),
-    true,
-    AIS_SelectionModesConcurrency_Multiple
-  );
-
-  m_context->SetSelectionModeActive(
-    part.handle(),
-    AIS_Shape::SelectionMode(TopAbs_VERTEX),
-    true,
-    AIS_SelectionModesConcurrency_Multiple
-  );
+  // Imported surfaces: faces, edges and vertices are pickable besides the whole shape.
+  if (part.selectionMode() == OccSelectionMode::All)
+    for (const TopAbs_ShapeEnum type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
+      m_context->SetSelectionModeActive(handle, AIS_Shape::SelectionMode(type), true,
+                                        AIS_SelectionModesConcurrency_Multiple);
 }
 
 double OccScene::currentWorldAxisLength() const
 {
   if (m_view.IsNull() || m_view->Camera().IsNull()) {
-    return 10.0;
+    return kDefaultAxisLength;
   }
 
   const double cameraScale = m_view->Camera()->Scale();
 
   if (cameraScale <= 0.0) {
-    return 10.0;
+    return kDefaultAxisLength;
   }
 
-  return cameraScale * 0.05;
+  return cameraScale * AxisLengthPerCameraScale;
 }
 
 std::optional<OccScene::PartId> OccScene::createShapePart(const TopoDS_Shape& shape, const OccPartProps& props)
@@ -254,13 +174,7 @@ std::optional<OccScene::PartId> OccScene::createShapePart(const TopoDS_Shape& sh
     return std::nullopt;
   }
 
-  OccPart part(shape, props);
-
-  if (!part.isValid()) {
-    qWarning() << "Cannot add OCCT shape part: AIS presentation was not created";
-    return std::nullopt;
-  }
-
+  OccPart part(shape, props); // A non-null shape always gets its AIS handle.
   const PartId id = *m_nextPartId;
   m_parts.emplace(id, std::move(part));
   if (id == std::numeric_limits<PartId>::max()) m_nextPartId.reset();
@@ -286,26 +200,23 @@ bool OccScene::setPartTransform(const PartId id, const gp_Trsf& transform)
 bool OccScene::setPartVisible(const PartId id, const bool visible)
 {
   const auto found = m_parts.find(id);
-  if (!isValid() || found == m_parts.end()) {
+  if (found == m_parts.end()) {
     qWarning() << "Invalid OCCT scene part id:" << id;
     return false;
   }
 
-  OccPart& part = found->second;
+  const OccPart& part = found->second;
   if (!visible) unselectPart(id);
   if (m_context->IsDisplayed(part.handle()) == visible) return true;
-  if (visible) {
-    return displayPart(part);
-  }
-
-  m_context->Erase(part.handle(), false);
+  if (visible) displayPart(part);
+  else m_context->Erase(part.handle(), false);
   return true;
 }
 
 bool OccScene::removePart(const PartId id)
 {
   const auto found = m_parts.find(id);
-  if (!isValid() || found == m_parts.end()) {
+  if (found == m_parts.end()) {
     qWarning() << "Invalid OCCT scene part id:" << id;
     return false;
   }
@@ -364,8 +275,8 @@ void OccScene::selectParts(const std::vector<PartId>& ids)
       outline = new AIS_Shape(boundaries); // Own it before any display/style operation can fail.
     }
     if (!outline.IsNull()) {
-      outline->SetColor(Quantity_Color(48.0 / 255.0, 48.0 / 255.0, 48.0 / 255.0, Quantity_TOC_sRGB));
-      outline->SetWidth(2.0);
+      outline->SetColor(kSelectionOutlineColor);
+      outline->SetWidth(kSelectionOutlineWidth);
       outline->SetLocalTransformation(handle->LocalTransformation());
       outline->SetInfiniteState(true); // Decoration must not affect camera fitting.
       m_context->Display(outline, 0, -1, false);

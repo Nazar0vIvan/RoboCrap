@@ -13,6 +13,8 @@ Item {
   property alias to: pb.to
   property alias color: fill.color
   property alias value: pb.value
+  // Magnitude whose negative value sizes the value label; bars in one column share the largest.
+  property real widestValue: Math.max(Math.abs(pb.from), Math.abs(pb.to))
 
   implicitWidth: rl.implicitWidth
   implicitHeight: rl.implicitHeight
@@ -61,13 +63,22 @@ Item {
       }
     }
 
+    // As wide as the widest value of the range, so changing values never resize the bar.
     Text {
       id: valueText
 
       Layout.alignment: Qt.AlignVCenter
+      Layout.preferredWidth: Math.ceil(valueMetrics.advanceWidth)
+      horizontalAlignment: Text.AlignRight
       text: pb.value.toFixed(3)
       color: Colors.foreground.high
       font: Fonts.body
     }
+  }
+
+  TextMetrics {
+    id: valueMetrics
+    font: Fonts.body
+    text: (-root.widestValue).toFixed(3)
   }
 }

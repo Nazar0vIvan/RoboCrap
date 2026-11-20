@@ -22,13 +22,15 @@ QxGroupBox {
   ColumnLayout {
     spacing: Metrics.sp12
 
+    // Constant text on one elided line, hidden by opacity, so connecting never resizes the window.
     Text {
       Layout.fillWidth: true
-      visible: !(root.plc?.isConnected ?? false)
+      Layout.preferredWidth: 0
+      opacity: root.enabled ? 0 : 1
       text: qsTr("Connect PLC in Settings.")
       color: Colors.foreground.medium
       font: Fonts.caption
-      wrapMode: Text.WordWrap
+      elide: Text.ElideRight
     }
 
     RowLayout {

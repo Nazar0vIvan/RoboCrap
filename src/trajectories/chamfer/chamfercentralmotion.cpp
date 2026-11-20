@@ -1,6 +1,7 @@
 #include "trajectories/chamfercentralmotion.h"
 
 #include "trajectories/chamfermotion.h"
+#include "geometry/utils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,11 +17,6 @@ std::optional<std::size_t> phaseIndex(ChamferPhase phase)
   case ChamferPhase::LeadOut: return 2;
   }
   return std::nullopt;
-}
-
-bool positiveFinite(double value)
-{
-  return std::isfinite(value) && value > 0.0;
 }
 
 bool validProfile(const ChamferCentralProfile& profile)
@@ -100,9 +96,9 @@ QString ChamferCentralMotion::initializeTiming(double fraction)
     const double end = start + profile.duration();
     if (!positiveFinite(end) || end <= start)
       return QStringLiteral("Central phase boundaries cannot be represented distinctly.");
-    if (index != 1 && profile.cruiseSeconds > 0.0) {
-      const double change = start + (index == 0 ? profile.rampSeconds : profile.cruiseSeconds);
-      if (change <= start || change >= end)
+    if (const auto change = profile.switchSeconds(ChamferPhases[index])) {
+      const double at = start + *change;
+      if (at <= start || at >= end)
         return QStringLiteral("Lead ramp and cruise boundaries cannot be represented distinctly.");
     }
     m_phaseTimes[index + 1] = end;
@@ -120,7 +116,7 @@ ChamferCentralMotionResult ChamferCentralMotion::create(const ChamferPath& path,
     return {{}, QStringLiteral("Acceleration/deceleration distance must be in (0, 100] percent.")};
   std::array<std::optional<ChamferArcLength>, 3> lengths;
   for (std::size_t index = 0; index < lengths.size(); ++index) {
-    auto result = ChamferArcLength::create(path, static_cast<ChamferPhase>(index));
+    auto result = ChamferArcLength::create(path, ChamferPhases[index]);
     if (!result.arcLength) return {{}, result.error};
     lengths[index] = std::move(result.arcLength);
   }
@@ -149,7 +145,7 @@ std::optional<ChamferCentralPose> ChamferCentralMotion::evaluate(double seconds)
   // Clamp only subtraction roundoff; the caller's time was checked above.
   const double local = std::clamp(seconds - m_phaseTimes[index], 0.0,
                                   m_profiles[index].duration());
-  return evaluatePhase(static_cast<ChamferPhase>(index), local);
+  return evaluatePhase(ChamferPhases[index], local);
 }
 
 std::optional<ChamferCentralPose> ChamferCentralMotion::evaluatePhase(ChamferPhase phase,
@@ -176,12 +172,5 @@ std::optional<ChamferCentralPose> ChamferCentralMotion::evaluatePhase(ChamferPha
   if (!progress) return std::nullopt;
   const auto sample = m_path.evaluatePhase(phase, *progress);
   if (!sample) return std::nullopt;
-  ChamferCentralPose result;
-  result.tcp = sample->tcp;
-  result.phase = phase;
-  result.progress = *progress;
-  result.distance = state.distance;
-  result.speed = state.speed;
-  result.tangentialAcceleration = state.acceleration;
-  return result;
+  return ChamferCentralPose{sample->tcp, *progress};
 }

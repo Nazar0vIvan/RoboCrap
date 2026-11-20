@@ -170,13 +170,18 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
                          {{190, 190, 190}, 0.0, true}});
     result.parts.append({DrawingModel{value->standModel, value->center}, {{140, 140, 140}, 0.0, true}});
   } else if (const auto* motion = machiningPath()) {
-    for (std::size_t phase = 0; phase + 1 < motion->boundaries().size(); ++phase) {
-      const auto first = motion->boundaries()[phase];
-      auto positions = tcpPolyline(motion->points().mid(first, motion->boundaries()[phase + 1] - first + 1));
+    // Phase i runs from boundary i to boundary i + 1.
+    for (qsizetype phase = 0; phase < ChamferPhaseCount; ++phase) {
+      const auto from = static_cast<ChamferBoundary>(phase);
+      const auto first = motion->boundary(from);
+      const auto last = motion->boundary(static_cast<ChamferBoundary>(phase + 1));
+      auto positions = tcpPolyline(motion->points().mid(first, last - first + 1));
       if (positions.size() < 2) continue; // A stationary HOME phase has no line.
-      const std::array<int, 3> color = phase == 3 ? std::array<int, 3>{30, 130, 45}
-          : phase == 0 || phase == 6 ? std::array<int, 3>{90, 65, 130} : std::array<int, 3>{0, 100, 210};
-      result.parts.append({std::move(positions), {color, phase == 3 ? 3.0 : 2.0}});
+      const bool machining = from == ChamferBoundary::MachiningStart;
+      const std::array<int, 3> color = machining ? std::array<int, 3>{30, 130, 45}
+          : from == ChamferBoundary::HomeStart || from == ChamferBoundary::StagingOut
+              ? std::array<int, 3>{90, 65, 130} : std::array<int, 3>{0, 100, 210};
+      result.parts.append({std::move(positions), {color, machining ? 3.0 : 2.0}});
     }
   } else if (const auto* value = touchPath()) {
     // Constant-speed Approach green and wider (the Retract retraces it as a blue LIN), PTP purple,

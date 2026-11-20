@@ -22,7 +22,7 @@ std::optional<LinearProfile> transferProfile(const ChamferPath& path, ChamferPha
 struct CompiledMotion
 {
   std::optional<TimedMotion> motion;
-  std::array<qsizetype, 8> boundaries{};
+  std::array<qsizetype, ChamferBoundaryCount> boundaries{};
   QString error;
 };
 
@@ -79,10 +79,10 @@ public:
       if (!rigid(point.tcp) || !withinLimits(point.joints, m_robot.model))
         return {{}, {}, QStringLiteral("Invalid FK pose or joint position in the assembled motion.")};
     auto timed = motion.finish();
-    if (timed.phases().size() != 7) return {{}, {}, QStringLiteral("Assembled motion lacks a phase.")};
-    std::array<qsizetype, 8> boundaries{};
-    for (std::size_t phase = 0; phase < 7; ++phase)
-      boundaries[phase + 1] = timed.phases()[static_cast<qsizetype>(phase)].last;
+    if (timed.phases().size() != ChamferPhaseCount) return {{}, {}, QStringLiteral("Assembled motion lacks a phase.")};
+    std::array<qsizetype, ChamferBoundaryCount> boundaries{}; // HomeStart stays 0.
+    for (qsizetype phase = 0; phase < ChamferPhaseCount; ++phase)
+      boundaries[static_cast<std::size_t>(phase) + 1] = timed.phases()[phase].last;
     return {std::move(timed), boundaries, {}};
   }
 
@@ -100,11 +100,12 @@ private:
   {
     const auto& kinematics = m_solver.kinematics();
     const auto previous = kinematics.configuration(seed, kinematics.solveFK(seed));
-    const auto solution = m_solver.inverse(target, previous);
-    if (!solution) return;
+    // The checked IK of every path point; a start it rejects fails the first LIN's start check.
+    const auto solved = m_solver.solveTcp(target, previous);
+    if (!solved.solution) return;
     for (const auto& existing : m_starts)
-      if ((existing.q - solution->first.q).cwiseAbs().maxCoeff() < 1e-6) return;
-    m_starts.append(solution->first);
+      if ((existing.q - solved.solution->q).cwiseAbs().maxCoeff() < 1e-6) return;
+    m_starts.append(*solved.solution);
   }
 
   QString appendTransfer(ChamferPhase side, const QString& label)
@@ -114,10 +115,9 @@ private:
     return m_motion->appendPath(LinearPath(*profile, label), MotionInterpolation::Spline);
   }
 
+  // The seed is the start (checked by the start search) or the last solveTcp solution.
   QString appendCentral()
   {
-    const QString seedError = chamferJointPositionError(m_motion->seed().q, m_robot.model);
-    if (!seedError.isEmpty()) return QStringLiteral("Invalid initial IK seed: %1").arg(seedError);
     const QString error = m_central.prepare();
     if (!error.isEmpty()) return error;
     return m_motion->appendPath(CentralPath(m_central), MotionInterpolation::Spline);
@@ -133,13 +133,9 @@ private:
 
 } // namespace
 
-ChamferMotion::ChamferMotion(const ChamferPath& path, TimedMotion timed, const std::array<qsizetype, 8>& boundaries)
-  : m_parameters(path.parameters()), m_timed(std::move(timed)), m_boundaries(boundaries) {}
-
-void ChamferMotion::setCentralMotion(ChamferCentralMotion motion)
-{
-  m_centralMotion = std::move(motion);
-}
+ChamferMotion::ChamferMotion(TimedMotion timed, const std::array<qsizetype, ChamferBoundaryCount>& boundaries,
+                             ChamferCentralMotion central)
+  : m_timed(std::move(timed)), m_boundaries(boundaries), m_centralMotion(std::move(central)) {}
 
 ChamferMotionResult ChamferMotion::create(const ChamferPath& path, const ChamferRobotSetup& robot)
 {
@@ -151,9 +147,7 @@ ChamferMotionResult ChamferMotion::create(const ChamferPath& path, const Chamfer
   for (const auto& start : compiler.starts()) {
     auto compiled = compiler.compile(start);
     if (!compiled.motion) { error = compiled.error; continue; }
-    ChamferMotion motion(path, std::move(*compiled.motion), compiled.boundaries);
-    motion.setCentralMotion(compiler.centralMotion());
-    return {std::move(motion), {}};
+    return {ChamferMotion(std::move(*compiled.motion), compiled.boundaries, compiler.centralMotion()), {}};
   }
   return {{}, error};
 }

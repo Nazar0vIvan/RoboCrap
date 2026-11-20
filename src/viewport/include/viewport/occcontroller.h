@@ -106,13 +106,13 @@ class OccViewport;
 class OccController final : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QWindow* viewWindow READ viewWindow NOTIFY viewWindowChanged)
-  Q_PROPERTY(bool ready READ isReady NOTIFY readyChanged)
-  Q_PROPERTY(bool showSpindleTcp READ showSpindleTcp WRITE setShowSpindleTcp NOTIFY showSpindleTcpChanged)
-  Q_PROPERTY(bool showSpindleCollet READ showSpindleCollet WRITE setShowSpindleCollet NOTIFY showSpindleColletChanged)
-  Q_PROPERTY(bool viewportReady READ isViewportReady NOTIFY viewportReadyChanged)
-  Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged)
-  Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged)
+  Q_PROPERTY(QWindow* viewWindow READ viewWindow NOTIFY viewWindowChanged FINAL)
+  Q_PROPERTY(bool ready READ isReady NOTIFY readyChanged FINAL)
+  Q_PROPERTY(bool showSpindleTcp READ showSpindleTcp WRITE setShowSpindleTcp NOTIFY showSpindleTcpChanged FINAL)
+  Q_PROPERTY(bool showSpindleCollet READ showSpindleCollet WRITE setShowSpindleCollet NOTIFY showSpindleColletChanged FINAL)
+  Q_PROPERTY(bool viewportReady READ isViewportReady NOTIFY viewportReadyChanged FINAL)
+  Q_PROPERTY(bool loading READ isLoading NOTIFY loadingChanged FINAL)
+  Q_PROPERTY(QString errorString READ errorString NOTIFY errorStringChanged FINAL)
 
 public:
   // Retain the selected OCCT runtime directory and the existing QObject lifetime owner.
@@ -161,7 +161,7 @@ private:
   void createWindow();
   void onViewWindowDestroyed();
   // The window's current OCCT viewer, or null without a native surface; looked up per call.
-  OccViewport* viewport() const;
+  OccViewport* viewport();
   // Re-applies the document selection to that viewer and reports an OCCT failure.
   void applySelection(OccViewport& drawing);
   void finishRobotLoad(quint64 generation);

@@ -17,8 +17,19 @@ inline Quantity_Color rgb(int r, int g, int b)
 }
 
 inline const Quantity_Color kDefaultPartColor{0.72, 0.76, 0.80, Quantity_TOC_RGB};
+// Face boundaries of selected parts, in the viewer's selection style and in OccScene's own outlines.
+inline const Quantity_Color kSelectionOutlineColor{48.0 / 255.0, 48.0 / 255.0, 48.0 / 255.0, Quantity_TOC_sRGB};
+constexpr double kSelectionOutlineWidth = 2.0;
+// Hover highlight of scene parts and of the view cube.
+inline const Quantity_Color kHoverColor = rgb(102, 179, 204);
+// Axis length (mm) while the camera scale is unknown.
+constexpr double kDefaultAxisLength = 10.0;
 
-enum class OccSelectionMode { PartOnly, All, None };
+enum class OccSelectionMode {
+  PartOnly,
+  All,
+  None,
+};
 
 struct OccPartProps
 {

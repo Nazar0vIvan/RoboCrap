@@ -34,11 +34,6 @@ OccViewCube::OccViewCube() : m_cube(new AIS_ViewCube())
   configureInteraction();
 }
 
-bool OccViewCube::isValid() const
-{
-  return !m_cube.IsNull();
-}
-
 const Handle(AIS_ViewCube)& OccViewCube::handle() const
 {
   return m_cube;
@@ -46,8 +41,6 @@ const Handle(AIS_ViewCube)& OccViewCube::handle() const
 
 void OccViewCube::configureLabels()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetBoxSideLabel(V3d_Zpos, "TOP");
   m_cube->SetBoxSideLabel(V3d_Zneg, "BOTTOM");
 
@@ -60,8 +53,6 @@ void OccViewCube::configureLabels()
 
 void OccViewCube::configureStyle()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetSize(50.0, false);
 
   m_cube->SetBoxColor(rgb(200, 200, 230));
@@ -87,15 +78,13 @@ void OccViewCube::configureStyle()
   Handle(Prs3d_Drawer) hoverStyle = m_cube->DynamicHilightAttributes();
 
   if (!hoverStyle.IsNull()) {
-    const Quantity_Color hoverColor = rgb(102, 179, 204);
-
-    hoverStyle->SetColor(hoverColor);
+    hoverStyle->SetColor(kHoverColor);
     hoverStyle->SetDisplayMode(AIS_Shaded);
     hoverStyle->SetFaceBoundaryDraw(false);
     hoverStyle->SetShadingModel(Graphic3d_TypeOfShadingModel_Unlit);
 
     if (!hoverStyle->ShadingAspect().IsNull()) {
-      hoverStyle->ShadingAspect()->SetColor(hoverColor);
+      hoverStyle->ShadingAspect()->SetColor(kHoverColor);
 
       if (!hoverStyle->ShadingAspect()->Aspect().IsNull()) {
         hoverStyle->ShadingAspect()->Aspect()->SetShadingModel(Graphic3d_TypeOfShadingModel_Unlit);
@@ -106,8 +95,6 @@ void OccViewCube::configureStyle()
 
 void OccViewCube::configureText()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetTextColor(Quantity_NOC_BLACK);
   m_cube->SetFont("Arial");
   m_cube->SetFontHeight(12.0);
@@ -115,8 +102,6 @@ void OccViewCube::configureText()
 
 void OccViewCube::configureEdgesAndCorners()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetDrawEdges(true);
   m_cube->SetDrawVertices(true);
   m_cube->SetBoxFacetExtension(12.0);
@@ -132,8 +117,6 @@ void OccViewCube::configureEdgesAndCorners()
 
 void OccViewCube::configureAxes()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetDrawAxes(true);
   m_cube->SetAxesLabels("", "", "");
 
@@ -163,8 +146,6 @@ void OccViewCube::configureAxes()
 
 void OccViewCube::configureTransformPersistence()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetTransformPersistence(
     new Graphic3d_TransformPers(
         Graphic3d_TMF_TriedronPers,
@@ -178,8 +159,6 @@ void OccViewCube::configureTransformPersistence()
 
 void OccViewCube::configureInteraction()
 {
-  if (m_cube.IsNull()) return;
-
   m_cube->SetResetCamera(true);
   m_cube->SetFitSelected(false);
 }

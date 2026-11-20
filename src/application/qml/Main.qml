@@ -291,6 +291,9 @@ ApplicationWindow {
                                          && Viewport3D.OccController.errorString.length === 0
     readonly property bool busy: App.Machining.calculating || App.Calibration.calculating
                                  || App.MachiningPreparation.preparing || statusBar.sceneLoading
+    // Calibration playback without an error, or the Dry Run of the open chamfer editor.
+    readonly property bool playbackShown: App.Playback.active
+                                          && (root.calibrationActive ? !App.Calibration.error : root.chamferEditorOpen)
     readonly property string message: {
       if (App.MachiningPreparation.calibrationRunning) {
         const detected = App.MachiningPreparation.calibrationDetected
@@ -302,12 +305,12 @@ ApplicationWindow {
       if (App.Machining.calculating || App.Calibration.calculating) return qsTr("Calculating trajectory…")
       if (App.MachiningPreparation.preparing) return qsTr("RSI Sampling…")
       if (statusBar.sceneLoading) return qsTr("Loading…")
-      if (root.calibrationActive && App.Playback.active && !App.Calibration.error)
+      if (statusBar.playbackShown)
         return qsTr("%1 · %2 · %3 / %4 s").arg(App.Playback.playing ? qsTr("Playing") : qsTr("Paused"))
                .arg(App.Playback.phase).arg(App.Playback.elapsed.toFixed(2)).arg(App.Playback.duration.toFixed(2))
       if (statusBar.calibrationStatus) return statusBar.calibrationStatus
-      if (!root.calibrationActive && (root.workflowMode !== WorkflowPanel.Machining || root.chamferEditorOpen))
-        return ""
+      if (root.chamferEditorOpen) return machiningPanel.message
+      if (!root.calibrationActive && root.workflowMode !== WorkflowPanel.Machining) return ""
       const preparation = App.MachiningPreparation
       const status = preparation.error || preparation.summary
                      || (root.calibrationActive ? preparation.calibrationUnavailableReason
@@ -319,9 +322,10 @@ ApplicationWindow {
     // Calibration error or the reason Generate is unavailable; preparation status otherwise.
     readonly property string calibrationStatus: root.calibrationActive
                                                 ? App.Calibration.error || App.Calibration.unavailableReason : ""
-    readonly property bool errorShown: !App.MachiningPreparation.calibrationRunning
+    readonly property bool errorShown: !App.MachiningPreparation.calibrationRunning && !statusBar.playbackShown
                                        && (statusBar.calibrationStatus ? App.Calibration.error.length > 0
-                                                                       : App.MachiningPreparation.error.length > 0)
+                                           : root.chamferEditorOpen ? App.Machining.error.length > 0
+                                           : App.MachiningPreparation.error.length > 0)
 
     padding: Metrics.sp8
     implicitHeight: Metrics.h40
@@ -367,6 +371,10 @@ ApplicationWindow {
 
         Layout.fillWidth: true
         Layout.minimumWidth: 0
+        // The message never widens the bar or squeezes the AUT EXT indicator.
+        Layout.preferredWidth: 0
+        // Constant room for the busy indicator, so an elided message never runs under it.
+        leftPadding: busyIndicator.width + Metrics.sp6
         text: statusBar.message.replace(/[\r\n]+/g, " · ")
         textFormat: Text.PlainText
         horizontalAlignment: Text.AlignRight
@@ -577,7 +585,6 @@ ApplicationWindow {
         anchors.fill: parent
         visible: root.chamferEditorOpen
         coordinator: App.Machining
-        playback: App.Playback
         inputName: root.selectedSceneObject ? root.selectedSceneObject.name : ""
         savedPath: root.selectedSceneObject && root.selectedSceneObject.kind === App.SceneObject.MachiningPath
                    ? root.selectedSceneObject.geometry as App.MachiningPath : null

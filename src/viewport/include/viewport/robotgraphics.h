@@ -10,7 +10,11 @@
 
 namespace RoboCrap3D {
 
-enum class RobotTool { Measuring, Spindle };
+enum class RobotTool {
+  Measuring,
+  Spindle,
+};
+constexpr qsizetype RobotToolCount = 2; // Enumerators of RobotTool.
 
 struct LinkModel
 {

@@ -72,6 +72,7 @@ QxPanel {
     Layout.fillWidth: true
     Layout.fillHeight: true
     clip: true
+    Component.onCompleted: (contentItem as Flickable).boundsBehavior = Flickable.StopAtBounds
     // Reserve the gutter even when the scrollbar fades out, keeping rows stable.
     rightPadding: scroll.ScrollBar.vertical.implicitWidth + Metrics.sp4
     contentWidth: availableWidth

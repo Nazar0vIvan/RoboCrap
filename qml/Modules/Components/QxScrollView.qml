@@ -12,6 +12,7 @@ ScrollView {
   spacing: Metrics.sp12
 
   clip: true
+  Component.onCompleted: (contentItem as Flickable).boundsBehavior = Flickable.StopAtBounds
   contentWidth: page.implicitWidth
   contentHeight: page.implicitHeight
 

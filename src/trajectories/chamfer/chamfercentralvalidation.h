@@ -8,7 +8,7 @@ struct ChamferCentralPreviewSpan
   double start = 0.0;
   double end = 0.0;
   int intervals = 0;
-  QString phase; // "Lead-in", "Machining" or "Lead-out".
+  ChamferPhase phase = ChamferPhase::LeadIn;
 };
 
 // Internal Generate stage. Borrowed path/timing outlive this worker-local cache.

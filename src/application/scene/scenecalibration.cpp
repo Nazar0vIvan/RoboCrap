@@ -285,6 +285,7 @@ SceneCalibration::SceneCalibration(SceneModel* scene, SceneEndEffectors* effecto
 {
   auto loaded = readProbeSettings();
   m_settings = std::move(loaded.settings);
+  m_settingsReadError = loaded.error;
   setSettingsError(loaded.error);
   // Applied before the save connection below, so the start load writes nothing.
   if (m_settings.primary.ballCentre) applyBallCentre(*m_settings.primary.ballCentre);
@@ -477,7 +478,7 @@ void SceneCalibration::onMeasuringTcpChanged()
   if (m_settings.primary.ballCentre == ball) return;
   m_settings.primary.ballCentre = ball;
   m_settings.primary.source = QStringLiteral("manual");
-  setSettingsError(writeProbeSettings(m_settings));
+  setSettingsError(saveSettings());
 }
 
 void SceneCalibration::applyBallCentre(const V3d& ball)
@@ -511,11 +512,15 @@ QVariantList SceneCalibration::lastCalibrationRows() const
 
 QString SceneCalibration::recordCalibrationResult(const ProbeCalibrationFit& fit, const QString& id)
 {
-  m_settings.last = CalibrationSummary{id, fit.ballCentre, fit.sphereCentre, fit.verificationSphereCentre,
-                                       fit.contactVertical, fit.contactHorizontal, fit.quantile95, fit.repeatability,
-                                       fit.smallestSingularValue, fit.calibrationTouches, fit.verificationTouches,
-                                       setsOutsideBound(fit), static_cast<int>(fit.residualSets.size())};
-  setSettingsError(writeProbeSettings(m_settings));
+  const CalibrationSummary summary{id, fit.ballCentre, fit.sphereCentre, fit.verificationSphereCentre,
+                                   fit.contactVertical, fit.contactHorizontal, fit.quantile95, fit.repeatability,
+                                   fit.smallestSingularValue, fit.calibrationTouches, fit.verificationTouches,
+                                   setsOutsideBound(fit), static_cast<int>(fit.residualSets.size())};
+  // The reader's own check: a result that would make the next start reject the file is not kept.
+  if (!calibrationSummary(summaryObject(summary)))
+    return tr("Calibration result not saved: the fit gave non-finite or non-positive values.");
+  m_settings.last = summary;
+  setSettingsError(saveSettings());
   emit lastCalibrationChanged();
   return m_settingsError;
 }
@@ -527,7 +532,7 @@ bool SceneCalibration::reassignPrimaryCentres()
   // Set first, so onMeasuringTcpChanged finds the saved ball centre and keeps source = the run id.
   m_settings.primary = {last.id, last.ballCentre, last.sphereCentre, last.contactVertical, last.contactHorizontal};
   applyBallCentre(last.ballCentre);
-  setSettingsError(writeProbeSettings(m_settings));
+  setSettingsError(saveSettings());
   // Outside the submode the next activate() applies the saved sphere centre.
   if (const auto* current = sphere(); current && m_active) {
     SceneSphere moved = *current;
@@ -543,4 +548,12 @@ void SceneCalibration::setSettingsError(const QString& error)
   m_settingsError = error;
   if (!error.isEmpty()) qInfo().noquote() << "[ERROR]" << error;
   emit settingsErrorChanged();
+}
+
+QString SceneCalibration::saveSettings() const
+{
+  // An unreadable file stays as it is until the user fixes or deletes it.
+  if (!m_settingsReadError.isEmpty())
+    return m_settingsReadError + tr(" Not saved: fix or delete the file, then restart RoboCrap.");
+  return writeProbeSettings(m_settings);
 }

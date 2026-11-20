@@ -84,6 +84,7 @@ ComboBox {
 
     contentItem: ListView {
       clip: true
+      boundsBehavior: Flickable.StopAtBounds
       implicitHeight: contentHeight
       model: root.popup.visible ? root.delegateModel : null
       currentIndex: root.highlightedIndex

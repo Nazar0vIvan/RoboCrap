@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -59,6 +60,12 @@ private:
   [[nodiscard]] IkBranch branchFrom(const V6d& q, const std::array<M4d, LinkCount>& transforms) const;
   [[nodiscard]] static IkBranch branchFromStatus(uint8_t status) noexcept;
   [[nodiscard]] M4d armTransform(const ArmJoints& arm) const;
+  // parent * localTransform of joint index * rotation by q - qHome[index] degrees about its axis.
+  [[nodiscard]] M4d childTransform(const M4d& parent, std::size_t index, double q) const;
+  [[nodiscard]] V3d wristCentre(const M4d& flange) const;
+  [[nodiscard]] double forearmLength() const { return std::hypot(m_model.ik.bx, m_model.ik.by); }
+  // Angle of the forearm offset (bx, by) from the forearm axis, rad.
+  [[nodiscard]] double elbowOffset() const { return std::atan2(m_model.ik.bx, m_model.ik.by); }
 
   [[nodiscard]] std::optional<ArmJoints> solveArm(
       const V3d& wristCenter,

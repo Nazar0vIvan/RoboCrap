@@ -10,6 +10,13 @@ namespace {
 
 constexpr int InitialIntervals = 16;
 constexpr int MaximumDepth = 20;
+constexpr int MaximumBernsteinDepth = 12; // Subdivisions of a positivity test.
+// Numerical error estimates (u phase progress, s distance in mm, g = norm(d TCP origin / du)),
+// independent of display sampling or robot limits.
+constexpr double LengthTolerance = 1e-9; // Total quadrature error budget, mm.
+constexpr double LookupTolerance = 1e-10; // Local inverse distance residual, mm.
+constexpr double RelativeSpeedTolerance = 1e-8; // abs(g * du/ds - 1).
+constexpr double SpeedDerivativeTolerance = 1e-7; // abs(d(g * du/ds)/ds), per mm.
 constexpr qsizetype MaximumKnots = 200000;
 constexpr int MaximumEvaluations = 800000;
 using Polynomial = std::array<double, 6>;
@@ -45,7 +52,7 @@ bool positiveBernstein(const std::array<double, 5>& coefficients, int depth)
 {
   const auto extrema = std::minmax_element(coefficients.cbegin(), coefficients.cend());
   if (*extrema.first > 0.0) return true;
-  if (*extrema.second <= 0.0 || depth == 12) return false;
+  if (*extrema.second <= 0.0 || depth == MaximumBernsteinDepth) return false;
   auto work = coefficients;
   std::array<double, 5> left{}, right{};
   left[0] = work[0];
@@ -126,9 +133,7 @@ struct ArcTableResult
 class ArcTableBuilder
 {
 public:
-  ArcTableBuilder(const ChamferPath& path, ChamferPhase phase,
-                  const ChamferArcLengthParameters& parameters)
-    : m_path(path), m_phase(phase), m_parameters(parameters) {}
+  ArcTableBuilder(const ChamferPath& path, ChamferPhase phase) : m_path(path), m_phase(phase) {}
 
   ArcTableResult run()
   {
@@ -249,10 +254,10 @@ private:
       // The partial integral is a separate numerical check, not an exact bound.
       if (!std::isfinite(ratio) || !std::isfinite(ratioDerivative)
           || derivative <= 0.0
-          || distance->error > m_parameters.lengthTolerance * width
-          || std::abs(distance->length - x * length) + distance->error > m_parameters.lookupTolerance
-          || std::abs(ratio - 1.0) > m_parameters.relativeSpeedTolerance
-          || std::abs(ratioDerivative) > m_parameters.speedDerivativeTolerance)
+          || distance->error > LengthTolerance * width
+          || std::abs(distance->length - x * length) + distance->error > LookupTolerance
+          || std::abs(ratio - 1.0) > RelativeSpeedTolerance
+          || std::abs(ratioDerivative) > SpeedDerivativeTolerance)
         return false;
     }
     return true;
@@ -277,7 +282,7 @@ private:
     // Coefficients use the stored distance width, including cumulative rounding.
     const auto polynomial = inversePolynomial(first, last, length);
     const bool converged = integral->error + std::abs(length - integral->length)
-            <= m_parameters.lengthTolerance * width
+            <= LengthTolerance * width
         && accurateInverse({first, last, *integral, length}, polynomial);
     if (!m_result.error.isEmpty()) return false;
     if (!converged) {
@@ -297,7 +302,6 @@ private:
 
   const ChamferPath& m_path;
   const ChamferPhase m_phase;
-  const ChamferArcLengthParameters& m_parameters;
   ArcTableResult m_result;
 };
 
@@ -306,31 +310,21 @@ bool distanceBefore(const ChamferArcLengthKnot& knot, double distance)
   return knot.distance < distance;
 }
 
-bool positiveFinite(double value)
-{
-  return std::isfinite(value) && value > 0.0;
-}
-
 } // namespace
 
 ChamferArcLength::ChamferArcLength(QVector<ChamferArcLengthKnot> knots,
                                  QVector<std::array<double, 6>> polynomials)
   : m_knots(std::move(knots)), m_polynomials(std::move(polynomials)) {}
 
-ChamferArcLengthResult ChamferArcLength::create(const ChamferPath& path, ChamferPhase phase,
-                                              const ChamferArcLengthParameters& parameters)
+ChamferArcLengthResult ChamferArcLength::create(const ChamferPath& path, ChamferPhase phase)
 {
   if (phase != ChamferPhase::LeadIn && phase != ChamferPhase::Machining
       && phase != ChamferPhase::LeadOut)
     return {{}, QStringLiteral("Invalid chamfer phase for arc-length calculation.")};
-  if (!positiveFinite(parameters.lengthTolerance) || !positiveFinite(parameters.lookupTolerance)
-      || !positiveFinite(parameters.relativeSpeedTolerance)
-      || !positiveFinite(parameters.speedDerivativeTolerance))
-    return {{}, QStringLiteral("Arc-length tolerances must be finite and positive.")};
-  auto result = ArcTableBuilder(path, phase, parameters).run();
+  auto result = ArcTableBuilder(path, phase).run();
   if (!result.error.isEmpty())
     return {{}, QStringLiteral("Cannot measure chamfer phase %1: %2")
-                    .arg(static_cast<int>(phase)).arg(result.error)};
+                    .arg(chamferPhaseLabel(phase), result.error)};
   return {ChamferArcLength(std::move(result.knots), std::move(result.polynomials)), {}};
 }
 

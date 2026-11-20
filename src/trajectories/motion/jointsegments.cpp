@@ -59,10 +59,10 @@ QString jointSplineIntervalError(const std::array<V6d, 4>& coefficients, double 
       const double acceleration = ((6.0 * d * u + 2.0 * c) / seconds) / seconds;
       if (!std::isfinite(angle) || !std::isfinite(speed) || !std::isfinite(acceleration))
         return QStringLiteral("A%1 joint spline has a nonfinite angle or derivative.").arg(axis + 1);
-      if (!IgnorePreviewJointPositionLimits && (angle < joint.qMin || angle > joint.qMax))
+      if (angle < joint.qMin || angle > joint.qMax)
         return QStringLiteral("A%1 joint spline position %2 deg is outside [%3, %4] (interval fraction %5).")
             .arg(axis + 1).arg(angle, 0, 'g', 12).arg(joint.qMin).arg(joint.qMax).arg(u, 0, 'g', 12);
-      if (std::abs(speed) > speedBound * (1.0 + 1e-6))
+      if (std::abs(speed) > speedBound * (1.0 + RateTolerance))
         return QStringLiteral("A%1 joint spline speed %2 deg/s exceeds bound %3 (interval fraction %4).")
             .arg(axis + 1).arg(std::abs(speed), 0, 'g', 12).arg(speedBound).arg(u, 0, 'g', 12);
       // Preserve the temporary preview joint-acceleration magnitude bypass.
@@ -82,13 +82,21 @@ bool rigid(const M4d& transform)
           <= GeomConst::Eps;
 }
 
+QString chamferJointPositionError(const V6d& joints, const Kr10KinematicModel& model)
+{
+  if (!joints.allFinite()) return QStringLiteral("Nonfinite joint coordinates.");
+  for (std::size_t axis = 0; axis < DofCount; ++axis) {
+    const auto& joint = model.joints[axis];
+    if (joints[axis] < joint.qMin || joints[axis] > joint.qMax)
+      return QStringLiteral("A%1 position %2 deg is outside [%3, %4].")
+          .arg(axis + 1).arg(joints[axis], 0, 'g', 12).arg(joint.qMin).arg(joint.qMax);
+  }
+  return {};
+}
+
 bool withinLimits(const V6d& joints, const Kr10KinematicModel& model)
 {
-  if (!joints.allFinite()) return false;
-  if (IgnorePreviewJointPositionLimits) return true;
-  for (std::size_t i = 0; i < DofCount; ++i)
-    if (joints[i] < model.joints[i].qMin || joints[i] > model.joints[i].qMax) return false;
-  return true;
+  return chamferJointPositionError(joints, model).isEmpty();
 }
 
 namespace {
@@ -149,7 +157,7 @@ std::optional<LinearProfile> timedProfile(LinearProfile result)
   result.ramp = result.peak / limits.acceleration;
   result.cruise = triangular ? 0.0 : (result.length - result.peak * result.ramp) / result.peak;
   if (!std::isfinite(result.peak) || result.peak <= 0.0 || !std::isfinite(result.ramp)
-      || result.ramp <= 1e-9 || !std::isfinite(result.cruise) || result.cruise < 0.0
+      || result.ramp <= TimeResolution || !std::isfinite(result.cruise) || result.cruise < 0.0
       || !std::isfinite(result.duration()) || result.duration() <= result.ramp
       || (result.cruise > 0.0 && result.ramp + result.cruise <= result.ramp))
     return std::nullopt;
@@ -252,8 +260,9 @@ LinearSchedule linearSchedule(const LinearProfile& profile)
     const double acceleration = (stage == 1 ? 0.0 : profile.limits.acceleration) + normal;
     const double count = std::max(1.0, std::ceil(duration * std::sqrt(acceleration / (8.0 * TransferPositionTolerance))));
     if (!std::isfinite(duration) || duration <= 0.0 || !std::isfinite(count)
-        || count > 200000 - plannedPoints || !(duration / count > 1e-9)) {
-      result.error = QStringLiteral("Transfer schedule exceeds numerical range or 200000 points.");
+        || count > MaximumScheduledPoints - plannedPoints || !(duration / count > TimeResolution)) {
+      result.error = QStringLiteral("Transfer schedule exceeds numerical range or %1 points.")
+          .arg(MaximumScheduledPoints);
       return result;
     }
     intervals[stage] = static_cast<int>(count);
@@ -276,7 +285,7 @@ JointSplineResult clampedJointSpline(const QVector<ChamferJointPoint>& points, c
   QVector<V6d> slopes(count - 1, V6d::Zero());
   for (qsizetype i = 0; i + 1 < count; ++i) {
     steps[i] = points[i + 1].time - points[i].time;
-    if (!std::isfinite(steps[i]) || steps[i] <= 1e-9)
+    if (!std::isfinite(steps[i]) || steps[i] <= TimeResolution)
       return {{}, QStringLiteral("Joint spline timestamps cannot be resolved.")};
     slopes[i] = (points[i + 1].joints - points[i].joints) / steps[i];
     if (!slopes[i].allFinite()) return {{}, QStringLiteral("Nonfinite joint spline secant speed.")};

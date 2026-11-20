@@ -64,8 +64,6 @@ void RobotController::synchronizeReadiness()
     m_pose = std::move(m_initialPose);
     m_initialPose.reset();
     m_playback->setRobotModel(m_model.kinematics);
-    if (IgnorePreviewJointPositionLimits)
-      emit message(QStringLiteral("Offline diagnostic: A1-A6 joint-position limits are disabled in the robot preview."), false);
   }
   m_playback->setRobotAvailable(isReady());
 }
@@ -163,9 +161,7 @@ RobotPoseResult RobotController::forward(const V6d& joints) const
     if (!std::isfinite(joints[i])) {
       return {{}, QStringLiteral("Joint %1 must be finite.").arg(i + 1)};
     }
-    if (!IgnorePreviewJointPositionLimits
-        && (joints[i] < m_model.kinematics.joints[i].qMin
-            || joints[i] > m_model.kinematics.joints[i].qMax)) {
+    if (joints[i] < m_model.kinematics.joints[i].qMin || joints[i] > m_model.kinematics.joints[i].qMax) {
       return {{}, QStringLiteral("Joint %1 must be between %2 and %3 degrees.")
                   .arg(i + 1).arg(m_model.kinematics.joints[i].qMin).arg(m_model.kinematics.joints[i].qMax)};
     }

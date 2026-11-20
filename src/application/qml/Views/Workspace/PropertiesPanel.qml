@@ -116,6 +116,7 @@ QxPanel {
     Layout.fillWidth: true
     Layout.fillHeight: true
     clip: true
+    Component.onCompleted: (contentItem as Flickable).boundsBehavior = Flickable.StopAtBounds
     contentWidth: availableWidth
     contentHeight: root.selectedObject ? propertiesContent.implicitHeight
                    : root.calibrationShown ? calibrationContent.implicitHeight : 0

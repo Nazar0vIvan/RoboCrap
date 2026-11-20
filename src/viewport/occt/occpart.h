@@ -18,7 +18,6 @@ public:
   OccPart(OccPart&&) noexcept = default;
   OccPart& operator=(OccPart&&) noexcept = default;
 
-  [[nodiscard]] bool isValid() const;
   [[nodiscard]] const Handle(AIS_Shape)& handle() const;
   void setTransform(const gp_Trsf& transform);
   [[nodiscard]] OccSelectionMode selectionMode() const;

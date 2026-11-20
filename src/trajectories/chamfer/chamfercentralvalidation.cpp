@@ -1,5 +1,7 @@
 #include "chamfercentralvalidation.h"
 
+#include "geometry/utils.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -7,13 +9,7 @@
 
 namespace {
 
-constexpr qsizetype MaximumSamples = 200000;
 constexpr double PreviewPositionTolerance = 0.01; // mm; Cartesian chord criterion only.
-
-bool positiveFinite(double value)
-{
-  return std::isfinite(value) && value > 0.0;
-}
 
 struct ColumnStretch
 {
@@ -136,14 +132,16 @@ PreviewSchedule makePreviewSchedule(const ChamferPath& path, const ChamferCentra
   if (!curvature) return {{}, 0, QStringLiteral("Cannot bound TCP curvature: degenerate projection, ill-conditioned lead dimensions or numerical range exceeded.")};
   PreviewSchedule schedule;
   for (int index = 0; index < 3; ++index) {
-    const auto phase = static_cast<ChamferPhase>(index);
+    const auto phase = ChamferPhases[index];
     const auto profile = motion.profile(phase);
-    if (!profile) return {{}, 0, QStringLiteral("Missing preview phase profile.")};
+    if (!profile) {
+      schedule.error = QStringLiteral("Missing preview phase profile.");
+      return schedule;
+    }
     const double start = motion.phaseTimes()[index];
     const double end = motion.phaseTimes()[index + 1];
     QVector<double> stops{start};
-    if (index != 1 && profile->cruiseSeconds > 0.0)
-      stops.append(start + (index == 0 ? profile->rampSeconds : profile->cruiseSeconds));
+    if (const auto change = profile->switchSeconds(phase)) stops.append(start + *change);
     stops.append(end);
     const double normalAcceleration = profile->speed * (profile->speed
         * (*curvature)[index]);
@@ -154,14 +152,17 @@ PreviewSchedule makePreviewSchedule(const ChamferPath& path, const ChamferCentra
       const double count = std::max(1.0, std::ceil(duration
           * std::sqrt(bound / (8.0 * PreviewPositionTolerance))));
       if (!std::isfinite(bound) || bound <= 0.0 || !std::isfinite(duration) || duration <= 0.0
-          || !std::isfinite(count) || count > MaximumSamples - schedule.points)
-        return {{}, 0, QStringLiteral("Preview geometric schedule exceeds numerical range or 200000 points.")};
+          || !std::isfinite(count) || count > MaximumScheduledPoints - schedule.points) {
+        schedule.error = QStringLiteral("Preview geometric schedule exceeds numerical range or %1 points.")
+            .arg(MaximumScheduledPoints);
+        return schedule;
+      }
       const int intervals = static_cast<int>(count);
-      if (!(duration / intervals > 1e-9))
-        return {{}, 0, QStringLiteral("Preview geometric interval is below time resolution.")};
-      schedule.spans.append({stops[part - 1], stops[part], intervals,
-          index == 0 ? QStringLiteral("Lead-in") : index == 1 ? QStringLiteral("Machining")
-                                                            : QStringLiteral("Lead-out")});
+      if (!(duration / intervals > TimeResolution)) {
+        schedule.error = QStringLiteral("Preview geometric interval is below time resolution.");
+        return schedule;
+      }
+      schedule.spans.append({stops[part - 1], stops[part], intervals, phase});
       schedule.points += intervals;
     }
   }
@@ -214,7 +215,7 @@ PathSchedule CentralPath::schedule() const
       result.times.append(point == span.intervals ? span.end
           : span.start + (span.end - span.start) * (double(point) / span.intervals));
     if (index + 1 == spans.size() || spans[index + 1].phase != span.phase)
-      result.phases.append(std::pair<qsizetype, QString>{result.times.size(), span.phase});
+      result.phases.append(std::pair<qsizetype, QString>{result.times.size(), chamferPhaseLabel(span.phase)});
   }
   return result;
 }

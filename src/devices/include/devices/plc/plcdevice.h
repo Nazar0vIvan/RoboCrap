@@ -4,7 +4,6 @@
 #include "devices/plc/plcmessagemanager.h"
 
 #include <QByteArray>
-#include <QHostAddress>
 #include <QHash>
 #include <QQueue>
 #include <QVariantList>
@@ -21,10 +20,9 @@ public:
   explicit PlcDevice(const QString& name, QObject* parent = nullptr);
   ~PlcDevice() override = default;
 
-  Q_INVOKABLE void connect(const QVariantMap& config);
-  Q_INVOKABLE void disconnect();
+  Q_INVOKABLE void connectDevice(const QVariantMap& config);
+  Q_INVOKABLE void disconnectDevice();
   Q_INVOKABLE void setOutput(const QVariantMap& args);
-  Q_INVOKABLE void writeMessage(const QVariantMap& msg);
   Q_INVOKABLE void runRobotProgram(const QVariantMap& args);
   Q_INVOKABLE void resumeRobot();
   // Aborts only the PLC start sequence; a running KRL program is not stopped.
@@ -47,6 +45,8 @@ private:
 
   static QByteArray swapBytes(const QByteArray& data);
   static ProgramState nextProgramState(ProgramState current, const QVariantList& x1);
+  // Queues one request map (WRITE_IO, SET_VAR or SNAPSHOT); not part of the invoke API.
+  void writeMessage(const QVariantMap& msg);
   void sendNext();
   bool matchResponse(const QVariantMap& data);
   void processIncoming(const QByteArray& bytes);
@@ -58,17 +58,14 @@ private:
   void writeLog(const QString& event);
 
   QTcpSocket* m_sock = nullptr;
-  PlcMessageManager* m_mgr = nullptr;
+  PlcMessageManager m_mgr;
   QTimer* m_replyTimer = nullptr;
   QTimer* m_heartbeat = nullptr;
   QFile* m_log = nullptr;
   // Last logged x1/y1 bits and robot step/program/result: every log row shows the full state.
   QVariantMap m_logged;
 
-  QHostAddress m_la;
-  quint16 m_lp = 0;
-  QHostAddress m_pa;
-  quint16 m_pp = 0;
+  std::optional<SocketEndpoints> m_endpoints; // With a peer port; never cleared after the first valid set.
 
   QByteArray m_rx;
   QQueue<QVariantMap> m_queue;

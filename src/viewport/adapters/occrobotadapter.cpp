@@ -7,8 +7,6 @@ namespace RoboCrap3D {
 
 namespace {
 
-constexpr qsizetype ToolCount = 2; // RobotTool::Measuring and RobotTool::Spindle.
-
 gp_Trsf toOccTransform(const M4d& transform)
 {
   gp_Trsf result;
@@ -26,7 +24,7 @@ ViewportOperationResult OccRobotAdapter::load(const RobotVisualModel& visuals, c
   if (m_loaded) return {true, {}};
   const qsizetype linkCount = visuals.links.size();
   if (!m_scene.isValid() || visuals.links.isEmpty() || !m_partIds.isEmpty()
-      || visuals.tools.size() != ToolCount || shapes.shapes.size() != linkCount + ToolCount)
+      || visuals.tools.size() != RobotToolCount || shapes.shapes.size() != linkCount + RobotToolCount)
     return {false, QStringLiteral("Robot installation: invalid graphics or unfinished installation.")};
 
   QString operation;
@@ -94,7 +92,7 @@ QString OccRobotAdapter::clear()
 ViewportOperationResult OccRobotAdapter::applyTransforms(const DrawingPose& pose)
 {
   const qsizetype linkCount = pose.links.size();
-  if (linkCount == 0 || m_partIds.size() != linkCount + ToolCount)
+  if (linkCount == 0 || m_partIds.size() != linkCount + RobotToolCount)
     return {false, QStringLiteral("Robot transform count does not match installed links.")};
   QString operation = QStringLiteral("link transform");
   qsizetype link = 0;
@@ -157,15 +155,15 @@ ViewportOperationResult OccRobotAdapter::setActiveTool(RobotTool active)
 std::optional<OccScene::PartId> OccRobotAdapter::activeToolPart() const
 {
   if (!m_loaded) return std::nullopt;
-  return m_partIds[m_partIds.size() - ToolCount + static_cast<qsizetype>(m_activeTool)];
+  return m_partIds[m_partIds.size() - RobotToolCount + static_cast<qsizetype>(m_activeTool)];
 }
 
 bool OccRobotAdapter::showActiveTool()
 {
   if (!m_loaded) return true; // Installation displays the active tool after HOME.
   bool success = true;
-  const qsizetype firstTool = m_partIds.size() - ToolCount;
-  for (qsizetype i = 0; i < ToolCount; ++i)
+  const qsizetype firstTool = m_partIds.size() - RobotToolCount;
+  for (qsizetype i = 0; i < RobotToolCount; ++i)
     success = m_scene.setPartVisible(m_partIds[firstTool + i],
         i == static_cast<qsizetype>(m_activeTool)) && success;
   return success;

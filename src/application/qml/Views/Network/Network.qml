@@ -141,11 +141,15 @@ QxScrollView {
       Layout.alignment: Qt.AlignBottom
       checked: runner && runner.isConnected
       text: checked ? qsTr("Disconnect") : qsTr("Connect")
+      reservedText: qsTr("Disconnect")
 
+      // A profile without a device (VFD) cannot connect.
       enabled: {
-        if (runner && runner.isConnected)
+        if (!runner)
+          return false
+        if (runner.isConnected)
           return true
-        if (runner && !runner.isDisconnected)
+        if (!runner.isDisconnected)
           return false
 
         return laInput.acceptableInput && lpInput.acceptableInput
@@ -153,14 +157,12 @@ QxScrollView {
             && (!root.usesPeerPort || ppInput.acceptableInput)
       }
 
+      // Only an enabled button is clicked, so runner is set here.
       onClicked: {
-        if (!runner)
-          return
-
         if (runner.isConnected)
-          runner.invoke("disconnect")
+          runner.invoke("disconnectDevice")
         else
-          runner.invoke("connect", root.currentSocketConfig())
+          runner.invoke("connectDevice", root.currentSocketConfig())
       }
     }
   }
@@ -195,13 +197,14 @@ QxScrollView {
     QxButton {
       text: qsTr("RSI test LIN")
       enabled: rsiTestPanel.rsi && rsiTestPanel.rsi.isConnected
-               && !Backend.MachiningPreparation.preparing
+               && !Backend.MachiningPreparation.preparing && !Backend.MachiningPreparation.calibrationRunning
       onClicked: Backend.MachiningPreparation.prepareTestLin()
     }
 
     // One elided line, so status changes never resize the panel.
     Label {
       Layout.fillWidth: true
+      Layout.preferredWidth: 0
       text: Backend.MachiningPreparation.error || Backend.MachiningPreparation.summary
       textFormat: Text.PlainText
       elide: Text.ElideRight

@@ -76,8 +76,7 @@ public:
   const ChamferMotion& motion() const { return *m_data.motion; }
   const SceneMachiningData& data() const { return m_data; }
   double duration() const { return motion().duration(); }
-  double centralDuration() const
-  { return motion().centralMotion() ? motion().centralMotion()->duration() : 0.0; }
+  double centralDuration() const { return motion().centralMotion().duration(); }
   quint32 sourceEdgeId() const { return m_data.sourceEdgeId; }
   SceneMachiningSettings settings() const { return SceneMachiningSettings::fromMotion(motion()); }
   QString incompatibility() const { return m_incompatibility; }

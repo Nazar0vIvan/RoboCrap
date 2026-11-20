@@ -42,7 +42,14 @@ TextField {
   Text {
     id: defaultTxt
 
-    anchors.fill: parent
+    // Inside the field's padding, where typed text starts.
+    anchors {
+      fill: parent
+      leftMargin: control.leftPadding
+      rightMargin: control.rightPadding
+      topMargin: control.topPadding
+      bottomMargin: control.bottomPadding
+    }
     verticalAlignment: Text.AlignVCenter
     color: Colors.foreground.medium
     font: Fonts.body

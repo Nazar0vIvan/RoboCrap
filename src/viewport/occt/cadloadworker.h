@@ -10,6 +10,8 @@ namespace RoboCrap3D {
 // Only file/shape work runs here. The result is read after finished + wait().
 class CadLoadWorker final : public QThread
 {
+  Q_OBJECT
+
 public:
   // Absolute BREP file paths, loaded in order.
   explicit CadLoadWorker(QStringList sourcePaths);

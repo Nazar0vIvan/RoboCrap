@@ -1,4 +1,5 @@
 #include "geometry/surfaceintersection.h"
+#include "geometry/utils.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,24 +8,10 @@
 
 namespace {
 
-V3d vector(const std::array<double, 3>& point)
-{
-  return {point[0], point[1], point[2]};
-}
-
 V3d normal(const BoundedPlane& plane)
 {
   const auto& coefficients = plane.coefficients();
   return {coefficients[0], coefficients[1], coefficients[2]};
-}
-
-V3d canonical(V3d direction)
-{
-  int index = 0;
-  for (int i = 1; i < 3; ++i)
-    if (std::abs(direction[i]) > std::abs(direction[index])) index = i;
-  if (direction[index] < 0.0) direction = -direction;
-  return direction;
 }
 
 // Local size sets the geometric tolerance; coordinate magnitude accounts for
@@ -63,15 +50,13 @@ std::optional<EdgeGeometry> EdgeGeometry::fromEllipse(Ellipse ellipse)
 IntersectionResult intersectSurfaces(const BoundedPlane& plane, const BoundedCylinder& cylinder)
 {
   const V3d n = normal(plane);
-  const V3d axis = vector(cylinder.axis());
-  const V3d origin = vector(cylinder.origin());
-  const V3d planeOrigin = vector(plane.origin());
+  const V3d axis = toV3d(cylinder.axis());
+  const V3d origin = toV3d(cylinder.origin());
+  const V3d planeOrigin = toV3d(plane.origin());
   const double cosine = n.dot(axis);
   if (!std::isfinite(cosine)) return {};
   if (std::abs(cosine) <= GeomConst::Eps) return {IntersectionStatus::ParallelCylinderAxis, {}};
   const double size = std::max({plane.width(), plane.height(), cylinder.length(), cylinder.radius()});
-  const double tolerance = distanceTolerance(size, std::max(origin.cwiseAbs().maxCoeff(),
-                                                            planeOrigin.cwiseAbs().maxCoeff()));
   // Solve locally before translating the center to world coordinates.
   const V3d centerOffset = axis * (n.dot(planeOrigin - origin) / cosine);
   EdgeGeometry::Ellipse ellipse;
@@ -81,13 +66,12 @@ IntersectionResult intersectSurfaces(const BoundedPlane& plane, const BoundedCyl
   const V3d projected = axis - cosine * n;
   const double sine = projected.stableNorm();
   if (sine <= GeomConst::Eps) {
-    ellipse.majorAxis = vector(plane.axisU());
+    ellipse.majorAxis = toV3d(plane.axisU());
     ellipse.majorRadius = ellipse.minorRadius;
   } else {
-    ellipse.majorAxis = canonical(projected / sine);
+    ellipse.majorAxis = dominantPositive(projected / sine);
   }
   ellipse.minorAxis = n.cross(ellipse.majorAxis).normalized();
-  if (!EdgeGeometry::fromEllipse(ellipse) || !std::isfinite(tolerance)) return {};
 
   ellipse.center += origin;
   const double residualTolerance = distanceTolerance(size,

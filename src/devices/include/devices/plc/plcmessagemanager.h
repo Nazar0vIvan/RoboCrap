@@ -11,13 +11,12 @@
 #include <QMetaType>
 #include <QList>
 
-class PlcMessageManager : public QObject
+// Stateless PLC frame builder/parser; Q_GADGET only for the Q_ENUM metadata of the protocol enums.
+class PlcMessageManager
 {
-  Q_OBJECT
+  Q_GADGET
 
 public:
-  explicit PlcMessageManager(QObject* parent=nullptr);
-
 	static constexpr int RESP_SIZE = 32;
 
   enum MessageError : quint8 { // E, F
@@ -113,13 +112,15 @@ private:
   ParseResult parseRespErr(const QByteArray& payload, quint8 tid) const;
   ParseResult parseStateChange(const QByteArray& payload) const;
 
-  bool isValidType(quint8 type) const;
-  bool isValidCmd(quint8 cmd) const;
-  bool isValidDev(quint16 dev) const;
-  bool isValidMod(quint8 module) const;
-  bool isValidVar(quint8 var) const;
+  static bool isValidType(quint8 type);
+  static bool isValidDev(quint16 dev);
+  static bool isValidMod(quint8 module);
+  static bool isValidVar(quint8 var);
 
-  QVariantList byteToBits(quint8 value) const;
+  static QVariantList byteToBits(quint8 value);
+  // The 7 state bytes of the SNAPSHOT reply and the IOs change frame: x1, y1, x2, y2 bits,
+  // robotStep, robotProgram, robotResult.
+  static QVariantMap ioState(const QByteArray& bytes);
 
   static constexpr quint16 MAGIC = 0xAA55;
   static constexpr quint8  VER   = 0x01;

@@ -53,16 +53,41 @@ Nothing moves.
   - `src/application/qml/Main.qml` (window bindings 218-280, status bar 335-390, panel instances 520-575);
   - `resources/qrc/config/db.json`.
 - [x] (2026-11-20) Start counts (physical lines): QxButton 30, QxProgressBar 73, QxTextInput 51, QxSwitch 63, FtsPanel 82, DeltaPanel 101, Network 212, MachiningPanel 197, EndEffectorPanel 232, MainMenuBar 131, Main 589.
-- [ ] Milestone 1: stable device panels (value labels, connect hints, toggling buttons) and a stable Settings window.
-- [ ] Milestone 2: stable chamfer editor (message region, playback status row) and status bar.
-- [ ] Milestone 3: small defects (VFD Connect, logo anchors, placeholder padding, switch knob, percentage text, end-effector drafts).
-- [ ] `robocrap_qmllint` and disconnected runtime checks (user's).
-- [ ] Final review of changed components and their consumers, line counts, `git diff --check`.
+- [x] (2026-11-20) Milestone 1 implemented:
+  - `QxButton`: `reservedText` with `implicitWidth` from the wider of the caption and `Math.ceil(reservedMetrics.advanceWidth)`; with an empty `reservedText` the formula equals Basic `Button`'s own, so the 11 other `QxButton` uses are unchanged;
+  - consumers: `FtsPanel` Start, Recording…, Saving…; `Network.qml` `btnCon` Disconnect;
+  - `QxProgressBar`: value `Text` right-aligned, `Layout.preferredWidth: Math.ceil(valueMetrics.advanceWidth)` of `-max(|from|, |to|)` with three decimals; `FtsBars` is its only user;
+  - `FtsPanel` and `DeltaPanel` hints: constant text, `opacity`, one elided line, `Layout.preferredWidth: 0`;
+  - `Network.qml` RSI test status `Label`: `Layout.preferredWidth: 0`.
+  Review: no visibility toggles, wrapping text or text-driven widths remain in the PLC Panel, FTS Panel or Settings window; the hints and the reserved captions change no size on state changes.
+  Counts (physical / nonblank): QxButton 30/25 → 42/35, QxProgressBar 73/61 → 82/69, FtsPanel 82/62 → 87/67, DeltaPanel 101/78 → 103/80, Network 212/165 → 214/167 (+12 of these from the `TextMetrics` objects and properties the reserved widths require, +3 comments).
+- [x] (2026-11-20) Milestone 1 user check: `all_qmllint`, `robocrap`, disconnected and equipment checks passed (user report).
+- [x] (2026-11-20) Milestone 2 implemented:
+  - `MachiningPanel.qml`: `FontMetrics captionMetrics` (`Fonts.caption`); the playback status and message `Label`s lost `visible`, keep `wrapMode: Text.Wrap`, and gained `maximumLineCount: 2`, `elide` and a minimum and preferred height of `Math.ceil(2 * captionMetrics.lineSpacing)`; the playback text is empty while `duration <= 0`;
+  - `Main.qml` `statusMessage`: `Layout.preferredWidth: 0` and `leftPadding: busyIndicator.width + Metrics.sp6` (the busy indicator is 20 px wide).
+  Review: in the chamfer editor no label above Generate/Cancel changes visibility on ordinary state changes any more; the "Dry Run: … s" label still follows `savedPath`, which changes only with the selection (deliberate navigation). The status-bar message no longer enters the bar's implicit width.
+  Counts (physical / nonblank): MachiningPanel 197/195 → 210/208, Main 589/520 → 593/524.
+- [x] (2026-11-20) Milestone 2 user check: `all_qmllint`, `robocrap` and the disconnected checks passed (user report).
+- [x] (2026-11-20) Milestone 3 implemented:
+  - `Network.qml` `btnCon`: `enabled` returns false without a runner, so the VFD profile cannot be connected; the following checks no longer repeat `runner &&`, and `onClicked` lost its now unreachable `if (!runner) return`;
+  - `MainMenuBar.qml`: the logo's `top` anchor removed, so its 20 × 20 size holds;
+  - `QxTextInput.qml`: the placeholder anchors inside the field's padding (one consumer: `Network.qml` Peer Port "Learned");
+  - `QxSwitch.qml`: on-state knob x `parent.width - width - 2 * Metrics.w1`;
+  - `MachiningPanel.qml` `beginEditing`: percentage drafts `String(Number((value * 100).toFixed(8)))`, other fields `String(value)`;
+  - `EndEffectorPanel.qml`: `onVisibleChanged` reloads both drafts when the panel is shown.
+  Counts (physical / nonblank): QxTextInput 51/41 → 58/48, QxSwitch 63/53 → 63/53, Network 214/167 → 215/169, MachiningPanel 210/208 → 211/209, EndEffectorPanel 232/228 → 234/230, MainMenuBar 131/102 → 129/101.
+- [x] (2026-11-20) Correction after the user's review: the empty two-line playback region left a visible gap at the top of the chamfer editor (user screenshot). The region was removed with the `playback` input of `MachiningPanel` and its binding in `Main.qml`; the status bar shows the Dry Run status while the chamfer editor is open, through a new `statusBar.playbackShown` that also covers calibration playback and keeps the playback text out of the error colour. `AGENT_CONTRACTS.md` "QML" updated. Counts (physical / nonblank): MachiningPanel 211/209 → 195/193, Main 593/524 → 595/526.
+- [x] (2026-11-20) Second correction after the user's review: the empty two-line message region left a gap above Generate/Cancel (user screenshot). The region and its `FontMetrics` were removed; `MachiningPanel` exposes `readonly property string message` (same text as before), and the status bar shows it while the editor is open, red only for a Generate error (`App.Machining.error`). User request in the same review: no scrollable view springs past its ends. `boundsBehavior: Flickable.StopAtBounds` added to the five `ScrollView`s (`QxScrollView`, `ScenePanel`, `PropertiesPanel`, `EndEffectorPanel`, `MachiningPanel`, on their `contentItem` at completion) and to the `QxComboBox` popup `ListView`; `ModeToolBar`'s `Flickable` already had it, `ConnectionsTable`'s `TableView` is not interactive. `AGENT_CONTRACTS.md` "QML" updated (status-bar text, new scrolling rule). Counts against HEAD (physical / nonblank): MachiningPanel 197/195 → 181/179, Main 589/520 → 596/527, QxScrollView 42/31 → 43/32, QxComboBox 102/83 → 103/84, ScenePanel 312/264 → 313/265, PropertiesPanel 405/352 → 406/353, EndEffectorPanel 232/228 → 235/231.
+- [x] (2026-11-20) Correction after completion (user screenshot of the FTS Panel): each bar reserved the width of its own range (−1980.000, −660.000, −60.000), so the right-aligned value column ended at three positions. `QxProgressBar` gained `property real widestValue` (default: its own `max(|from|, |to|)`, the previous rule); `FtsBars` sets `widestValue: 1980.0`, the largest magnitude of its six axes, on all rows. Counts: QxProgressBar 82 → 84, FtsBars 47 → 50. Check pending with the plan 05 Milestone 2 check.
+- [x] (2026-11-20) Milestone 3 user check, together with both corrections: passed (user report). Earlier hand-off text: `all_qmllint`, `robocrap`, the Milestone 3 checks and the changed Milestone 2 playback check of Validation and Acceptance; result pending.
+- [x] (2026-11-20) Final review of changed components and their consumers: `QxButton` (11 uses without `reservedText` unchanged), `QxProgressBar` (only `FtsBars`), `QxTextInput` (one placeholder use), `QxSwitch` (geometry only). `git diff --check` clean. Totals of the eleven files (physical / nonblank): 1761/1530 → 1817/1585; growth from the reserved-size measurements (two `TextMetrics`, one `FontMetrics`), the four reserved-size properties per region, the placeholder margins and comments; the smaller alternatives (per-consumer fixed widths, visibility toggles) are the defects being fixed.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: plan 02 changed `Network.qml` line 198 (the "RSI test LIN" button's `enabled`) without changing its line count; this plan's `Network.qml` edits (`btnCon` 136-165, status `Label` 203-210) do not overlap it. All start counts still matched on 2026-11-20.
+- Observation: the toolbar captions that toggle (Dry Run/Pause, RSI Sampling/Sampling…) already keep their width, because `ModeToolBar.qml` `Tool` has `implicitWidth: Math.max(100, button.implicitWidth)`; `RobotStartPanel.qml`'s status `Text` already has `Layout.preferredWidth: 0` and elides; `ConnectionsTable.qml` has fixed column widths. None needs a change.
+- Observation: with the two-line message region of Milestone 2, a long Generate error ("<phase label>: <message> (t=… s)") is cut in the chamfer editor. The full text stays available: SceneMachining prints every Generate error to the console (AGENT_CONTRACTS, "Machining and playback").
 
 
 ## Decision Log
@@ -79,11 +104,42 @@ Nothing moves.
 - Decision: the two MachiningPanel labels keep their text binding but always occupy two caption lines: `maximumLineCount: 2`, elide, and a minimum and preferred height of two `FontMetrics` lines.
   Rationale: a fixed-height region replacing content in place is the pattern AGENTS.md prescribes. A two-line height fits the existing two-line playback text ("Playing · phase\n elapsed / duration s").
   Date/Author: 2026-11-20, plan author.
+- Decision: the reserved widths are rounded up: `Math.ceil(reservedMetrics.advanceWidth)` in `QxButton`, `Math.ceil(valueMetrics.advanceWidth)` in `QxProgressBar`.
+  Rationale: `TextMetrics.advanceWidth` is fractional and can differ from the shown caption's implicit width by a fraction of a pixel, which would leave a jump of up to 1 px between the two captions. With the rounded value both captions give the same width.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: the status-bar busy indicator gets room through a constant `leftPadding: busyIndicator.width + Metrics.sp6` on `statusMessage`; its `x` formula stays unchanged, without the planned `Math.max(0, …)`.
+  Rationale: with the clamp alone, an elided message would run under the indicator at x = 0 and its first characters would be covered. With the padding the text never enters that area, `contentWidth` cannot exceed `width - leftPadding`, so `x` cannot become negative; the padding is constant, so nothing moves.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision (user, 2026-11-20, option 1 of three): the chamfer editor has no playback region; while it is open, the status bar shows the Dry Run status in the existing calibration playback format "Playing · phase · elapsed / duration s". This supersedes the earlier decision for the playback label.
+  Rationale: the fixed empty region left a gap at the top of the editor whenever no Dry Run ran. The status bar's message is empty while the editor is open, is a stable region already, and already formats calibration playback; one shared condition (`playbackShown`) serves both. The alternatives were a one-line region (half the gap remains) and a title-row overlay (a new `QxPanel` input).
+  Date/Author: 2026-11-20, user and implementing agent.
+- Decision (2026-11-20, after the user's second screenshot): the chamfer editor's message also moves to the status bar, as the playback status did (user's option 1); the editor keeps no reserved region. This supersedes the two-line message region and the `captionMetrics` decision below.
+  Rationale: the same gap appeared above Generate/Cancel; the status bar shows nothing else while the editor is open, and Calibration already reports the reason Generate is unavailable there. The text comes from one `MachiningPanel.message` property, so the condition stays with the editor.
+  Date/Author: 2026-11-20, implementing agent, following the user's choice for the playback region.
+- Decision (user, 2026-11-20): scrollable views stop at their bounds. A `ScrollView` exposes its internal `Flickable` only as `contentItem` (type `Item`), so the setting is assigned once at completion through a type assertion; a `ListView` sets the property directly.
+  Rationale: Qt's default `Flickable.DragAndOvershootBounds` lets the content spring past its ends on wheel and drag. A shared component for one line in five places would add a file and module registration for less code than it saves.
+  Date/Author: 2026-11-20, user and implementing agent.
+- Decision (superseded): the MachiningPanel message region is `Math.ceil(2 * captionMetrics.lineSpacing)` high, not `2 * captionMetrics.height`.
+  Rationale: `lineSpacing` is `height` plus the font's leading, so two laid-out lines always fit the region; with `height` alone the second line could overhang by the leading. Rounding up gives a whole-pixel height.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `btnCon.onClicked` drops its `if (!runner) return`.
+  Rationale: a button receives clicks only while enabled, and `enabled` now returns false whenever `runner` is null; both read the same `root.currentRunner` binding, so the guard can no longer be reached.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: the `DeltaPanel` hint uses `opacity: root.enabled ? 0 : 1`.
+  Rationale: `DeltaPanel` already sets `enabled: root.plc?.isConnected ?? false`, the same condition the hint repeated; reusing it removes the repetition.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: only percentage drafts are rounded: `root.isPercentage(field.key) ? String(Number((value * 100).toFixed(8))) : String(value)`.
+  Rationale: the planned expression would also round the other fields to 8 decimals and write the rounded values back on Generate; today they are shown exactly, and only the multiplication by 100 creates the floating-point tail.
+  Date/Author: 2026-11-20, implementing agent.
 
 
 ## Outcomes & Retrospective
 
-(To be written at completion.)
+All six layout defects of the Purpose and the six small defects are fixed and accepted by the user on 2026-11-20. The PLC Panel, FTS Panel and Settings window keep their size when devices connect, values stream or captions toggle (`QxButton.reservedText`, fixed-width `QxProgressBar` values, constant one-line hints, `preferredWidth: 0` on status text). The status bar's message no longer counts toward its width and never runs under the busy indicator. The chamfer editor reserves no empty space: after two user reviews, its Dry Run status and its message moved to the status bar, which shows nothing else while the editor is open. The VFD profile cannot be connected, the logo, placeholder and switch knob are aligned, percentages reopen as entered, and the end-effector panels discard unapplied edits on Close. At the user's request every scrollable view also stops at its ends (`Flickable.StopAtBounds`), now a rule in the "QML" contract.
+
+The QML grew by about 50 nonblank lines over the plan's start, mainly the text measurements for the reserved widths, the shared status-bar conditions and the scroll setting in each view; `MachiningPanel.qml` shrank by 16 lines.
+
+Lesson: a reserved empty region removes a jump but is itself visible; before reserving space, check whether a stable region that is otherwise empty (here the status bar) can carry the transient text.
 
 
 ## Context and Orientation
@@ -122,7 +178,7 @@ The places to change:
 
     property string reservedText: ""
     implicitWidth: Math.max(implicitBackgroundWidth + leftInset + rightInset,
-                            Math.max(implicitContentWidth, reservedMetrics.advanceWidth) + leftPadding + rightPadding)
+                            Math.max(implicitContentWidth, Math.ceil(reservedMetrics.advanceWidth)) + leftPadding + rightPadding)
     TextMetrics { id: reservedMetrics; font: Fonts.body; text: control.reservedText }
 
 The font must equal the `contentItem` font (`Fonts.body`). With an empty `reservedText`, the button keeps its current width.
@@ -138,7 +194,7 @@ In each case `reservedText` is the longer of the two captions in English.
 
 **`QxProgressBar.qml`.** On the value `Text` (64-71), add:
 - `horizontalAlignment: Text.AlignRight`;
-- `Layout.preferredWidth: valueMetrics.advanceWidth`;
+- `Layout.preferredWidth: Math.ceil(valueMetrics.advanceWidth)`;
 - a `TextMetrics { id: valueMetrics; font: Fonts.body; text: (-Math.max(Math.abs(pb.from), Math.abs(pb.to))).toFixed(3) }`.
 
 **`DeltaPanel.qml` and `FtsPanel.qml` hints.** On each hint `Text`, replace `visible: !(…)` with `opacity: (…) ? 0 : 1`, keeping the same condition. Replace `wrapMode: Text.WordWrap` with `elide: Text.ElideRight`, and add `Layout.preferredWidth: 0`.
@@ -153,7 +209,7 @@ In each case `reservedText` is the longer of the two captions in English.
 
 `wrapMode` stays `Text.Wrap` on both labels, so the two allowed lines fill the width.
 
-**`Main.qml` `statusMessage`.** Add `Layout.preferredWidth: 0`. Change the busy indicator's `x` to `Math.max(0, statusMessage.width - statusMessage.contentWidth - busyIndicator.width - Metrics.sp6)`.
+**`Main.qml` `statusMessage`.** Add `Layout.preferredWidth: 0` and `leftPadding: busyIndicator.width + Metrics.sp6`. The busy indicator's `x` formula stays as it is; with the padding it cannot become negative.
 
 ### Milestone 3: small defects
 
@@ -161,7 +217,7 @@ In each case `reservedText` is the longer of the two captions in English.
 - **`MainMenuBar.qml` logo.** Delete `top: parent.top` from the logo's anchors.
 - **`QxTextInput.qml` placeholder.** Replace the placeholder Text's `anchors.fill: parent` with `anchors.fill: parent` plus margins `anchors.leftMargin: control.leftPadding`, `anchors.rightMargin: control.rightPadding`, `anchors.topMargin: control.topPadding` and `anchors.bottomMargin: control.bottomPadding`. Use a grouped `anchors { … }` block.
 - **`QxSwitch.qml` knob.** Make the on-state x `parent.width - width - 2 * Metrics.w1`.
-- **`MachiningPanel.qml` `beginEditing`.** Format with `String(Number((root.isPercentage(field.key) ? value * 100 : value).toFixed(8)))`. Eight decimals matches the validator's `decimals: 8`; `Number(...)` then `String` drops trailing zeros.
+- **`MachiningPanel.qml` `beginEditing`.** Format with `root.isPercentage(field.key) ? String(Number((value * 100).toFixed(8))) : String(value)`. Eight decimals matches the validator's `decimals: 8`; `Number(...)` then `String` drops trailing zeros. Other fields stay exact.
 - **`EndEffectorPanel.qml` drafts.** Add `onVisibleChanged: if (visible) { root.loadColletDraft(); root.loadTcpDraft() }`.
 
 
@@ -185,8 +241,8 @@ All checks below are run by the user with the application disconnected unless st
 - **Settings window.** Open Settings and select the RSI profile. Bind the socket (local address and port only), and use "RSI test LIN" if desired; the window width stays constant.
 
 **Milestone 2.**
-- **Generate/Cancel.** Open the chamfer editor on a generated path. Clear a field: "Enter valid values in all fields." appears, and Generate/Cancel stay in place. Restore the value: the message disappears, and the buttons still stay in place.
-- **Playback row.** With the editor open, start Dry Run (the toolbar allows it while the editor is open). The status lines appear without moving the input label and fields. Pause and Stop: nothing moves.
+- **Generate/Cancel.** Open the chamfer editor on a generated path. Clear a field: the status bar shows "Enter valid values in all fields.", and nothing in the editor moves; the "Dry Run: … s" lines sit directly above Generate/Cancel. Restore the value: the status bar is empty again.
+- **Playback status.** With the editor open, start Dry Run (the toolbar allows it while the editor is open). The status bar shows "Playing · phase · elapsed / duration s" in the normal colour, and the editor has no empty region at its top. Pause: "Paused · …". Stop: the status bar is empty again. Nothing in the editor moves.
 - **Status bar.** Narrow the main window to its minimum width (960 px). In Machining mode with nothing selected, the status label shows a reason text, and with the busy indicator running during Generate it shows "Calculating trajectory…". Compare the left edge of the AUT EXT indicator before and after the change: after it, the indicator does not move when the message changes, and the busy indicator never overlaps it.
 
 **Milestone 3.**

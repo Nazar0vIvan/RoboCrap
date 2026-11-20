@@ -44,17 +44,34 @@ The user checks the run-start blocking on the equipment during a calibration sta
 
 - [x] (2026-11-20) Plan written after reading `src/application/scene/scenemachiningpreparation.{h,cpp}` (constructor, `clearPrepared`, the three prepare entry points, the reason getters, `startCalibration`, `onPlcData`, `endRun`, `replaceJobFile`), `src/application/scene/scenecalibration.{h,cpp}` (`readProbeSettings`, `calibrationSummary`, `positiveNumber`, `summaryObject`, `writeProbeSettings`, constructor, `onMeasuringTcpChanged`, `recordCalibrationResult`, `reassignPrimaryCentres`, `setSettingsError`), `src/application/qml/Main.qml:86-109, 448-470` and `src/application/qml/Views/Network/Network.qml:190-212`.
 - [x] (2026-11-20) Start counts (physical lines): `scenemachiningpreparation.cpp` 556, `scenemachiningpreparation.h` 134, `scenecalibration.cpp` 546, `scenecalibration.h` 131, `Network.qml` 212.
-- [ ] Before editing: read `controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior", "shared_data.txt"), `controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md` ("calibration_data.txt", "PC behavior") and the "Machining and playback" and "QML" sections of `docs/code context/AGENT_CONTRACTS.md` (required by `AGENTS.md` for RSI work).
-- [ ] Milestone 1: a failed job-file deletion is reported and blocks Sampling and the test LIN.
-- [ ] Milestone 2: one shared busy guard; Sampling and the test LIN are refused in every non-Idle run state; the test LIN button follows it; `endRun` uses local copies.
-- [ ] Milestone 3: a calibration result the reader would reject is not saved; after a failed settings read, nothing is written.
-- [ ] Builds and disconnected checks of all milestones (user's).
-- [ ] Contract update, final compliance pass, line counts, `git diff --check`.
+- [x] (2026-11-20) Before editing: read `controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior", "shared_data.txt"), `controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md` ("calibration_data.txt", "PC behavior") and the "Machining and playback" and "QML" sections of `docs/code context/AGENT_CONTRACTS.md` (required by `AGENTS.md` for RSI work). Re-checked the plan against the code: start counts unchanged, tree clean; refinements recorded in Surprises & Discoveries and Decision Log.
+- [x] (2026-11-20) Milestone 1 implemented: `clearPrepared()` returns the joined "Cannot remove …" texts; `prepare()`, `prepareCalibration()` and `prepareTestLin()` stop on it (pending inputs assigned only afterwards); the constructor and both availability slots show it; `shutdown()` ignores it.
+  Compliance pass: no lambdas, templates, exceptions or output parameters; `clearPrepared` has no parameters and returns its result. The guard `if (const QString removeError = clearPrepared(); !removeError.isEmpty()) …` appears three times with `return` and twice without; a wrapper would still need one line per caller plus its own definition, so it is not extracted. No violations found.
+  Counts (physical / nonblank): `scenemachiningpreparation.cpp` 556/510 → 562/516, `scenemachiningpreparation.h` 134/122 → 135/123. The growth is the collected error text (declaration, braces, joined assignment, return) and the header comment; the smaller alternative, `setError` inside `clearPrepared`, would leave callers unable to tell whether to stop without reading `m_error` back.
+- [x] (2026-11-20) Milestone 1 user check: `robocrap` built; the locked-file check passed (user report). A first RSI bind failure, `SocketAddressNotAvailableError`, came from the KR C4 being switched off (KRC4-Direct without link, 172.31.1.47 Tentative), not from the change.
+- [x] (2026-11-20) Milestone 2 implemented: private `busyReason()` (shutting down / run not Idle / Sampling) is the first check of `unavailableReason`, `calibrationUnavailableReason` and `prepareTestLin`, and replaces the same three conditions in `canStartCalibration`; the RSI test LIN button also requires `!calibrationRunning`; `endRun` copies `diagnosticId` into `id`.
+  Compliance pass: no lambdas, templates, exceptions or output parameters; `busyReason` is const, has no parameters and returns its result; it replaces three copies of the conditions and the nested ternary of `prepareTestLin`. No violations found. The button's `enabled` change affects no size or layout.
+  Counts (physical / nonblank): `scenemachiningpreparation.cpp` 562/516 → 562/515, `scenemachiningpreparation.h` 135/123 → 137/125 (the `busyReason` declaration and its comment), `Network.qml` 212/165 → 212/165.
+- [x] (2026-11-20) Milestone 2 user check: build, disconnected and equipment checks passed (user report). The first calibration start held in `krl_mount` for reasons outside this plan, both left by the RSI adapter swap to the onboard Intel port (since reverted): 172.31.1.47 had lost `SkipAsSource`, so NetBIOS and TCP 139 did not answer on 192.168.2.100, and the firewall rule "KR C4 share access (TCP 139)" still applied to the ASIX adapter (`Devices-Switch`). The user corrected both.
+- [x] (2026-11-20) Milestone 3 implemented: `recordCalibrationResult` builds the summary into a local and returns "Calibration result not saved: the fit gave non-finite or non-positive values." without keeping or emitting when `calibrationSummary(summaryObject(summary))` rejects it; the constructor stores the read error in `m_settingsReadError`; `saveSettings() const` replaces the three `writeProbeSettings(m_settings)` calls and refuses with the read error plus " Not saved: fix or delete the file, then restart RoboCrap." while that member is set.
+  Compliance pass: no lambdas, templates, exceptions or output parameters; `saveSettings` has no parameters and returns its result; the reader's check is reused, no validation code is added; `writeProbeSettings` now has one caller (`saveSettings`). No violations found.
+  Counts (physical / nonblank): `scenecalibration.cpp` 546/497 → 559/509, `scenecalibration.h` 131/122 → 136/127. The growth is the rejection guard, `saveSettings`, the member with its assignment, and the updated comments; the smaller alternative of reusing `m_settingsError` fails because a later write failure also sets it and must not block the next save.
+- [x] (2026-11-20) Milestone 3 user check: build and settings-file check passed (user report), with the file first created by one ordinary save.
+- [x] (2026-11-20) Builds and disconnected checks of all milestones (user's), plus the Milestone 2 equipment check.
+- [x] (2026-11-20) Contract update, final compliance pass, line counts, `git diff --check`.
+  `docs/code context/AGENT_CONTRACTS.md`, "Machining and playback": the refusal now covers Start Calibration until the run end; added the removal-failure, rejected-result and failed-read rules. "QML": the test LIN button's three conditions.
+  Final compliance pass over all changed declarations, bodies and callers of the three milestones: no lambdas, project templates, thrown exceptions, output parameters or signatures above two parameters; one new member (`m_settingsReadError`) and two new private methods (`busyReason`, `saveSettings`), each justified in the Decision Log. No violations found. `git diff --check` is clean; no untracked files.
+  Totals (physical / nonblank): C++ 1367/1251 → 1394/1276 (+27/+25); QML 212/165 → 212/165; documentation: AGENT_CONTRACTS.md +8 lines, this plan.
 
 
 ## Surprises & Discoveries
 
-(None yet.)
+- Observation: no current handler can empty `m_preparedCalibration` during `endRun`, so the local copies of Milestone 2 are preventive, not a fix of a reachable defect.
+  Evidence: the two signals that `recordCalibrationResult` can emit synchronously are handled in `src/application/qml/Main.qml:101-109`, which only opens the "Probe settings" dialog or shows `CalibrationResultWindow`; `CalibrationResultWindow.qml` handles only its two buttons. The copies are kept, following `ScenePlayback::present`, which also copies its motion handle because callbacks may release it.
+- Observation: `fitProbeCalibration` (`src/trajectories/probe/probecalibrationfit.cpp:235-267`) checks the Jacobian and the residuals for finite values at every iteration, but not the model it returns, and `calibrationSummary` also rejects non-finite centres. The Milestone 3 rejection text therefore names non-finite values too.
+- Observation: `settings/probe_calibration.json` does not exist and was never tracked by git (`git ls-files settings` and `git log -- settings` are empty; the folder is absent). A missing file reads as empty settings without an error, and the first save creates folder and file. The Milestone 3 check therefore first creates the file through one ordinary save.
+  Evidence: `ROBOCRAP_SETTINGS_DIR:PATH=E:/Qt/QtProjects/RoboCrap/settings` in the build's `CMakeCache.txt`; user report 2026-11-20.
+- Observation: `Compare-Object` prints both differing lines, the edited one with `<=` and the original with `=>`, not one line. The expected result of the Milestone 3 check was corrected.
 
 
 ## Decision Log
@@ -77,11 +94,32 @@ The user checks the run-start blocking on the equipment during a calibration sta
 - Decision (user, 2026-11-20): after a failed read of `probe_calibration.json`, nothing is written to it during that session.
   Implementation: a new member `QString m_settingsReadError` and a private `QString saveSettings()` replace the three `writeProbeSettings(m_settings)` calls. The member is the only state that distinguishes "read failed at start" from "a later write failed", and both are reported through the existing `settingsError`.
   Date/Author: 2026-11-20, user and plan author.
+- Decision: `prepare()` and `prepareCalibration()` call `clearPrepared()` before they assign `m_pending` / `m_pendingCalibration`, instead of resetting those members on the new early return.
+  Rationale: `clearPrepared` never reads them, and inside these two entry points it can at most call `endRun` with an error, which runs no fit and removes no scene object, so `m_machining->inputId()`, `pathById` and `m_calibration->path()` give the same values afterwards. The reorder needs no reset lines.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: the removal text is built with `tr("Cannot remove %1.")` and joined with the existing `joinedError`; the constructor calls `setError(clearPrepared())` directly.
+  Rationale: every other `setError` text of the class goes through `tr()`; `joinedError` already joins two error texts with a space; `setError` with an empty text is a no-op while `m_error` is empty, which is always the case in the constructor.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `canStartCalibration()` uses `busyReason().isEmpty()` in place of its own `!m_shuttingDown && !m_preparing && m_run == CalibrationRun::Idle`.
+  Rationale: the three conditions are exactly those of `busyReason()`, so this removes a fourth copy without changing the result.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `endRun` copies only `diagnosticId`, not the motion handle.
+  Rationale: the handle is dereferenced only by `fitProbeCalibration`, which runs before `recordCalibrationResult` emits `settingsErrorChanged` or `lastCalibrationChanged`; only `writeCalibrationResult` reads the job after those signals, and it needs the identifier alone. A second copy would be redundant state.
+  Date/Author: 2026-11-20, implementing agent.
+- Decision: `saveSettings` is declared `const`.
+  Rationale: it reads `m_settingsReadError` and `m_settings` and writes only the file; the caller applies the returned text through `setSettingsError`, so the method changes no member.
+  Date/Author: 2026-11-20, implementing agent.
 
 
 ## Outcomes & Retrospective
 
-(To be written at completion.)
+All four defects of the Purpose are fixed and accepted by the user on 2026-11-20. A job file that cannot be deleted is the preparation error and stops RSI Sampling, calibration Sampling and the test LIN (locked-file check). From Start Calibration until the run ends, both buttons are disabled and the calls are refused (equipment check). A calibration result the settings reader would reject is not saved and is reported as a run error (code inspection; the UI cannot produce such a fit). After a failed read of `probe_calibration.json` nothing is written in that session, and every refused save reopens the "Probe settings" dialog (settings-file check).
+
+The C++ grew by 25 nonblank lines: the collected removal text and its callers' guards, the rejection guard, `saveSettings` and its member, and comments. `busyReason` removed three copies of the busy conditions and the nested ternary in `prepareTestLin`, and `canStartCalibration` reuses it as well.
+
+Outside this plan, the RSI adapter swap to the onboard Intel port was measured and reverted on 2026-11-20 (Intel I219-V held RSI requests 2–16 ms and the runs stopped with `RSITimeout`; the ASIX run finished); the swap procedure was deleted. The constraint is in `docs/code context/ARCHITECTURE.md` ("Network"), and the two share settings that must follow an adapter change (`SkipAsSource`, the TCP 139 firewall rule's adapter) are in `docs/solutions/KR_C4_WINDOWS10_SHARED_FOLDER_SETUP.md` §6 and §6a.
+
+Lessons: a check that edits a file must first establish that the file exists; here `probe_calibration.json` had never been created. Copies made to prevent a future defect should be limited to the values actually read after the first signal is emitted.
 
 
 ## Context and Orientation
@@ -106,7 +144,7 @@ Read `AGENTS.md`, the RSI contracts and the AGENT_CONTRACTS sections named in Pr
 
   However, `unavailableReason()` (257-266), `calibrationUnavailableReason()` (247-255) and `prepareTestLin()` (335-337) refuse only `m_run == Started`. The QML property `canPrepare`/`canPrepareCalibration` is their empty-reason test and drives the RSI Sampling button (Main.qml:455-458). The RSI test LIN button (Network.qml:194-199) checks only `preparing`.
 
-`SceneCalibration` (`src/application/scene/scenecalibration.{h,cpp}`, QML name `Calibration`) owns `settings/probe_calibration.json`. The file is git-tracked, lives in the folder `ROBOCRAP_SETTINGS_DIR`, and holds the primary ball centre and sphere centre plus the last calibration result.
+`SceneCalibration` (`src/application/scene/scenecalibration.{h,cpp}`, QML name `Calibration`) owns `settings/probe_calibration.json`. The file lives in the folder `ROBOCRAP_SETTINGS_DIR` (this build: `E:/Qt/QtProjects/RoboCrap/settings`), is created by the first save (`QDir().mkpath` in `writeProbeSettings`) and holds the primary ball centre and sphere centre plus the last calibration result.
 - **Reading.** `readProbeSettings()` (156-189) returns `{settings, error}`. A missing file gives empty settings without an error. Any present but invalid part returns empty settings with an error text:
   - the file is not JSON;
   - the version is not 1;
@@ -125,12 +163,13 @@ Read `AGENTS.md`, the RSI contracts and the AGENT_CONTRACTS sections named in Pr
 
 ### Milestone 1: report a failed job-file deletion and stop
 
-In `scenemachiningpreparation.{h,cpp}`, change `void clearPrepared()` to `QString clearPrepared()`. It collects the failure text `QStringLiteral("Cannot remove %1.").arg(QDir::toNativeSeparators(path))` for each file whose `QFile::remove` failed, joined with a space. Keep the existing `qInfo` line. Everything else in the function stays the same, in the same order.
+In `scenemachiningpreparation.{h,cpp}`, change `void clearPrepared()` to `QString clearPrepared()`. It collects the failure text `tr("Cannot remove %1.").arg(QDir::toNativeSeparators(path))` for each file whose `QFile::remove` failed, joined with a space by the existing `joinedError`. Keep the existing `qInfo` line. Everything else in the function stays the same, in the same order.
 
 The callers change as follows:
-- **`prepare()` and `prepareCalibration()`.** Capture the text; if it is not empty, call `setError(text)` and return before `setError({})` and before starting the worker. `prepare()` sets `m_pending` before `clearPrepared()` today; reset it to `{}` on this early return. `prepareCalibration()` likewise resets `m_pendingCalibration`.
+- **`prepare()` and `prepareCalibration()`.** Call `clearPrepared()` right after the unavailable-reason guard; if its text is not empty, call `setError(text)` and return before `setError({})` and before starting the worker. Assign `m_pending` (`prepare()`) and `m_pendingCalibration` (`prepareCalibration()`) only after this check, so the early return leaves them empty.
 - **`prepareTestLin()`.** Return after `setError(text)`, before installing the test stream.
-- **Constructor, `onAvailabilityChanged`, `onCalibrationAvailabilityChanged`.** Call `setError(text)` when it is not empty.
+- **Constructor.** `setError(clearPrepared())`.
+- **`onAvailabilityChanged`, `onCalibrationAvailabilityChanged`.** Call `setError(text)` when it is not empty.
 - **`shutdown()`.** Ignores the text; the `qInfo` line already reports it.
 
 ### Milestone 2: one busy guard, refused in every non-Idle run state
@@ -141,17 +180,17 @@ Add `QString busyReason() const`, returning in this order:
 3. `tr("RSI Sampling…")` when `m_preparing`;
 4. otherwise empty.
 
-Use it as the first check of `unavailableReason()` and `calibrationUnavailableReason()`, replacing their first three lines. Replace the guard of `prepareTestLin()` with `if (const QString reason = busyReason(); !reason.isEmpty()) { setError(reason); return; }`. The order of the checks changes from shutting down / Started / preparing to shutting down / not Idle / preparing; the texts stay the same.
+Use it as the first check of `unavailableReason()` and `calibrationUnavailableReason()`, replacing their first three lines. In `canStartCalibration()`, replace `!m_shuttingDown && !m_preparing && m_run == CalibrationRun::Idle` by `busyReason().isEmpty()`. Replace the guard of `prepareTestLin()` with `if (const QString reason = busyReason(); !reason.isEmpty()) { setError(reason); return; }`. The order of the checks changes from shutting down / Started / preparing to shutting down / not Idle / preparing; the texts stay the same.
 
 In `Network.qml`, the "RSI test LIN" button's `enabled` becomes `rsiTestPanel.rsi && rsiTestPanel.rsi.isConnected && !Backend.MachiningPreparation.preparing && !Backend.MachiningPreparation.calibrationRunning`.
 
-In `endRun`, copy `m_preparedCalibration->motion` and `->diagnosticId` into locals right after the existing `Q_ASSERT`, and use only those locals below.
+In `endRun`, copy `m_preparedCalibration->diagnosticId` into a local `id` right after the existing `Q_ASSERT`, and use only `id` below. The motion handle needs no copy: `fitProbeCalibration` reads it before `recordCalibrationResult`, the first call that emits a signal.
 
 ### Milestone 3: settings writes follow the reader's rules
 
-In `scenecalibration.cpp`, in `recordCalibrationResult`, build the `CalibrationSummary` into a local first. If `!calibrationSummary(summaryObject(summary))`, return `tr("Calibration result not saved: the fit gave a zero or negative contact distance, repeatability, quantile or singular value.")` without changing `m_settings.last` and without emitting `lastCalibrationChanged`. `endRun` then puts the text into `calibrationRunError`, and `calibrationRunFinished` opens the "Calibration failed" dialog, because the result window was not opened. Otherwise assign it, save and emit as today.
+In `scenecalibration.cpp`, in `recordCalibrationResult`, build the `CalibrationSummary` into a local first. If `!calibrationSummary(summaryObject(summary))`, return `tr("Calibration result not saved: the fit gave non-finite or non-positive values.")` without changing `m_settings.last` and without emitting `lastCalibrationChanged`. `endRun` then puts the text into `calibrationRunError`, and `calibrationRunFinished` opens the "Calibration failed" dialog, because the result window was not opened. Otherwise assign it, save and emit as today.
 
-In `scenecalibration.h`, add the private member `QString m_settingsReadError;` ("The start read's error; while set, nothing is written to the settings file.") and the private method `QString saveSettings();`. The constructor stores `loaded.error` in it, next to `setSettingsError(loaded.error)`. `saveSettings()`:
+In `scenecalibration.h`, add the private member `QString m_settingsReadError;` ("The start read's error; while set, nothing is written to the settings file.") and the private method `QString saveSettings() const;`. The constructor stores `loaded.error` in it, next to `setSettingsError(loaded.error)`. `saveSettings()`:
 - returns `m_settingsReadError + tr(" Not saved: fix or delete the file, then restart RoboCrap.")` when `m_settingsReadError` is not empty;
 - otherwise returns `writeProbeSettings(m_settings)`.
 
@@ -181,12 +220,13 @@ Expected: the status bar shows "Cannot remove C:\RoboCrapJobs\shared_data.txt." 
 
 Disconnected check for Milestone 3 (user):
 
+    # without settings\probe_calibration.json: start RoboCrap, Measuring EE: change X of the ball centre, Apply, close RoboCrap
     Copy-Item settings\probe_calibration.json $env:TEMP\probe_calibration.backup.json
     # add the character x before the first { in settings\probe_calibration.json, start RoboCrap
     # Measuring EE: change X of the ball centre, Apply
     Compare-Object (Get-Content settings\probe_calibration.json) (Get-Content $env:TEMP\probe_calibration.backup.json)
 
-Expected: the "Probe settings" dialog appears at start and again after Apply, its text ending in "Not saved: fix or delete the file, then restart RoboCrap.". `Compare-Object` lists only the line with the added `x`. Restore the file from the backup afterwards.
+Expected: the "Probe settings" dialog appears at start and again after Apply, its text ending in "Not saved: fix or delete the file, then restart RoboCrap.". `Compare-Object` lists only the first line: the edited one with `x` (`<=`) and the original (`=>`). Restore the file from the backup afterwards.
 
 
 ## Validation and Acceptance
@@ -237,7 +277,7 @@ No dependency or QML API change. At the end:
     QString busyReason() const;
 
     // scenecalibration.h (private)
-    QString saveSettings();
+    QString saveSettings() const;
     QString m_settingsReadError;
 
 After Milestone 3, update `docs/code context/AGENT_CONTRACTS.md`, "Machining and playback". Change the text "While program 1 runs, Sampling and the test LIN are refused" to "From Start Calibration until the run ends (Run requested, PLC start sequence or program 1 running), Sampling and the test LIN are refused". Add these three facts:
@@ -246,3 +286,6 @@ After Milestone 3, update `docs/code context/AGENT_CONTRACTS.md`, "Machining and
 - a calibration result that the settings reader would reject is not saved and is reported as a run error.
 
 In the "QML" section, the test LIN button also requires that no calibration run is active.
+
+
+Revision note (2026-11-20, implementing agent): recorded the refinements found while checking the plan against the code (reordered pending assignment, `tr`/`joinedError` for the removal text, `busyReason` reuse in `canStartCalibration`, wider Milestone 3 rejection text, corrected `Compare-Object` expectation) and the Milestone 1 implementation, compliance pass and counts.

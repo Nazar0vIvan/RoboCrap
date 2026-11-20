@@ -47,18 +47,15 @@ std::optional<quint8> readUInt8(const QVariant& value)
   return number ? std::optional<quint8>(static_cast<quint8>(*number)) : std::nullopt;
 }
 
-std::optional<QByteArray> readBytes(const QVariantMap& req, const QString& key)
-{
-  const auto it = req.constFind(key);
-  if (it == req.cend() || it->isNull()) return std::nullopt;
-  if (!it->canConvert<QByteArray>()) return std::nullopt;
-
-  return it->toByteArray();
-}
+// Payload lengths in bytes; each reply's length is checked before it is decoded.
+constexpr int WriteIoReplyLength = 6;  // cmd, status, dev (2), module, state
+constexpr int SnapshotReplyLength = 9; // cmd, status, then the IO state
+constexpr int SetVarReplyLength = 4;   // cmd, status, var, attr
+constexpr int ErrorReplyLength = 4;    // cmd, err, code (2)
+constexpr int IoChangeLength = 8;      // chg type, then the IO state
+constexpr int IoStateLength = 7;       // x1, y1, x2, y2, step, program, result
 
 } // namespace
-
-PlcMessageManager::PlcMessageManager(QObject* parent) : QObject(parent) {}
 
 // PUBLIC
 
@@ -148,34 +145,15 @@ PlcMessageManager::ParseResult PlcMessageManager::buildReqPayload(const QVariant
   QDataStream ds(&payload, QIODevice::WriteOnly);
   ds.setByteOrder(QDataStream::BigEndian);
 
+  // The PC sends only WRITE_IO, SNAPSHOT and SET_VAR; any other command is rejected below.
   const auto cmd = readUInt8(req.value("cmd"));
-  if (!cmd || !isValidCmd(*cmd))
+  if (!cmd)
     return {QVariant(), BAD_CMD, req.value("cmd")};
 
   constexpr quint8 flags = 0x00;
   ds << *cmd << flags;
 
   switch (*cmd) {
-    case CMD::READ_IO: {
-      const auto dev = readUInt16(req.value("dev"));
-      if (!dev || !isValidDev(*dev))
-        return {QVariant(), BAD_DEV, req.value("dev")};
-
-      const auto module = readUInt8(req.value("module"));
-      if (!module || !isValidMod(*module))
-        return {QVariant(), BAD_MOD, req.value("module")};
-
-      ds << *dev << quint8() << *module;
-      break;
-    }
-    case CMD::READ_REG: {
-      const auto addr = readUInt16(req.value("addr"));
-      if (!addr)
-        return {QVariant(), BAD_ADDR, req.value("addr")};
-
-      ds << static_cast<quint16>(DEV::D) << *addr;
-      break;
-    }
     case CMD::WRITE_IO: {
       const auto module = readUInt8(req.value("module"));
       if (!module || !isValidMod(*module))
@@ -196,28 +174,6 @@ PlcMessageManager::ParseResult PlcMessageManager::buildReqPayload(const QVariant
          << *orMask;
       break;
     }
-    case CMD::WRITE_REG: {
-      const auto addr = readUInt16(req.value("addr"));
-      if (!addr)
-        return {QVariant(), BAD_ADDR, req.value("addr")};
-
-      const auto value = readUInt16(req.value("value"));
-      if (!value)
-        return {QVariant(), BAD_DATA, req.value("value")};
-
-      ds << static_cast<quint16>(DEV::D)
-         << *addr
-         << *value;
-      break;
-    }
-    case CMD::WRITE_RAW: {
-      const auto raw = readBytes(req, "raw");
-      if (!raw)
-        return {QVariant(), BAD_RAW, req.value("raw")};
-
-      ds.writeRawData(raw->constData(), raw->size());
-      break;
-    }
     case CMD::SNAPSHOT: {
       break;
     }
@@ -233,7 +189,8 @@ PlcMessageManager::ParseResult PlcMessageManager::buildReqPayload(const QVariant
       ds << *var << *attr;
 			break;
     }
-		default: break;
+		default:
+      return {QVariant(), BAD_CMD, *cmd};
   }
   return { payload };
 }
@@ -283,9 +240,6 @@ PlcMessageManager::ParseResult PlcMessageManager::parseRespOk(const QByteArray& 
   if (ds.status() != QDataStream::Ok)
     return {QVariant(), BAD_PLEN, payload.size()};
 
-  if (!isValidCmd(cmd))
-    return {QVariant(), BAD_CMD, cmd};
-
   QVariantMap out{
     {"type", Type::RESP_OK},
     {"tid", tid},
@@ -293,53 +247,10 @@ PlcMessageManager::ParseResult PlcMessageManager::parseRespOk(const QByteArray& 
     {"status", status}
   };
 
+  // Replies exist only for the commands the PC sends; any other command is BAD_CMD below.
   switch (cmd) {
-    case CMD::READ_IO: {
-      if (payload.size() != 6)
-        return {QVariant(), BAD_PLEN, payload.size()};
-
-      quint16 dev = 0;
-      quint8 module = 0;
-      quint8 state = 0;
-
-      ds >> dev >> module >> state;
-      if (ds.status() != QDataStream::Ok)
-        return {QVariant(), BAD_PLEN, payload.size()};
-      if (!isValidDev(dev))
-        return {QVariant(), BAD_DEV, dev};
-      if (!isValidMod(module))
-        return {QVariant(), BAD_MOD, module};
-
-      out["dev"] = dev;
-      out["module"] = module;
-      out["state"] = byteToBits(state);
-      break;
-    }
-
-    case CMD::READ_REG:
-    case CMD::WRITE_REG: {
-      if (payload.size() != 8)
-        return {QVariant(), BAD_PLEN, payload.size()};
-
-      quint16 dev = 0;
-      quint16 addr = 0;
-      quint16 value = 0;
-
-      ds >> dev >> addr >> value;
-      if (ds.status() != QDataStream::Ok)
-        return {QVariant(), BAD_PLEN, payload.size()};
-
-      if (!isValidDev(dev))
-        return {QVariant(), BAD_DEV, dev};
-
-      out["dev"] = dev;
-      out["addr"] = addr;
-      out["value"] = value;
-      break;
-    }
-
     case CMD::WRITE_IO: {
-      if (payload.size() != 6)
+      if (payload.size() != WriteIoReplyLength)
         return {QVariant(), BAD_PLEN, payload.size()};
 
       quint16 dev = 0;
@@ -358,43 +269,19 @@ PlcMessageManager::ParseResult PlcMessageManager::parseRespOk(const QByteArray& 
       out["dev"] = dev;
       out["module"] = module;
       out["state"] = byteToBits(state);
-      break;
-    }
-
-    case CMD::WRITE_RAW: {
-      out["value"] = payload.mid(2);
       break;
     }
 
     case CMD::SNAPSHOT: {
       // Same content as the IO change frame, so the heartbeat repairs a lost change frame.
-      if (payload.size() != 9)
+      if (payload.size() != SnapshotReplyLength)
         return {QVariant(), BAD_PLEN, payload.size()};
-
-      quint8 x1 = 0;
-      quint8 y1 = 0;
-      quint8 x2 = 0;
-      quint8 y2 = 0;
-      quint8 step = 0;
-      quint8 program = 0;
-      quint8 result = 0;
-
-      ds >> x1 >> y1 >> x2 >> y2 >> step >> program >> result;
-      if (ds.status() != QDataStream::Ok)
-        return {QVariant(), BAD_PLEN, payload.size()};
-
-      out["x1"] = byteToBits(x1);
-      out["y1"] = byteToBits(y1);
-      out["x2"] = byteToBits(x2);
-      out["y2"] = byteToBits(y2);
-      out["robotStep"] = step;
-      out["robotProgram"] = program;
-      out["robotResult"] = result;
+      out.insert(ioState(payload.mid(2, IoStateLength))); // After cmd and status.
       break;
     }
 
     case CMD::SET_VAR: {
-      if (payload.size() != 4)
+      if (payload.size() != SetVarReplyLength)
         return {QVariant(), BAD_PLEN, payload.size()};
 
       quint8 var = 0;
@@ -421,7 +308,7 @@ PlcMessageManager::ParseResult PlcMessageManager::parseRespOk(const QByteArray& 
 
 PlcMessageManager::ParseResult PlcMessageManager::parseRespErr(const QByteArray& payload, quint8 tid) const
 {
-  if (payload.size() != 4)
+  if (payload.size() != ErrorReplyLength)
     return {QVariant(), BAD_PLEN, payload.size()};
 
   QDataStream ds(payload);
@@ -461,30 +348,9 @@ PlcMessageManager::ParseResult PlcMessageManager::parseStateChange(const QByteAr
 
   switch (chg) {
     case IOs: {
-      // Module bytes X1, Y1, X2, Y2, then the PLC start sequence: E_RSTEP step,
-      // program (0 = resume) and E_RRESULT result.
-      if (payload.size() != 8)
+      if (payload.size() != IoChangeLength)
         return {QVariant(), BAD_PLEN, payload.size()};
-
-      quint8 x1 = 0;
-      quint8 y1 = 0;
-      quint8 x2 = 0;
-      quint8 y2 = 0;
-      quint8 step = 0;
-      quint8 program = 0;
-      quint8 result = 0;
-
-      ds >> x1 >> y1 >> x2 >> y2 >> step >> program >> result;
-      if (ds.status() != QDataStream::Ok)
-        return {QVariant(), BAD_PLEN, payload.size()};
-
-      out["x1"] = byteToBits(x1);
-      out["y1"] = byteToBits(y1);
-      out["x2"] = byteToBits(x2);
-      out["y2"] = byteToBits(y2);
-      out["robotStep"] = step;
-      out["robotProgram"] = program;
-      out["robotResult"] = result;
+      out.insert(ioState(payload.mid(1, IoStateLength))); // After the chg type.
       break;
     }
 
@@ -495,51 +361,56 @@ PlcMessageManager::ParseResult PlcMessageManager::parseStateChange(const QByteAr
   return {out};
 }
 
-bool PlcMessageManager::isValidType(quint8 type) const {
+bool PlcMessageManager::isValidType(quint8 type) {
   return type == Type::REQ      ||
          type == Type::RESP_OK  ||
          type == Type::RESP_ERR ||
          type == Type::CHG;
 }
 
-bool PlcMessageManager::isValidCmd(quint8 cmd) const {
-  return cmd == CMD::READ_IO ||
-         cmd == CMD::READ_REG ||
-         cmd == CMD::WRITE_IO ||
-         cmd == CMD::WRITE_REG ||
-         cmd == CMD::WRITE_RAW ||
-         cmd == CMD::SNAPSHOT ||
-         cmd == CMD::SET_VAR;
-}
-
-bool PlcMessageManager::isValidMod(quint8 module) const {
+bool PlcMessageManager::isValidMod(quint8 module) {
   return module == 1 || module == 2;
 }
 
-bool PlcMessageManager::isValidDev(quint16 dev) const {
+bool PlcMessageManager::isValidDev(quint16 dev) {
   return dev == DEV::X ||
          dev == DEV::Y ||
          dev == DEV::D;
 }
 
-bool PlcMessageManager::isValidVar(quint8 var) const {
+bool PlcMessageManager::isValidVar(quint8 var) {
   return var == VAR_TYPE::RUN_PROG ||
          var == VAR_TYPE::ROBOT_RESUME ||
          var == VAR_TYPE::ROBOT_ABORT;
 }
 
-QVariantList PlcMessageManager::byteToBits(quint8 value) const {
+QVariantList PlcMessageManager::byteToBits(quint8 value) {
   QVariantList bits; bits.reserve(8);
   for (int i = 0; i < 8; ++i)
     bits.append( ((value >> i) & 0x01) != 0 );
   return bits;
 }
 
-
-
-
-
-
-
-
-
+// Module bytes X1, Y1, X2, Y2, then the PLC start sequence: E_RSTEP step, program (0 = resume)
+// and E_RRESULT result. Callers check the frame length, so all seven bytes are present.
+QVariantMap PlcMessageManager::ioState(const QByteArray& bytes) {
+  QDataStream ds(bytes);
+  ds.setByteOrder(QDataStream::BigEndian);
+  quint8 x1 = 0;
+  quint8 y1 = 0;
+  quint8 x2 = 0;
+  quint8 y2 = 0;
+  quint8 step = 0;
+  quint8 program = 0;
+  quint8 result = 0;
+  ds >> x1 >> y1 >> x2 >> y2 >> step >> program >> result;
+  return {
+    {"x1", byteToBits(x1)},
+    {"y1", byteToBits(y1)},
+    {"x2", byteToBits(x2)},
+    {"y2", byteToBits(y2)},
+    {"robotStep", step},
+    {"robotProgram", program},
+    {"robotResult", result}
+  };
+}

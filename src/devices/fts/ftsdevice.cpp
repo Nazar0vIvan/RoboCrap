@@ -39,16 +39,14 @@ constexpr quint16 kHeader = 0x1234;
 constexpr quint16 kStartCmd = 0x0002;
 constexpr quint16 kStopCmd = 0x0000;
 constexpr quint16 kBiasCmd = 0x0042;
+constexpr quint32 kContinuousSamples = 0; // RDT sample count 0: continuous output.
 
-bool acceptAxis(qint32& dst, qint32 src)
+// current when it differs from the last published value by at least the tolerance.
+std::optional<qint32> changedAxis(qint32 last, qint32 current)
 {
-	const qint64 diff = qint64(src) - qint64(dst);
 	const qint64 tol = static_cast<qint64>(kAxisTol * kCount);
-
-	if (std::llabs(diff) < tol) return false;
-
-	dst = src;
-	return true;
+	if (std::llabs(qint64(current) - qint64(last)) < tol) return std::nullopt;
+	return current;
 }
 
 std::optional<RDTResponse> parseResponse(const QByteArray& data)
@@ -112,7 +110,7 @@ void FtsDevice::stopDevice()
 {
 	if (!m_sock) return;
 
-	disconnect();
+	disconnectDevice();
 	if (m_saveFuture.valid()) {
 		m_saveFuture.wait();
 		onLogSaveFinished();
@@ -123,46 +121,31 @@ void FtsDevice::stopDevice()
 	delete std::exchange(m_sock, nullptr);
 }
 
-void FtsDevice::connect(const QVariantMap& config)
+// Reached only through AbstractDevice::invoke, which refuses calls while the device is stopped.
+void FtsDevice::connectDevice(const QVariantMap& config)
 {
-	if (!m_sock) {
-		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "FTS device is not started";
-		return;
-	}
-
+	std::optional<SocketEndpoints> parsed;
 	if (!config.isEmpty()) {
-		const QHostAddress localAddr(config.value("localAddress").toString());
-		const QHostAddress peerAddr(config.value("peerAddress").toString());
-
-		const auto localPort = parseSocketPort(config.value("localPort"));
-		const auto peerPort = parseSocketPort(config.value("peerPort"));
-
-		if (localAddr.isNull() || peerAddr.isNull()
-				|| !localPort || !peerPort) {
+		parsed = parseSocketEndpoints(config);
+		if (!parsed || !parsed->peerPort) {
 			qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Invalid socket configuration";
 			return;
 		}
-
-		if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnect();
-		m_la = localAddr;
-		m_lp = *localPort;
-		m_pa = peerAddr;
-		m_pp = *peerPort;
 	}
-
-	if (m_la.isNull() || m_lp == 0 || m_pa.isNull() || m_pp == 0) {
+	if (!parsed && !m_endpoints) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Socket configuration is incomplete";
 		return;
 	}
 
-	if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnect();
+	// Before the endpoints are replaced, so Stop still reaches the old peer.
+	if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnectDevice();
+	if (parsed) m_endpoints = parsed;
+	const SocketEndpoints& endpoints = *m_endpoints;
 
-	emit stateReady({{"connectionConfig", QVariantMap{
-		{"localAddress", m_la.toString()}, {"localPort", m_lp},
-		{"peerAddress", m_pa.toString()}, {"peerPort", m_pp}
-	}}});
+	emit stateReady({{"connectionConfig", connectionConfigMap(endpoints)}});
 
-	if (!m_sock->bind(m_la, m_lp, QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
+	if (!m_sock->bind(endpoints.localAddress, endpoints.localPort,
+									 QUdpSocket::ShareAddress | QUdpSocket::ReuseAddressHint)) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << QString("Bind failed: %1").arg(m_sock->errorString());
 		return;
 	}
@@ -170,19 +153,16 @@ void FtsDevice::connect(const QVariantMap& config)
 
 	qInfo().noquote() << "[OK]" << objectName() + ":"
 			<< QString("Socket connected: local [%1]:%2, peer [%3]:%4")
-					 .arg(m_la.toString())
-					 .arg(m_lp)
-					 .arg(m_pa.toString())
-					 .arg(m_pp);
+					 .arg(endpoints.localAddress.toString())
+					 .arg(endpoints.localPort)
+					 .arg(endpoints.peerAddress.toString())
+					 .arg(*endpoints.peerPort);
 }
 
-void FtsDevice::disconnect()
+// Callers run while the device is started (stopDevice, connectDevice, invoke), so m_sock exists.
+void FtsDevice::disconnectDevice()
 {
-	if (!m_sock) return;
-
-	if (m_sock->state() == QAbstractSocket::BoundState && !m_pa.isNull() && m_pp != 0) {
-		stopStreaming();
-	}
+	if (isSocketReady()) stopStreaming();
 
 	m_sock->close();
 	m_rxTimeout->stop();
@@ -203,15 +183,11 @@ void FtsDevice::disconnect()
 
 void FtsDevice::startStreaming()
 {
-	if (!m_sock || m_sock->state() != QAbstractSocket::BoundState) {
+	if (m_sock->state() != QAbstractSocket::BoundState) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "FTS socket is not bound";
 		return;
 	}
 
-	if (m_pa.isNull() || m_pp == 0) {
-		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "FTS peer is not configured";
-		return;
-	}
 	if (m_saveFuture.valid()) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Wait for the FTS recording to finish saving";
 		return;
@@ -265,7 +241,9 @@ void FtsDevice::onReadyRead()
 	bool receivedSample = false;
 	while (m_sock && m_sock->hasPendingDatagrams()) {
 		const QNetworkDatagram datagram = m_sock->receiveDatagram(m_sock->pendingDatagramSize());
-		if (datagram.senderAddress() != m_pa || datagram.senderPort() != m_pp) continue;
+		// Datagrams arrive only while bound, so the endpoints exist.
+		if (datagram.senderAddress() != m_endpoints->peerAddress
+				|| datagram.senderPort() != *m_endpoints->peerPort) continue;
 
 		const auto parsed = parseResponse(datagram.data());
 		if (!parsed) continue;
@@ -315,10 +293,10 @@ void FtsDevice::onRxTimeout()
 	publishControlState();
 }
 
+// Bound only after connectDevice stored the endpoints, so a bound socket has a peer.
 bool FtsDevice::isSocketReady() const
 {
-	return m_sock && m_sock->state() == QAbstractSocket::BoundState
-			&& !m_pa.isNull() && m_pp != 0;
+	return m_sock && m_sock->state() == QAbstractSocket::BoundState;
 }
 
 bool FtsDevice::canRecord() const
@@ -367,28 +345,17 @@ void FtsDevice::publishState(const RDTResponse& sample)
 
 	QVariantHash vals;
 
-	if (acceptAxis(m_lastPub.Fx, sample.Fx))
-		vals.insert("fx", m_lastPub.Fx / kCount);
-
-	if (acceptAxis(m_lastPub.Fy, sample.Fy))
-		vals.insert("fy", m_lastPub.Fy / kCount);
-
-	if (acceptAxis(m_lastPub.Fz, sample.Fz))
-		vals.insert("fz", m_lastPub.Fz / kCount);
-
-	if (acceptAxis(m_lastPub.Tx, sample.Tx))
-		vals.insert("tx", m_lastPub.Tx / kCount);
-
-	if (acceptAxis(m_lastPub.Ty, sample.Ty))
-		vals.insert("ty", m_lastPub.Ty / kCount);
-
-	if (acceptAxis(m_lastPub.Tz, sample.Tz))
-		vals.insert("tz", m_lastPub.Tz / kCount);
+	if (const auto fx = changedAxis(m_lastPub.Fx, sample.Fx)) { m_lastPub.Fx = *fx; vals.insert("fx", *fx / kCount); }
+	if (const auto fy = changedAxis(m_lastPub.Fy, sample.Fy)) { m_lastPub.Fy = *fy; vals.insert("fy", *fy / kCount); }
+	if (const auto fz = changedAxis(m_lastPub.Fz, sample.Fz)) { m_lastPub.Fz = *fz; vals.insert("fz", *fz / kCount); }
+	if (const auto tx = changedAxis(m_lastPub.Tx, sample.Tx)) { m_lastPub.Tx = *tx; vals.insert("tx", *tx / kCount); }
+	if (const auto ty = changedAxis(m_lastPub.Ty, sample.Ty)) { m_lastPub.Ty = *ty; vals.insert("ty", *ty / kCount); }
+	if (const auto tz = changedAxis(m_lastPub.Tz, sample.Tz)) { m_lastPub.Tz = *tz; vals.insert("tz", *tz / kCount); }
 
 	if (!vals.isEmpty()) emit stateReady(vals);
 }
 
-bool FtsDevice::sendRequest(quint16 cmd, quint32 count)
+bool FtsDevice::sendRequest(quint16 cmd)
 {
 	if (!isSocketReady()) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Connect the FTS socket before sending a command";
@@ -400,9 +367,9 @@ bool FtsDevice::sendRequest(quint16 cmd, quint32 count)
 
 	qToBigEndian<quint16>(kHeader, raw + 0);
 	qToBigEndian<quint16>(cmd, raw + 2);
-	qToBigEndian<quint32>(count, raw + 4);
+	qToBigEndian<quint32>(kContinuousSamples, raw + 4);
 
-	if (m_sock->writeDatagram(data, m_pa, m_pp) != data.size()) {
+	if (m_sock->writeDatagram(data, m_endpoints->peerAddress, *m_endpoints->peerPort) != data.size()) {
 		qInfo().noquote() << "[ERROR]" << objectName() + ":" << QString("Failed to send FTS command: %1").arg(m_sock->errorString());
 		return false;
 	}
@@ -477,12 +444,7 @@ void FtsDevice::saveLogToDefaultFile()
 	const QString fileName = QStringLiteral("fts_%1_%2.json")
 			.arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")),
 				 QUuid::createUuid().toString(QUuid::WithoutBraces));
-	const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
-	saveLogToFileImpl(records.filePath(fileName));
-}
-
-void FtsDevice::saveLogToFileImpl(const QString& filePath)
-{
+	const QString filePath = QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(fileName);
 	m_saveFuture = std::async(std::launch::async, &FtsDevice::writeLogFile, m_log, filePath);
 	m_savePoll->start();
 	publishControlState();

@@ -51,7 +51,8 @@ struct ProbeSettings
 // Probe sphere calibration in the Measuring/Calibration submode: the sphere from the deployed
 // sphere file, the generated calibration path and the visibility of the other scene objects
 // while the submode is active. Owns the probe settings file: reads it once at construction, saves
-// every changed ball centre of the measuring TCP, the last calibration result and Reassign.
+// every changed ball centre of the measuring TCP, the last calibration result and Reassign, and
+// writes nothing during a session whose start read failed.
 class SceneCalibration : public QObject
 {
   Q_OBJECT
@@ -69,7 +70,8 @@ public:
   QString error() const { return m_error; }
   QString settingsError() const { return m_settingsError; }
   QVariantList lastCalibrationRows() const;
-  // Saves a successful fit of run id as the last result; returns the settings write error.
+  // Saves a successful fit of run id as the last result; returns the settings write error, or the
+  // rejection without keeping or emitting anything when the settings reader would refuse the result.
   QString recordCalibrationResult(const ProbeCalibrationFit& fit, const QString& id);
   // Makes the ball and sphere centres and contact distances of the last result primary, applies
   // the ball centre (A, B, C kept) and, in the submode, moves the sphere. False without a last
@@ -91,7 +93,7 @@ signals:
   void errorChanged();
   // Also emitted for a repeated failure with the same text, so every failed write is reported.
   void settingsErrorChanged();
-  // Emitted only by recordCalibrationResult, that is after a successful fit.
+  // Emitted only by recordCalibrationResult, that is after a successful fit the reader accepts.
   void lastCalibrationChanged();
   void availabilityChanged();
 
@@ -113,6 +115,8 @@ private:
   // Replaces X, Y, Z of the measuring TCP by the ball centre; A, B, C stay.
   void applyBallCentre(const V3d& ball);
   void setSettingsError(const QString& error);
+  // Writes m_settings to the settings file unless its start read failed; empty on success.
+  QString saveSettings() const;
 
   SceneModel* m_scene;
   SceneEndEffectors* m_effectors;
@@ -124,6 +128,7 @@ private:
   QString m_error;
   ProbeSettings m_settings; // Empty when the file is missing or invalid.
   QString m_settingsError;
+  QString m_settingsReadError; // The start read's error; while set, nothing is written to the settings file.
   quint64 m_revision = 0; // Increased by invalidatePath.
   quint64 m_calculationRevision = 0;
   QTimer m_calculationTimer;

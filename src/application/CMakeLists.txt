@@ -102,7 +102,6 @@ target_include_directories(robocrap PRIVATE
   ${CMAKE_CURRENT_BINARY_DIR}
   # Original header names used by the foreign-type registrar.
   ${PROJECT_SOURCE_DIR}/src/devices/include/devices/fts
-  ${PROJECT_SOURCE_DIR}/src/devices/include/devices/plc
 )
 target_link_libraries(robocrap PRIVATE
   RoboCrapGeometry

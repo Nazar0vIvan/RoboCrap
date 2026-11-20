@@ -8,15 +8,6 @@
 #include <limits>
 #include <utility>
 
-namespace {
-
-BoundedPlane::Point coordinates(const V3d& value)
-{
-  return {value.x(), value.y(), value.z()};
-}
-
-} // namespace
-
 std::optional<BoundedPlane> BoundedPlane::fromPoints(QVector<V3d> points)
 {
   const auto& samples = std::as_const(points);
@@ -24,8 +15,7 @@ std::optional<BoundedPlane> BoundedPlane::fromPoints(QVector<V3d> points)
   if (!plane) return std::nullopt;
 
   const V3d normal = plane->normal();
-  const V3d reference = std::abs(normal.x()) < 0.9 ? V3d{1, 0, 0} : V3d{0, 1, 0};
-  const auto tangent = prjUnitOnPlane(reference, normal);
+  const auto tangent = prjUnitOnPlane(referenceAxis(normal), normal);
   if (!tangent) return std::nullopt;
   const V3d u = *tangent;
   const auto bitangent = normalize(normal.cross(u));
@@ -60,13 +50,12 @@ std::optional<BoundedPlane> BoundedPlane::fromPoints(QVector<V3d> points)
 
   const std::array<double, 4> coefficients{plane->coeffs[0], plane->coeffs[1], plane->coeffs[2], plane->coeffs[3]};
   return BoundedPlane(std::move(points), coefficients,
-                       {coordinates(origin), coordinates(u)}, {width, height});
+                       {toArray(origin), toArray(u)}, {width, height});
 }
 
 std::optional<BoundedPlane> BoundedPlane::fromSamples(ProbeSamples samples)
 {
-  if (!std::isfinite(samples.radius) || samples.radius < 0.0
-      || (samples.dir != 1 && samples.dir != -1)) return std::nullopt;
+  if (!samples.hasValidCompensation()) return std::nullopt;
   auto plane = fromPoints(std::move(samples.points));
   if (!plane) return std::nullopt;
   if (!plane->applyProbe(samples.radius, samples.dir)) return std::nullopt;

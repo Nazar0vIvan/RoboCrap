@@ -17,32 +17,11 @@ OccWorldAxes::OccWorldAxes(const double initialLength)
   configureAxes();
 }
 
-bool OccWorldAxes::isValid() const
-{
-  return !m_originPoint.IsNull()
-      && !m_xEndPoint.IsNull()
-      && !m_yEndPoint.IsNull()
-      && !m_zEndPoint.IsNull()
-      && !m_xAxis.IsNull()
-      && !m_yAxis.IsNull()
-      && !m_zAxis.IsNull();
-}
-
-double OccWorldAxes::length() const
-{
-  return m_length;
-}
-
 void OccWorldAxes::setLength(const double length)
 {
   if (length <= 0.0) return;
 
   m_length = length;
-
-  if (m_xEndPoint.IsNull() || m_yEndPoint.IsNull() || m_zEndPoint.IsNull()) {
-    return;
-  }
-
   m_xEndPoint->SetCoord(m_length, 0.0, 0.0);
   m_yEndPoint->SetCoord(0.0, m_length, 0.0);
   m_zEndPoint->SetCoord(0.0, 0.0, m_length);
@@ -65,7 +44,7 @@ const Handle(AIS_Line)& OccWorldAxes::zAxis() const
 
 void OccWorldAxes::createAxes(const double initialLength)
 {
-  m_length = initialLength > 0.0 ? initialLength : 10.0;
+  m_length = initialLength > 0.0 ? initialLength : kDefaultAxisLength;
 
   m_originPoint = new Geom_CartesianPoint(0.0, 0.0, 0.0);
 
@@ -80,8 +59,6 @@ void OccWorldAxes::createAxes(const double initialLength)
 
 void OccWorldAxes::configureAxes()
 {
-  if (!isValid()) return;
-
   constexpr double width = 2.0;
 
   // Reference axes must not contribute to camera-fit bounds.

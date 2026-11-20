@@ -213,14 +213,13 @@ void OccViewer::configureHighlightStyles()
   Handle(Prs3d_Drawer) hoverStyle = m_context->HighlightStyle(Prs3d_TypeOfHighlight_LocalDynamic);
 
   if (!hoverStyle.IsNull()) {
-    hoverStyle->SetColor(rgb(102, 179, 204));
+    hoverStyle->SetColor(kHoverColor);
     hoverStyle->SetDisplayMode(AIS_Shaded);
     hoverStyle->SetFaceBoundaryDraw(false);
     hoverStyle->SetZLayer(Graphic3d_ZLayerId_Top);
   }
 
   const Quantity_Color amber(1.0, 176.0 / 255.0, 0.0, Quantity_TOC_sRGB);
-  const Quantity_Color outline(48.0 / 255.0, 48.0 / 255.0, 48.0 / 255.0, Quantity_TOC_sRGB);
   // Tree selection highlights whole objects; viewport picking can select subshapes.
   for (const auto type : {Prs3d_TypeOfHighlight_Selected, Prs3d_TypeOfHighlight_LocalSelected}) {
     const Handle(Prs3d_Drawer) selectionStyle = m_context->HighlightStyle(type);
@@ -228,7 +227,8 @@ void OccViewer::configureHighlightStyles()
     selectionStyle->SetColor(amber);
     selectionStyle->SetDisplayMode(AIS_Shaded);
     selectionStyle->SetFaceBoundaryDraw(true);
-    selectionStyle->SetFaceBoundaryAspect(new Prs3d_LineAspect(outline, Aspect_TOL_SOLID, 2.0));
+    selectionStyle->SetFaceBoundaryAspect(
+        new Prs3d_LineAspect(kSelectionOutlineColor, Aspect_TOL_SOLID, kSelectionOutlineWidth));
     selectionStyle->SetWireAspect(new Prs3d_LineAspect(amber, Aspect_TOL_SOLID, 4.0));
     selectionStyle->SetLineAspect(new Prs3d_LineAspect(amber, Aspect_TOL_SOLID, 4.0));
     selectionStyle->SetZLayer(Graphic3d_ZLayerId_Top);

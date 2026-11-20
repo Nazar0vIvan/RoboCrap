@@ -40,10 +40,7 @@ void OccViewWindow::failSurface(const QString& error)
   emit errorOccurred(error);
 }
 
-OccViewWindow::~OccViewWindow()
-{
-  m_viewport.reset();
-}
+OccViewWindow::~OccViewWindow() = default;
 
 void OccViewWindow::setScene(const RobotVisualModel& visuals,
                               std::shared_ptr<const CadLoadResult> shapes)
@@ -60,7 +57,7 @@ void OccViewWindow::setScene(const RobotVisualModel& visuals,
 ViewportOperationResult OccViewWindow::applyTransforms(const DrawingPose& pose)
 {
   if (!isReady()) return {false, QStringLiteral("Robot preview is unavailable.")};
-  const auto result = m_viewport->applyTransforms(pose);
+  auto result = m_viewport->applyTransforms(pose);
   if (result.accepted) return result;
   // m_pose is still the controller's last accepted pose: it commits only after acceptance.
   QString error = QStringLiteral("Robot pose update: ") + result.error;
@@ -114,7 +111,7 @@ bool OccViewWindow::event(QEvent* event)
         releaseSurface();
       }
     } else if (event->type() == QEvent::DevicePixelRatioChange) {
-      if (m_viewport) m_viewport->resize();
+      resizeViewport();
     } else if (event->type() == QEvent::FocusOut || event->type() == QEvent::UngrabMouse
                || event->type() == QEvent::Hide) {
       if (m_viewport) {
@@ -129,15 +126,16 @@ bool OccViewWindow::event(QEvent* event)
   }
 }
 
+// A new viewport is already exposed by initializeViewport, which returns while the window is hidden.
 void OccViewWindow::exposeEvent(QExposeEvent*)
 {
-  if (isExposed()) initializeViewport();
-  if (m_viewport) m_viewport->setExposed(isExposed());
+  if (!m_viewport) initializeViewport();
+  else m_viewport->setExposed(isExposed());
 }
 
 void OccViewWindow::resizeEvent(QResizeEvent*)
 {
-  if (m_viewport) m_viewport->resize();
+  resizeViewport();
 }
 
 void OccViewWindow::mousePressEvent(QMouseEvent* event)

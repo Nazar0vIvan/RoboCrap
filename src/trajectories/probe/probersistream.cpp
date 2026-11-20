@@ -17,32 +17,16 @@ namespace {
 using namespace RoboCrap3D;
 
 constexpr qsizetype StepLimit = 600; // Array size in RSI_Probe_Calibration.dat.
-constexpr double CyclePeriod = 0.004; // s, RSI IPO_FAST controller cycle.
 constexpr double SearchDistance = 5.0; // mm from the search start: 3 mm to the nominal contact plus 2 mm.
-constexpr int SettleCycles = 50; // Zero corrections before Result = 1, as in the other streams.
-
-// Six-decimal XYZ and principal ABC of a pose; empty when the rounded values miss the pose by more
-// than the KR10 position or rotation-entry tolerance.
-std::optional<V6d> wirePose(const M4d& pose)
-{
-  V6d coordinates = V6d::Zero();
-  coordinates << pose.block<3, 1>(0, 3), principalEulerDegrees(pose.block<3, 3>(0, 0));
-  coordinates = wireValues(coordinates);
-  const M3d rotation = euler2rot(coordinates[3], coordinates[4], coordinates[5]);
-  if (!coordinates.allFinite() || (coordinates.head<3>() - pose.block<3, 1>(0, 3)).norm() > Kr10PosEps
-      || (rotation - pose.block<3, 3>(0, 0)).cwiseAbs().maxCoeff() > Kr10RotEps)
-    return std::nullopt;
-  return coordinates;
-}
 
 // Constant feed along the approach direction -normal for SearchDistance, then settle zeros. Each
 // increment is the difference of consecutive rounded offsets, so the increments add up exactly to
 // the rounded end offset.
 QVector<V6d> searchStream(const V3d& normal, double feed)
 {
-  const double step = feed * CyclePeriod;
+  const double step = feed * RsiCyclePeriod;
   const int cycles = static_cast<int>(std::ceil(SearchDistance / step - 1e-9));
-  QVector<V6d> stream(cycles + SettleCycles, V6d::Zero());
+  QVector<V6d> stream(cycles + RsiSettleCycles, V6d::Zero());
   V6d previous = V6d::Zero();
   for (int cycle = 0; cycle < cycles; ++cycle) {
     V6d offset = V6d::Zero();

@@ -100,13 +100,15 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
 {
   const RoboCrap3D::Kr10Kinematics kinematics(motion.robot().model);
   const V3d staging = ((stream.stagingPoint * 1e6).array().round() / 1e6).matrix();
-  constexpr std::array<std::pair<std::size_t, const char*>, 4> targets{{
-      {1, "PsIn"}, {2, "LeadStart"}, {5, "LeadEnd"}, {6, "PsOut"}}};
+  constexpr std::array<std::pair<ChamferBoundary, const char*>, 4> targets{{
+      {ChamferBoundary::StagingIn, "PsIn"}, {ChamferBoundary::LeadStart, "LeadStart"},
+      {ChamferBoundary::LeadEnd, "LeadEnd"}, {ChamferBoundary::StagingOut, "PsOut"}}};
   QByteArray contents("2\r\n");
   for (const auto& [boundary, name] : targets) {
-    const auto& point = motion.points()[motion.boundaries()[boundary]];
-    V6d coordinates = boundary <= 2 ? stream.initialCoordinates : stream.finalCoordinates;
-    if (boundary == 1 || boundary == 6) coordinates.head<3>() = staging;
+    const auto& point = motion.points()[motion.boundary(boundary)];
+    V6d coordinates = boundary <= ChamferBoundary::LeadStart ? stream.initialCoordinates : stream.finalCoordinates;
+    if (boundary == ChamferBoundary::StagingIn || boundary == ChamferBoundary::StagingOut)
+      coordinates.head<3>() = staging;
     const auto angles = coordinates.tail<3>();
     const M3d rotation = euler2rot(angles[0], angles[1], angles[2]);
     if (!coordinates.allFinite()
@@ -118,7 +120,7 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
     const auto configuration = kinematics.configuration(point.joints, frames);
     const QString statusTurn = QStringLiteral("%1;%2\r\n")
         .arg(configuration.status).arg(configuration.turn);
-    contents += (boundary == 6 ? statusTurn
+    contents += (boundary == ChamferBoundary::StagingOut ? statusTurn
                               : frameRow(coordinates) + QLatin1Char(';') + statusTurn).toLatin1();
   }
   const auto& timing = motion.robot().timing;
@@ -217,7 +219,7 @@ SceneMachiningPreparation::SceneMachiningPreparation(SceneModel* scene, SceneMac
   connect(&m_timer, &QTimer::timeout, this, &SceneMachiningPreparation::finishPreparation);
   connect(&m_timer, &QTimer::timeout, this, &SceneMachiningPreparation::finishCalibration);
   // No stream exists yet, so a file left by an earlier session is stale.
-  clearPrepared();
+  setError(clearPrepared());
 }
 
 SceneMachiningPreparation::~SceneMachiningPreparation()
@@ -244,11 +246,17 @@ bool SceneMachiningPreparation::isCurrentCalibration(const std::shared_ptr<const
   return motion && path && path->motion == motion;
 }
 
-QString SceneMachiningPreparation::calibrationUnavailableReason() const
+QString SceneMachiningPreparation::busyReason() const
 {
   if (m_shuttingDown) return tr("Application is shutting down.");
-  if (m_run == CalibrationRun::Started) return tr("Calibration run in progress.");
+  if (m_run != CalibrationRun::Idle) return tr("Calibration run in progress.");
   if (m_preparing) return tr("RSI Sampling…");
+  return {};
+}
+
+QString SceneMachiningPreparation::calibrationUnavailableReason() const
+{
+  if (const QString reason = busyReason(); !reason.isEmpty()) return reason;
   if (m_calibration->calculating()) return tr("Calculating trajectory…");
   if (!m_calibration->path()) return tr("Generate the calibration path first.");
   return {};
@@ -256,9 +264,7 @@ QString SceneMachiningPreparation::calibrationUnavailableReason() const
 
 QString SceneMachiningPreparation::unavailableReason() const
 {
-  if (m_shuttingDown) return tr("Application is shutting down.");
-  if (m_run == CalibrationRun::Started) return tr("Calibration run in progress.");
-  if (m_preparing) return tr("RSI Sampling…");
+  if (const QString reason = busyReason(); !reason.isEmpty()) return reason;
   if (m_machining->calculating()) return tr("Calculating trajectory…");
   const auto* path = pathById(m_machining->inputId());
   if (!path) return tr("Select a generated machining path.");
@@ -286,13 +292,15 @@ QString SceneMachiningPreparation::summary() const
 
 void SceneMachiningPreparation::onAvailabilityChanged()
 {
-  if (m_prepared && !isCurrent(*m_prepared)) clearPrepared();
+  if (m_prepared && !isCurrent(*m_prepared))
+    if (const QString removeError = clearPrepared(); !removeError.isEmpty()) setError(removeError);
   emit availabilityChanged();
 }
 
 void SceneMachiningPreparation::onCalibrationAvailabilityChanged()
 {
-  if (m_preparedCalibration && !isCurrentCalibration(m_preparedCalibration->motion)) clearPrepared();
+  if (m_preparedCalibration && !isCurrentCalibration(m_preparedCalibration->motion))
+    if (const QString removeError = clearPrepared(); !removeError.isEmpty()) setError(removeError);
   emit availabilityChanged();
 }
 
@@ -301,10 +309,10 @@ void SceneMachiningPreparation::prepare()
   Q_ASSERT(QThread::currentThread() == thread());
   const QString reason = unavailableReason();
   if (!reason.isEmpty()) { setError(reason); return; }
+  // A new request replaces the previous stream and file, even if it fails; a file that remains stops it.
+  if (const QString removeError = clearPrepared(); !removeError.isEmpty()) { setError(removeError); return; }
   const quint32 pathId = m_machining->inputId();
   m_pending = {pathId, m_scene->findObject(pathId)->name(), pathById(pathId)->data().motion, {}};
-  // A new request replaces the previous stream and file, even if it fails.
-  clearPrepared();
   setError({});
   m_preparing = true;
   m_future = std::async(std::launch::async, &sampleSavedMotion, m_pending.motion);
@@ -318,9 +326,9 @@ void SceneMachiningPreparation::prepareCalibration()
   Q_ASSERT(QThread::currentThread() == thread());
   const QString reason = calibrationUnavailableReason();
   if (!reason.isEmpty()) { setError(reason); return; }
+  // A new request replaces the previous stream and job file, even if it fails; a file that remains stops it.
+  if (const QString removeError = clearPrepared(); !removeError.isEmpty()) { setError(removeError); return; }
   m_pendingCalibration = m_calibration->path()->motion;
-  // A new request replaces the previous stream and job file, even if it fails.
-  clearPrepared();
   setError({});
   m_preparing = true;
   m_calibrationFuture = std::async(std::launch::async, &sampleSavedCalibration, m_pendingCalibration);
@@ -332,13 +340,9 @@ void SceneMachiningPreparation::prepareCalibration()
 void SceneMachiningPreparation::prepareTestLin()
 {
   Q_ASSERT(QThread::currentThread() == thread());
-  if (m_shuttingDown || m_preparing || m_run == CalibrationRun::Started) {
-    setError(m_shuttingDown ? tr("Application is shutting down.")
-             : m_preparing  ? tr("RSI Sampling…") : tr("Calibration run in progress."));
-    return;
-  }
+  if (const QString reason = busyReason(); !reason.isEmpty()) { setError(reason); return; }
   // Like a new Sampling request: RSI_Chamfer_Hole must not find a file for another stream.
-  clearPrepared();
+  if (const QString removeError = clearPrepared(); !removeError.isEmpty()) { setError(removeError); return; }
   QVector<V6d> increments(TestLinCycles + TestLinSettleCycles, V6d::Zero());
   for (int cycle = 0; cycle < TestLinCycles; ++cycle) increments[cycle][0] = TestLinStep;
   setError({});
@@ -410,20 +414,24 @@ void SceneMachiningPreparation::finishCalibration()
   emit availabilityChanged();
 }
 
-void SceneMachiningPreparation::clearPrepared()
+QString SceneMachiningPreparation::clearPrepared()
 {
   // The detections belong to the dropped table.
   if (m_run != CalibrationRun::Idle) endRun(tr("The calibration job was replaced."));
   // Without a stream KRL must not find frames from another or older path.
+  QString error;
   for (const QString& path : {SharedDataPath, CalibrationDataPath})
-    if (QFile::exists(path) && !QFile::remove(path))
+    if (QFile::exists(path) && !QFile::remove(path)) {
       qInfo().noquote() << "[ERROR] RSI Sampling: cannot remove" << path;
+      error = joinedError(error, tr("Cannot remove %1.").arg(QDir::toNativeSeparators(path)));
+    }
   const bool wasPrepared = m_prepared.has_value() || m_testLin || m_preparedCalibration.has_value();
   m_prepared.reset();
   m_testLin = false;
   m_preparedCalibration.reset();
   emit correctionsReady({}, {});
   if (wasPrepared) emit preparedChanged();
+  return error;
 }
 
 void SceneMachiningPreparation::setError(const QString& error)
@@ -445,7 +453,7 @@ void SceneMachiningPreparation::shutdown()
   m_pending = {};
   m_pendingCalibration.reset();
   m_preparing = false;
-  clearPrepared();
+  clearPrepared(); // A removal failure is already logged; nothing shows the text after shutdown.
   emit preparingChanged();
   emit availabilityChanged();
 }
@@ -472,8 +480,8 @@ bool SceneMachiningPreparation::plcReady() const
 
 bool SceneMachiningPreparation::canStartCalibration() const
 {
-  return !m_shuttingDown && !m_preparing && m_run == CalibrationRun::Idle && m_preparedCalibration
-      && isCurrentCalibration(m_preparedCalibration->motion) && plcReady();
+  return busyReason().isEmpty() && m_preparedCalibration && isCurrentCalibration(m_preparedCalibration->motion)
+      && plcReady();
 }
 
 void SceneMachiningPreparation::startCalibration()
@@ -532,18 +540,18 @@ void SceneMachiningPreparation::onPlcSocket()
 void SceneMachiningPreparation::endRun(const QString& error)
 {
   Q_ASSERT(m_preparedCalibration); // clearPrepared ends a run before it drops the job.
+  // Copied, because handlers of the signals of recordCalibrationResult could drop the held job.
+  const QString id = m_preparedCalibration->diagnosticId;
   m_run = CalibrationRun::Idle;
   m_runError = error;
   // The touches are kept also when the run or the fit fails.
-  const QString touchesError = m_detections.isEmpty()
-      ? QString{} : writeCalibrationTouches(m_detections, m_preparedCalibration->diagnosticId);
+  const QString touchesError = m_detections.isEmpty() ? QString{} : writeCalibrationTouches(m_detections, id);
   if (error.isEmpty()) {
     const ProbeCalibrationFitResult result = fitProbeCalibration(*m_preparedCalibration->motion, m_detections);
     if (result.fit) {
       // Emits lastCalibrationChanged, which opens the result window; it binds calibrationRunError.
-      const QString settingsError = m_calibration->recordCalibrationResult(*result.fit,
-                                                                           m_preparedCalibration->diagnosticId);
-      m_runError = joinedError(writeCalibrationResult(*result.fit, m_preparedCalibration->diagnosticId), settingsError);
+      const QString settingsError = m_calibration->recordCalibrationResult(*result.fit, id);
+      m_runError = joinedError(writeCalibrationResult(*result.fit, id), settingsError);
     } else {
       m_runError = result.error;
     }
