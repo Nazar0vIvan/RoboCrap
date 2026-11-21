@@ -9,7 +9,7 @@ class DeviceProfileModel : public QAbstractTableModel
 {
   Q_OBJECT
 
-  Q_PROPERTY(QStringList names READ names CONSTANT)
+  Q_PROPERTY(QStringList names READ names CONSTANT FINAL)
 
 public:
   enum Column {

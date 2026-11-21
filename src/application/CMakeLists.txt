@@ -32,8 +32,6 @@ qt_add_executable(robocrap
   scene/scenesurfaceimporter.h
   workspacecontroller.cpp
   workspacecontroller.h
-  qmlchartbridge.h
-  qmlchartbridge.cpp
 )
 if(NOT CMAKE_RUNTIME_OUTPUT_DIRECTORY)
   set_target_properties(robocrap PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
@@ -115,7 +113,6 @@ target_link_libraries(robocrap PRIVATE
   Qt6::Quick
   Qt6::Qml
   Qt6::Network
-  Qt6::Charts
   Qt6::Widgets
   Styles
   Components

@@ -113,8 +113,11 @@ PLC, starts programs; RoboCrap commands the PLC over TCP (`PlcDevice`).
   `Layout.alignment` only; the progress replaces the text of the existing label; the dialog is a
   separate window; the new tool appears only on a submode change. No layout shift in ordinary state
   changes.
-- [ ] Milestone 4, build of `robocrap` and `robocrap_qmllint` (USE_HOT_RELOAD=OFF), disconnected
-  runtime check of the Calibration submode: not run (user's).
+- [x] Milestone 4, build of `robocrap` and `robocrap_qmllint` (USE_HOT_RELOAD=OFF), disconnected
+  runtime check of the Calibration submode: superseded (2026-11-21). The build and the disconnected
+  check passed on 2026-11-18 (entries below); `all_qmllint` with USE_HOT_RELOAD OFF passed after
+  `plans/review_2026-11-20_0cd8996/03_UI_LAYOUT_STABILITY_EXECPLAN.md` and `07_APPLICATION_QML_CLEANUP_EXECPLAN.md`
+  (user reports 2026-11-20 and 2026-11-21), on QML that includes this milestone's files.
 - [x] (2026-11-18) Build of the whole project after Milestone 4 passed (user).
 - [x] (2026-11-18) Milestone 5, documentation: `docs/code context/AGENT_CONTRACTS.md` "Devices and
   protocols" (RSI `Touch`/`AIPos` decoding, `touchDetected` once per search after the reply),
@@ -131,9 +134,12 @@ PLC, starts programs; RoboCrap commands the PLC over TCP (`PlcDevice`).
 - [x] (2026-11-18) Milestone 5, user-authorized robot run, session `calibration_20261118_113045_223`:
   "Calibration complete", result file written, values within the reference magnitudes (Artifacts
   and Notes) (user).
-- [ ] Milestone 5, reproduction of the displayed values within 1e-4 mm by `python/rsi_touches.py`
-  and the Milestone 1 reference script: not run; the record folder holds no `rsi_touches_<id>.csv`,
-  and the reference script was in an earlier session's scratchpad, outside the repository.
+- [x] Milestone 5, reproduction of the displayed values within 1e-4 mm by `python/rsi_touches.py`
+  and the Milestone 1 reference script: met by its replacement (2026-11-21). Both scripts were
+  replaced by `python/calibration/calibration_fit.py`, whose output for this run,
+  `calibration_20261118_113045_223`, equals the application's `calibration_result_…csv` line for line
+  (`plans/RECORDS_AND_CAPTURE_CLEANUP_EXECPLAN.md`, Progress, Milestone 4, 2026-11-18): a stricter
+  match than 1e-4 mm.
 
 
 ## Surprises & Discoveries

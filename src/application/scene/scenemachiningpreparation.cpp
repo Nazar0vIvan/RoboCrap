@@ -19,7 +19,7 @@
 
 namespace {
 
-const QString SharedDataDirectory = QStringLiteral("C:/RoboCrapJobs");
+// Job files in the folder that KRL mounts as /RoboCrapJobs.
 const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt");
 const QString CalibrationDataPath = QStringLiteral("C:/RoboCrapJobs/calibration_data.txt");
 
@@ -52,21 +52,14 @@ QString frameRow(const V6d& coordinates)
   return fields.join(QLatin1Char(';'));
 }
 
-// Atomically replaces one job file in the folder that KRL mounts as /RoboCrapJobs.
-QString replaceJobFile(const QString& path, const QByteArray& contents)
+// Creates the file's folder and atomically replaces the file; returns the error text, empty on success.
+QString saveFile(const QString& path, const QByteArray& contents)
 {
-  const QString name = QFileInfo(path).fileName();
-  if (!QDir().mkpath(SharedDataDirectory))
-    return QStringLiteral("Cannot create %1.").arg(SharedDataDirectory);
+  const QString folder = QFileInfo(path).path();
+  if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
   QSaveFile file(path);
-  file.setDirectWriteFallback(false);
-  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size()) {
-    const QString error = file.errorString();
-    file.cancelWriting();
-    return QStringLiteral("Cannot write %1: %2").arg(name, error);
-  }
-  if (!file.commit())
-    return QStringLiteral("Cannot replace %1: %2").arg(name, file.errorString());
+  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
+    return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(path, file.errorString());
   return {};
 }
 
@@ -91,7 +84,7 @@ QString writeCalibrationData(const ProbeCalibrationRsi& job, const ChamferTiming
     if (step.kind != ProbeRsiStepKind::Search && step.kind != ProbeRsiStepKind::Home)
       contents += poseRow(step.target, step);
   }
-  return replaceJobFile(CalibrationDataPath, contents.toLatin1());
+  return saveFile(CalibrationDataPath, contents.toLatin1());
 }
 
 // Version 2: PsIn/LeadStart/LeadEnd XYZABC+S/T, PsOut S/T, ToolFrame, CP rates.
@@ -127,7 +120,7 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
   contents += (frameRow(stream.toolCoordinates) + QStringLiteral("\r\n")
                + number(timing.transferFeed / 1000.0) + QStringLiteral("\r\n")
                + number(timing.transferAcceleration / 1000.0) + QStringLiteral("\r\n")).toLatin1();
-  return replaceJobFile(SharedDataPath, contents);
+  return saveFile(SharedDataPath, contents);
 }
 
 // PlcDevice state values (src/devices/plc/plcdevice.cpp): robotProgramState and robotResult.
@@ -157,8 +150,6 @@ QByteArray vectorLine(const QString& name, const V3d& value)
 // records/<id>/calibration_result_<id>.csv in ROBOCRAP_RECORDS_DIR: the fit and the step K7 sets.
 QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id)
 {
-  const QString folder = QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(id);
-  if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
   QByteArray contents = "# plan_id," + id.toUtf8() + "\n# mm; {F} flange, {B} base; sets: method step K7\n"
                         "quantity,value_1,value_2,value_3\n";
   contents += vectorLine(QStringLiteral("ball_centre_F"), fit.ballCentre);
@@ -176,17 +167,13 @@ QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id
     contents += resultLine(set.ring ? QStringLiteral("ring") : QStringLiteral("roll"),
                            {QString::number(set.group), number(set.value), number(set.mean), number(set.bound),
                             QString::number(set.count)});
-  QSaveFile file(QDir(folder).filePath(QStringLiteral("calibration_result_%1.csv").arg(id)));
-  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
-    return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(file.fileName(), file.errorString());
-  return {};
+  return saveFile(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR))
+                      .filePath(QStringLiteral("%1/calibration_result_%1.csv").arg(id)), contents);
 }
 
 // records/<id>/calibration_touches_<id>.csv in ROBOCRAP_RECORDS_DIR: AIPos of every detected touch.
 QString writeCalibrationTouches(const QVector<ProbeTouchDetection>& detections, const QString& id)
 {
-  const QString folder = QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(id);
-  if (!QDir().mkpath(folder)) return SceneMachiningPreparation::tr("Cannot create %1.").arg(folder);
   QByteArray contents = "# plan_id," + id.toUtf8() + "\n# AIPos at detection, deg, in detection order; touch numbers "
                         "as in rsi_plan_" + id.toUtf8() + ".csv\ntouch,a1,a2,a3,a4,a5,a6\n";
   for (const ProbeTouchDetection& detection : detections) {
@@ -194,10 +181,8 @@ QString writeCalibrationTouches(const QVector<ProbeTouchDetection>& detections, 
     for (double value : detection.joints) joints.append(number(value));
     contents += resultLine(QString::number(detection.touch), joints);
   }
-  QSaveFile file(QDir(folder).filePath(QStringLiteral("calibration_touches_%1.csv").arg(id)));
-  if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
-    return SceneMachiningPreparation::tr("Cannot save %1: %2").arg(file.fileName(), file.errorString());
-  return {};
+  return saveFile(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR))
+                      .filePath(QStringLiteral("%1/calibration_touches_%1.csv").arg(id)), contents);
 }
 
 } // namespace
@@ -227,16 +212,9 @@ SceneMachiningPreparation::~SceneMachiningPreparation()
   shutdown();
 }
 
-// Only machining paths have a geometry QObject.
-SceneMachiningPath* SceneMachiningPreparation::pathById(quint32 objectId) const
-{
-  const auto* object = m_scene->findObject(objectId);
-  return object ? qobject_cast<SceneMachiningPath*>(object->geometry()) : nullptr;
-}
-
 bool SceneMachiningPreparation::isCurrent(const PreparedRsiStream& prepared) const
 {
-  const auto* path = pathById(prepared.pathId);
+  const auto* path = m_machining->machiningPath(prepared.pathId);
   return path && path->compatible() && path->data().motion == prepared.motion;
 }
 
@@ -266,7 +244,7 @@ QString SceneMachiningPreparation::unavailableReason() const
 {
   if (const QString reason = busyReason(); !reason.isEmpty()) return reason;
   if (m_machining->calculating()) return tr("Calculating trajectory…");
-  const auto* path = pathById(m_machining->inputId());
+  const auto* path = m_machining->machiningPath(m_machining->inputId());
   if (!path) return tr("Select a generated machining path.");
   return path->incompatibility();
 }
@@ -312,7 +290,7 @@ void SceneMachiningPreparation::prepare()
   // A new request replaces the previous stream and file, even if it fails; a file that remains stops it.
   if (const QString removeError = clearPrepared(); !removeError.isEmpty()) { setError(removeError); return; }
   const quint32 pathId = m_machining->inputId();
-  m_pending = {pathId, m_scene->findObject(pathId)->name(), pathById(pathId)->data().motion, {}};
+  m_pending = {pathId, m_scene->findObject(pathId)->name(), m_machining->machiningPath(pathId)->data().motion, {}};
   setError({});
   m_preparing = true;
   m_future = std::async(std::launch::async, &sampleSavedMotion, m_pending.motion);

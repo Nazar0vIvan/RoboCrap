@@ -7,7 +7,6 @@ import Styles 1.0
 TextField {
   id: control
 
-  property bool confirmed: false
   property alias placeholder: defaultTxt.text
   property int radius: Metrics.r4
 
@@ -30,14 +29,11 @@ TextField {
     radius: control.radius
     border {
       width: control.readOnly ? 0 : Metrics.w1
-      color: control.activeFocus ? Colors.primary.base : control.confirmed ? "green" : Colors.background.dp12
+      color: control.activeFocus ? Colors.primary.base : Colors.background.dp12
     }
   }
 
-  onFocusChanged: {
-    if (focus) selectAll()
-    control.confirmed = false
-  }
+  onFocusChanged: if (focus) selectAll()
 
   Text {
     id: defaultTxt

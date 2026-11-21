@@ -17,11 +17,11 @@ namespace RoboCrap3D { class RobotController; }
 class ScenePlayback : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(bool active READ active NOTIFY stateChanged)
-  Q_PROPERTY(bool playing READ playing NOTIFY stateChanged)
-  Q_PROPERTY(double elapsed READ elapsed NOTIFY playbackChanged)
-  Q_PROPERTY(double duration READ duration NOTIFY stateChanged)
-  Q_PROPERTY(QString phase READ phase NOTIFY playbackChanged)
+  Q_PROPERTY(bool active READ active NOTIFY stateChanged FINAL)
+  Q_PROPERTY(bool playing READ playing NOTIFY stateChanged FINAL)
+  Q_PROPERTY(double elapsed READ elapsed NOTIFY playbackChanged FINAL)
+  Q_PROPERTY(double duration READ duration NOTIFY stateChanged FINAL)
+  Q_PROPERTY(QString phase READ phase NOTIFY playbackChanged FINAL)
 public:
   explicit ScenePlayback(SceneModel* scene);
   bool active() const { return bool(m_motion); }
@@ -43,6 +43,9 @@ public:
   void end();
   const std::optional<RoboCrap3D::Kr10KinematicModel>& robotModel() const { return m_model; }
   bool robotAvailable() const { return m_robotAvailable; }
+  // The Dry Run rule of the coordinators: nothing plays, the robot preview is available, and the
+  // caller owns the active (paused) motion or, with none active, has a playable path.
+  bool canPlay(bool ownsActive, bool hasPath) const { return !m_playing && m_robotAvailable && (active() ? ownsActive : hasPath); }
   void setRobotModel(const RoboCrap3D::Kr10KinematicModel& model);
   void setRobotAvailable(bool available);
   void setRobotController(RoboCrap3D::RobotController* controller);

@@ -15,22 +15,22 @@
 struct SceneMachiningSettings
 {
   Q_GADGET
-  Q_PROPERTY(double chamferSize MEMBER chamferSize)
-  Q_PROPERTY(double chamferAngle MEMBER chamferAngle)
-  Q_PROPERTY(double stagingDistance MEMBER stagingDistance)
-  Q_PROPERTY(bool flipAxis MEMBER flipAxis)
-  Q_PROPERTY(double leadInClearance MEMBER leadInClearance)
-  Q_PROPERTY(double leadOutClearance MEMBER leadOutClearance)
-  Q_PROPERTY(double leadInSpan MEMBER leadInSpan)
-  Q_PROPERTY(double leadOutSpan MEMBER leadOutSpan)
-  Q_PROPERTY(double machiningFeed MEMBER machiningFeed)
-  Q_PROPERTY(double accelerationDistanceFraction MEMBER accelerationDistanceFraction)
-  Q_PROPERTY(double transferFeed MEMBER transferFeed)
-  Q_PROPERTY(double transferAcceleration MEMBER transferAcceleration)
-  Q_PROPERTY(double acceleration MEMBER acceleration)
-  Q_PROPERTY(double auxiliaryScale MEMBER auxiliaryScale)
-  Q_PROPERTY(QList<double> jointSpeed MEMBER jointSpeed)
-  Q_PROPERTY(QList<double> jointAcceleration MEMBER jointAcceleration)
+  Q_PROPERTY(double chamferSize MEMBER chamferSize FINAL)
+  Q_PROPERTY(double chamferAngle MEMBER chamferAngle FINAL)
+  Q_PROPERTY(double stagingDistance MEMBER stagingDistance FINAL)
+  Q_PROPERTY(bool flipAxis MEMBER flipAxis FINAL)
+  Q_PROPERTY(double leadInClearance MEMBER leadInClearance FINAL)
+  Q_PROPERTY(double leadOutClearance MEMBER leadOutClearance FINAL)
+  Q_PROPERTY(double leadInSpan MEMBER leadInSpan FINAL)
+  Q_PROPERTY(double leadOutSpan MEMBER leadOutSpan FINAL)
+  Q_PROPERTY(double machiningFeed MEMBER machiningFeed FINAL)
+  Q_PROPERTY(double accelerationDistanceFraction MEMBER accelerationDistanceFraction FINAL)
+  Q_PROPERTY(double transferFeed MEMBER transferFeed FINAL)
+  Q_PROPERTY(double transferAcceleration MEMBER transferAcceleration FINAL)
+  Q_PROPERTY(double acceleration MEMBER acceleration FINAL)
+  Q_PROPERTY(double auxiliaryScale MEMBER auxiliaryScale FINAL)
+  Q_PROPERTY(QList<double> jointSpeed MEMBER jointSpeed FINAL)
+  Q_PROPERTY(QList<double> jointAcceleration MEMBER jointAcceleration FINAL)
 public:
   double chamferSize = 0.5;
   double chamferAngle = 45.0;
@@ -64,12 +64,12 @@ struct SceneMachiningData
 class SceneMachiningPath final : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(double duration READ duration CONSTANT)
-  Q_PROPERTY(double centralDuration READ centralDuration CONSTANT)
-  Q_PROPERTY(quint32 sourceEdgeId READ sourceEdgeId CONSTANT)
-  Q_PROPERTY(SceneMachiningSettings settings READ settings CONSTANT)
-  Q_PROPERTY(QString incompatibility READ incompatibility NOTIFY compatibilityChanged)
-  Q_PROPERTY(bool compatible READ compatible NOTIFY compatibilityChanged)
+  Q_PROPERTY(double duration READ duration CONSTANT FINAL)
+  Q_PROPERTY(double centralDuration READ centralDuration CONSTANT FINAL)
+  Q_PROPERTY(quint32 sourceEdgeId READ sourceEdgeId CONSTANT FINAL)
+  Q_PROPERTY(SceneMachiningSettings settings READ settings CONSTANT FINAL)
+  Q_PROPERTY(QString incompatibility READ incompatibility NOTIFY compatibilityChanged FINAL)
+  Q_PROPERTY(bool compatible READ compatible NOTIFY compatibilityChanged FINAL)
 public:
   SceneMachiningPath(SceneMachiningData data, QObject* parent)
     : QObject(parent), m_data(std::move(data)) {}
@@ -111,10 +111,10 @@ struct CalibrationTable
   double sphereFromMinusY = 0.0; // Sphere center to the edge at the smaller y.
   double sphereAboveTop = 0.0; // Sphere center above the table top.
 
-  bool operator==(const CalibrationTable& other) const
+  friend bool operator==(const CalibrationTable& a, const CalibrationTable& b)
   {
-    return lengthX == other.lengthX && widthY == other.widthY && sphereFromMinusX == other.sphereFromMinusX
-        && sphereFromMinusY == other.sphereFromMinusY && sphereAboveTop == other.sphereAboveTop;
+    return a.lengthX == b.lengthX && a.widthY == b.widthY && a.sphereFromMinusX == b.sphereFromMinusX
+        && a.sphereFromMinusY == b.sphereFromMinusY && a.sphereAboveTop == b.sphereAboveTop;
   }
 };
 
@@ -133,12 +133,12 @@ struct SceneSphere
   CalibrationTable table;
   QString standModel; // Absolute BREP path of the stand, saved with its origin at the sphere center.
 
-  bool operator==(const SceneSphere& other) const
+  friend bool operator==(const SceneSphere& a, const SceneSphere& b)
   {
-    return center == other.center && roughCenter == other.roughCenter && radius == other.radius && ballCenterRadius == other.ballCenterRadius
-        && compensatedRadius == other.compensatedRadius && rms == other.rms && roughPoints == other.roughPoints
-        && strutRadius == other.strutRadius && strutRecess == other.strutRecess && table == other.table
-        && standModel == other.standModel;
+    return a.center == b.center && a.roughCenter == b.roughCenter && a.radius == b.radius && a.ballCenterRadius == b.ballCenterRadius
+        && a.compensatedRadius == b.compensatedRadius && a.rms == b.rms && a.roughPoints == b.roughPoints
+        && a.strutRadius == b.strutRadius && a.strutRecess == b.strutRecess && a.table == b.table
+        && a.standModel == b.standModel;
   }
 };
 

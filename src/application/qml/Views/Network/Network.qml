@@ -57,8 +57,6 @@ QxScrollView {
   }
 
   NetworkPanel {
-    id: configPanel
-
     Layout.fillWidth: true
     title: qsTr("Configuration")
     contentHorizontalMargin: Metrics.sp12
@@ -134,8 +132,6 @@ QxScrollView {
     }
 
     QxButton {
-      id: btnCon
-
       readonly property Backend.DeviceRunner runner: root.currentRunner
 
       Layout.alignment: Qt.AlignBottom
@@ -168,15 +164,11 @@ QxScrollView {
   }
 
   NetworkPanel {
-    id: conPanel
-
     Layout.fillWidth: true
     title: qsTr("Connections")
     contentVerticalMargin: Metrics.sp12
 
     ConnectionsTable {
-      id: conTable
-
       Layout.fillWidth: true
       model: devProfModel
       selectedRow: cbDevice.currentIndex

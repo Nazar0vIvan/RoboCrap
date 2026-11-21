@@ -30,8 +30,6 @@ Item {
       font: Fonts.body
     }
     QxLed {
-      id: led
-
       Layout.alignment: Qt.AlignVCenter
       diameter: root.ledSize
       ledColor: !root.enabled ? Colors.foreground.disabled

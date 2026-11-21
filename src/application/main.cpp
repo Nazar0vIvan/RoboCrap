@@ -48,12 +48,10 @@ int main(int argc, char* argv[])
   FelgoApplication felgo;
 #endif
 
-  QFontDatabase::addApplicationFont("://fonts/roboto/Roboto-Regular.ttf");
-  QFontDatabase::addApplicationFont("://fonts/roboto/Roboto-Medium.ttf");
-
-  const int idfont = QFontDatabase::addApplicationFont("://fonts/roboto/Roboto-Bold.ttf");
-  if (idfont == -1) {
-    qWarning() << "Failed to load font from resources!";
+  for (const char* path : {"://fonts/roboto/Roboto-Regular.ttf", "://fonts/roboto/Roboto-Medium.ttf",
+                           "://fonts/roboto/Roboto-Bold.ttf"}) {
+    if (QFontDatabase::addApplicationFont(path) == -1)
+      qWarning() << "Failed to load font from resources:" << path;
   }
 
   qRegisterMetaType<RDTResponse>("RDTResponse");
@@ -74,10 +72,6 @@ int main(int argc, char* argv[])
   DeviceHubQml::s_inst = &hub;
 
   hub.startAll();
-
-  // QmlChartBridge chartBridge;
-  // QObject::connect(SocketFTS, &SocketFTS::bufferReady, &chartBridge, &QmlChartBridge::onBatch, Qt::QueuedConnection);
-  // QObject::connect(SocketFTS, &SocketFTS::streamReset, &chartBridge, &QmlChartBridge::reset, Qt::QueuedConnection);
 
   // The scene outlives the QML engine and survives workspace recreation.
   SceneModel scene;

@@ -113,8 +113,12 @@ The numbers and file contents must match, apart from the identifiers and timesta
   Counts (physical/nonblank): rsicoordinates.h 27/22 → 47/40, chamferrsistream.cpp 251/229 → 231/210, probersistream.cpp 197/178 → 181/163, jointsegments.h 120/102 → 121/103, jointsegments.cpp 340/317 → 340/317, motionbuilder.cpp 195/179 → 194/178, tcpsolver.h 73/64 → 73/64, chamferrsistream.h unchanged; Concrete Steps set 5805 → 5789.
 - [x] Milestone 5 user check (2026-11-20): build passed; console lines identical to the baseline (Chamfer 373 points, 25.2874890374 s; RSI Sampling 3390 cycles, 13.3598 s; calibration 114+44 touches, 6176 points, 894.846511369 s; clearances 3.0000/3.2588 mm; calibration sampling 158 touches, 485 steps). Plan files in `C:\RoboCrapBaseline\after_m5\` identical to `before_m1` ignoring `# plan_id` and, for the chamfer plan, `# tool_xyzabc`: chamfer 3349/3349, calibration 161/161. The `# tool_xyzabc` line changed from `168.196357456,-0.190437929,125.814626309,-90.017876372,0.000000000,-0.179278797` to `168.196357000,-0.190438000,125.814626000,-90.017876000,0.000000000,-0.179279000`, the values of the baseline `shared_data.txt` ToolFrame row. The first job-file attachment carried no contents, because the application had already removed the files at shutdown (Surprises); a repeat Sampling with copies made while the application ran (20:36:55 and 20:37:10) gives `shared_data.txt` 8/8 and `calibration_data.txt` 966/966 lines identical to `before_m1`.
 - [ ] Milestone 5 equipment sessions (user, planned 2026-11-21): `RSI_Probe_Calibration` with `StepLimit` = 10 and `RSI_Chamfer_Hole` in T1, as in Validation and Acceptance.
-- [ ] Baseline comparison after each milestone (user's).
-- [ ] Final compliance pass, line counts, `git diff --check`, contract check.
+- [x] (2026-11-21) Baseline comparison after each milestone (user's): recorded with each Milestone 1–5 user check above, every comparison identical apart from `# plan_id` (and the expected `# tool_xyzabc` line in Milestone 5).
+- [x] (2026-11-21) Final compliance pass, line counts, `git diff --check`, contract check (`plans/REMAINING_CHECKS_EXECPLAN.md`, A1):
+  - counts: Concrete Steps set 5833 (0cd8996) → 5789 (HEAD, −44), equal to the Milestone 5 count; the working tree's 5787 is plan 07 (`scenesurfaceimporter.cpp` −2, `busy` removed), recorded there;
+  - compliance pass over `git diff 0cd8996 HEAD` of the set (33 files, +340/−384, all in commit 34d4b81): no added lambda, template, `throw`, `try`/`catch` or non-const reference parameter; the largest new signature is `Kr10Kinematics::childTransform` with three parameters; no violation found;
+  - `git diff --check 0cd8996 HEAD` of the three libraries: clean;
+  - contract check: the import limits (4 MiB, `MaximumProbeSamples` 10,000), the 800000 evaluation limit (`MaximumEvaluations`) and the 1e-9 thresholds in AGENT_CONTRACTS match the code; one stale sentence fixed in "Machining and playback": "the chamfer start search uses its inverse" became "MotionBuilder, the chamfer start search and RSI sampling share ChamferTcpSolver::solveTcp", because Milestone 1 removed `ChamferTcpSolver::inverse` and `appendStart` calls `solveTcp`.
 
 
 ## Surprises & Discoveries
@@ -157,7 +161,11 @@ The numbers and file contents must match, apart from the identifiers and timesta
 
 ## Outcomes & Retrospective
 
-(To be written at completion.)
+(2026-11-21) Milestones 1–5 are implemented and accepted on the disconnected baseline: Generate (chamfer and calibration) and RSI Sampling produce identical console lines, job files and plan files, the only change being the six-decimal `# tool_xyzabc` line of the chamfer plan (Surprises). The dead `IgnorePreviewJointPositionLimits` switch, the duplicate joint-limit check, `ChamferTcpSolver::inverse`, the optional central motion, `ChamferArcLengthParameters` and the duplicated geometry helpers are gone; phase indices and RSI constants are named; imports above 4 MiB or 10,000 points are refused. The plan's file set went from 5833 to 5789 lines (−44), with growth only where named constants and shared helpers replace copies.
+
+Remaining: the Milestone 5 equipment sessions (`RSI_Probe_Calibration` with `StepLimit` = 10 and `RSI_Chamfer_Hole` in T1), collected in `plans/REMAINING_CHECKS_EXECPLAN.md` (B1, C).
+
+Lesson: the stale "inverse" sentence in AGENT_CONTRACTS shows that removing a function needs a search of the contract documents for its name as well as of `src`.
 
 
 ## Context and Orientation

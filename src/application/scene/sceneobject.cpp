@@ -44,12 +44,18 @@ QString radiusDiameter(double radius)
   return QStringLiteral("%1 / %2").arg(formatReal(radius), formatReal(2 * radius));
 }
 
-// TCP positions of the points, without repeated positions.
-QList<V3d> tcpPolyline(const QVector<ChamferJointPoint>& points)
+// Strokes of machining and calibration paths: the working move (machining turn, probe Approach)
+// green and wider, PTP purple, the other LIN/CIRC moves blue.
+constexpr RoboCrap3D::DrawingStyle WorkingStroke{{30, 130, 45}, 3.0};
+constexpr RoboCrap3D::DrawingStyle PtpStroke{{90, 65, 130}, 2.0};
+constexpr RoboCrap3D::DrawingStyle TransferStroke{{0, 100, 210}, 2.0};
+
+// TCP positions of points[first..last], without repeated positions.
+QList<V3d> tcpPolyline(const QVector<ChamferJointPoint>& points, qsizetype first, qsizetype last)
 {
   QList<V3d> positions;
-  for (const auto& point : points) {
-    const V3d position = point.tcp.block<3, 1>(0, 3);
+  for (qsizetype i = first; i <= last; ++i) {
+    const V3d position = points[i].tcp.block<3, 1>(0, 3);
     if (positions.isEmpty() || (position - positions.back()).squaredNorm() > 1e-14)
       positions.append(position);
   }
@@ -173,27 +179,21 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
     // Phase i runs from boundary i to boundary i + 1.
     for (qsizetype phase = 0; phase < ChamferPhaseCount; ++phase) {
       const auto from = static_cast<ChamferBoundary>(phase);
-      const auto first = motion->boundary(from);
-      const auto last = motion->boundary(static_cast<ChamferBoundary>(phase + 1));
-      auto positions = tcpPolyline(motion->points().mid(first, last - first + 1));
+      auto positions = tcpPolyline(motion->points(), motion->boundary(from),
+                                   motion->boundary(static_cast<ChamferBoundary>(phase + 1)));
       if (positions.size() < 2) continue; // A stationary HOME phase has no line.
-      const bool machining = from == ChamferBoundary::MachiningStart;
-      const std::array<int, 3> color = machining ? std::array<int, 3>{30, 130, 45}
-          : from == ChamferBoundary::HomeStart || from == ChamferBoundary::StagingOut
-              ? std::array<int, 3>{90, 65, 130} : std::array<int, 3>{0, 100, 210};
-      result.parts.append({std::move(positions), {color, machining ? 3.0 : 2.0}});
+      const auto& style = from == ChamferBoundary::MachiningStart ? WorkingStroke
+          : from == ChamferBoundary::HomeStart || from == ChamferBoundary::StagingOut ? PtpStroke : TransferStroke;
+      result.parts.append({std::move(positions), style});
     }
   } else if (const auto* value = touchPath()) {
-    // Constant-speed Approach green and wider (the Retract retraces it as a blue LIN), PTP purple,
-    // the other LIN/CIRC transfers blue, as for machining paths.
+    // The constant-speed Approach is the working move; the Retract retraces it as a LIN.
     for (const auto& segment : value->motion->timed().segments()) {
-      auto positions = tcpPolyline(value->motion->points().mid(segment.first, segment.last - segment.first + 1));
+      auto positions = tcpPolyline(value->motion->points(), segment.first, segment.last);
       if (positions.size() < 2) continue;
-      const bool touching = segment.interpolation == MotionInterpolation::JointLinear;
-      const bool ptp = segment.interpolation == MotionInterpolation::Smoothstep;
-      const std::array<int, 3> color = touching ? std::array<int, 3>{30, 130, 45}
-          : ptp ? std::array<int, 3>{90, 65, 130} : std::array<int, 3>{0, 100, 210};
-      result.parts.append({std::move(positions), {color, touching ? 3.0 : 2.0}});
+      const auto& style = segment.interpolation == MotionInterpolation::JointLinear ? WorkingStroke
+          : segment.interpolation == MotionInterpolation::Smoothstep ? PtpStroke : TransferStroke;
+      result.parts.append({std::move(positions), style});
     }
   } else return std::nullopt; // Metadata-only objects have no drawing.
   return result;

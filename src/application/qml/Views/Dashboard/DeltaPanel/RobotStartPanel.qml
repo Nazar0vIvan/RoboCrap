@@ -86,6 +86,7 @@ QxPanel {
             .arg(root.stepNames[root.step] ?? root.step)
             .arg(root.resultNames[root.result] ?? root.result)
             .arg(root.stateNames[root.programState] ?? root.programState)
+    textFormat: Text.PlainText
     elide: Text.ElideRight
     opacity: root.enabled ? 1.0 : Colors.overlays.disabled
     color: Colors.foreground.medium

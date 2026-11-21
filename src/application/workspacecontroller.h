@@ -17,13 +17,13 @@ class WorkspaceController final : public QObject
   Q_OBJECT
   QML_NAMED_ELEMENT(WorkspaceController)
   QML_SINGLETON
-  Q_PROPERTY(Mode mode READ mode WRITE setMode NOTIFY modeChanged)
-  Q_PROPERTY(Submode submode READ submode WRITE setSubmode NOTIFY submodeChanged)
-  Q_PROPERTY(QList<quint32> selectedObjectIds READ selectedObjectIds NOTIFY selectionChanged)
-  Q_PROPERTY(SceneObject* selectedObject READ selectedObject NOTIFY selectionDetailsChanged)
-  Q_PROPERTY(bool intersectionAvailable READ intersectionAvailable NOTIFY selectionDetailsChanged)
+  Q_PROPERTY(Mode mode READ mode WRITE setMode NOTIFY modeChanged FINAL)
+  Q_PROPERTY(Submode submode READ submode WRITE setSubmode NOTIFY submodeChanged FINAL)
+  Q_PROPERTY(QList<quint32> selectedObjectIds READ selectedObjectIds NOTIFY selectionChanged FINAL)
+  Q_PROPERTY(SceneObject* selectedObject READ selectedObject NOTIFY selectionDetailsChanged FINAL)
+  Q_PROPERTY(bool intersectionAvailable READ intersectionAvailable NOTIFY selectionDetailsChanged FINAL)
   // The displayed end-effector model is selected; it excludes selected scene objects.
-  Q_PROPERTY(bool toolSelected READ toolSelected NOTIFY toolSelectedChanged)
+  Q_PROPERTY(bool toolSelected READ toolSelected NOTIFY toolSelectedChanged FINAL)
 public:
   enum Mode { Measuring, Machining };
   Q_ENUM(Mode)

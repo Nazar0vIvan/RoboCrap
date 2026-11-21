@@ -12,7 +12,6 @@ Switch {
 
   property bool displayOnly: false
   property bool available: true
-  property alias displayonly: root.displayOnly
   property alias imageSource: image.source
   property bool isOn: false
   property int barWidth: Metrics.sz36
@@ -20,14 +19,6 @@ Switch {
 
   checkable: false
   padding: Metrics.sp0
-  spacing: Metrics.sp8
-
-  contentItem: Text {
-    verticalAlignment: Text.AlignVCenter
-    text: root.text
-    color: Colors.foreground.high
-    font: Fonts.body
-  }
 
   indicator: Rectangle {
     implicitWidth: root.barWidth

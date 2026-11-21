@@ -165,7 +165,7 @@ ApplicationWindow {
     }
   }
 
-  readonly property bool geometryImportAvailable: !surfaceImporter.busy && !planeFileDialog.visible
+  readonly property bool geometryImportAvailable: !planeFileDialog.visible
                                                  && !cylinderFileDialog.visible
   readonly property App.SceneModel sceneModel: App.Scene
   readonly property bool intersectionAvailable: App.WorkspaceController.intersectionAvailable
@@ -301,7 +301,6 @@ ApplicationWindow {
         return qsTr("Calibration run: %1 % · %2/%3 touches")
                .arg(count > 0 ? Math.floor(100 * detected / count) : 0).arg(detected).arg(count)
       }
-      if (surfaceImporter.busy) return qsTr("Importing surface…")
       if (App.Machining.calculating || App.Calibration.calculating) return qsTr("Calculating trajectory…")
       if (App.MachiningPreparation.preparing) return qsTr("RSI Sampling…")
       if (statusBar.sceneLoading) return qsTr("Loading…")
@@ -379,7 +378,7 @@ ApplicationWindow {
         textFormat: Text.PlainText
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideRight
-        color: statusBar.message.length > 0 && !surfaceImporter.busy && !statusBar.busy && statusBar.errorShown
+        color: statusBar.message.length > 0 && !statusBar.busy && statusBar.errorShown
                ? Colors.maxColor : Colors.foreground.medium
         font: Fonts.body
         Accessible.name: statusBar.message

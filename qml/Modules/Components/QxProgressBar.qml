@@ -71,6 +71,7 @@ Item {
       Layout.preferredWidth: Math.ceil(valueMetrics.advanceWidth)
       horizontalAlignment: Text.AlignRight
       text: pb.value.toFixed(3)
+      textFormat: Text.PlainText
       color: Colors.foreground.high
       font: Fonts.body
     }

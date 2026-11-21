@@ -23,8 +23,6 @@ QxPanel {
   component ModeButton: Button {
     id: control
 
-    property color selectedColor: Colors.secondary.base
-    property color selectedBorderColor: Colors.secondary.dark
     readonly property color foregroundColor: !control.enabled ? Colors.foreground.disabled
                                              : control.checked ? "black" : "white"
 
@@ -53,14 +51,14 @@ QxPanel {
     background: Rectangle {
       radius: Metrics.r4
       color: !control.enabled ? Colors.background.dp04
-             : control.checked ? control.selectedColor
+             : control.checked ? Colors.secondary.base
              : control.down ? Colors.background.dp12
              : control.hovered ? Colors.background.dp08
              : Colors.background.dp04
       border.width: control.enabled && (control.checked || control.visualFocus)
                     ? Metrics.w2 : Metrics.w1
       border.color: control.visualFocus ? Colors.primary.light
-                    : control.checked && control.enabled ? control.selectedBorderColor
+                    : control.checked && control.enabled ? Colors.secondary.dark
                     : Colors.background.dp12
     }
   }

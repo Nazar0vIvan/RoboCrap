@@ -83,7 +83,6 @@ void SceneSurfaceImporter::importSurface(const QUrl& sourceUrl, SceneModel* scen
   // Signal handlers may destroy the destination; no worker or event pumping is involved.
   QPointer<SceneModel> destination(scene);
   m_busy = true;
-  emit busyChanged();
   ReadResult input = readSamples(sourceUrl);
   QString error = readErrorText(input.error);
   QPointer<SceneObject> object;
@@ -100,7 +99,6 @@ void SceneSurfaceImporter::importSurface(const QUrl& sourceUrl, SceneModel* scen
   }
   if (!object && error.isEmpty()) error = tr("Could not insert the surface into the destination scene.");
   m_busy = false;
-  emit busyChanged();
   if (object) emit loaded(object);
   else emit failed(error.isEmpty() ? tr("The destination object was closed during import.") : error);
 }

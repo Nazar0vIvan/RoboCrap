@@ -12,7 +12,6 @@ find_package(Qt6 6.8 REQUIRED COMPONENTS
   Quick
   Qml
   Network
-  Charts
   Widgets
 )
 

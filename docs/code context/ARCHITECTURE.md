@@ -145,7 +145,8 @@ AGENT_CONTRACTS.md. `old_imp/` is not built; `python/` holds analysis scripts.
   `const Kr10KinematicModel&`; `RobotController` disables copy/move and destroys the solver before
   the model.
 - `SceneSurfaceImporter` imports JSON planes and cylinders synchronously with probe compensation;
-  `busy` is set before reading and cleared before returning, so painting waits for the call.
+  the import blocks the GUI thread for the duration of the call; a private flag rejects re-entrant
+  imports.
 - `SceneMachining::generate`: the chamfer parameters use only the ellipse and the cylinder
   origin/axis, but the plane must still exist.
 - `PlcDevice`: `disconnectDevice` sets `SO_LINGER` {1, 0} and aborts, so the close sends RST and the
@@ -235,4 +236,4 @@ Controller-side RSI items are listed in the RSI contracts.
   `RDTResponse` registrations are kept for future force control (user decision);
   `ChamferPathSample`/`ChamferPathResult` serve analytical evaluation. Device/viewport error
   properties and QML displays are deferred (user). Link BREPs, STEP sources and `controller/`
-  are retained assets. The `devicehub.h` class comment still mentions one shared I/O thread.
+  are retained assets.

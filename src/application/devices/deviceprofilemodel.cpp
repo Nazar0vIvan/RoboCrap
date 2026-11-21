@@ -166,9 +166,7 @@ void DeviceProfileModel::load()
     device.localAddress =  obj.value("localAddress").toString();
     device.localPort = obj.value("localPort").toInt(-1);
     device.peerAddress = obj.value("peerAddress").toString();
-    device.peerPort = obj.value("peerPort").isNull()
-                      ? -1
-                      : obj.value("peerPort").toInt(-1);
+    device.peerPort = obj.value("peerPort").toInt(-1);
     device.protocol = obj.value("protocol").toString();
     device.openMode = obj.value("openMode").toString();
 

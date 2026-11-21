@@ -56,15 +56,15 @@ struct ProbeSettings
 class SceneCalibration : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QString error READ error NOTIFY errorChanged)
+  Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
   // Read or write error of the probe settings file; empty after a successful write.
-  Q_PROPERTY(QString settingsError READ settingsError NOTIFY settingsErrorChanged)
+  Q_PROPERTY(QString settingsError READ settingsError NOTIFY settingsErrorChanged FINAL)
   // Rows {label, value} of the last successful calibration fit; empty without one.
-  Q_PROPERTY(QVariantList lastCalibrationRows READ lastCalibrationRows NOTIFY lastCalibrationChanged)
-  Q_PROPERTY(bool canGenerate READ canGenerate NOTIFY availabilityChanged)
-  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged)
-  Q_PROPERTY(bool calculating READ calculating NOTIFY availabilityChanged)
-  Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged)
+  Q_PROPERTY(QVariantList lastCalibrationRows READ lastCalibrationRows NOTIFY lastCalibrationChanged FINAL)
+  Q_PROPERTY(bool canGenerate READ canGenerate NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool calculating READ calculating NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged FINAL)
 public:
   SceneCalibration(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
   QString error() const { return m_error; }

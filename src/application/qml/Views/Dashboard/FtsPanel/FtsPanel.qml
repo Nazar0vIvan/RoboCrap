@@ -18,8 +18,6 @@ QxGroupBox {
   readonly property bool saving: root.fts?.data.saving ?? false
 
   ColumnLayout {
-    id: cl
-
     spacing: Metrics.sp12
 
     // Constant text on one elided line, hidden by opacity, so connecting never resizes the window.
@@ -34,21 +32,15 @@ QxGroupBox {
     }
 
     FtsBars {
-      id: bars
-
       fts: root.fts
 
       title: qsTr("Monitoring")
     }
 
     RowLayout {
-      id: rl
-
       spacing: Metrics.sp8
 
       QxButton {
-        id: btnStart
-
         enabled: root.connected && !root.startPending && !root.saving
         checked: root.streaming
         text: root.streaming ? qsTr("Stop") : qsTr("Start")
@@ -57,16 +49,12 @@ QxGroupBox {
       }
 
       QxButton {
-        id: btnBias
-
         enabled: root.connected && root.streaming && !root.startPending && !root.stopRequested
         text: qsTr("Bias")
         onClicked: root.fts.invoke("bias")
       }
 
       QxButton {
-        id: btnLog
-
         enabled: root.connected && (root.fts?.data.canRecord ?? false)
         checked: root.recording
         text: root.recording ? qsTr("Recording…") : qsTr("Record")
@@ -75,8 +63,6 @@ QxGroupBox {
       }
 
       QxButton {
-        id: btnSaveToFile
-
         enabled: root.connected && (root.fts?.data.canSave ?? false)
         text: root.saving ? qsTr("Saving…") : qsTr("Save")
         reservedText: qsTr("Saving…")

@@ -134,7 +134,7 @@ RobotPoseResult RobotController::initialize()
     return {{}, QStringLiteral("Invalid KR10 kinematic dimensions.")};
   }
 
-  const auto home = forward(m_model.kinematics.qHome);
+  auto home = forward(m_model.kinematics.qHome);
   if (!home.links) return home;
 
   const M4d expected = makeTransform(

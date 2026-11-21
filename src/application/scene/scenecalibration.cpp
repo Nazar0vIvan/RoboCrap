@@ -359,9 +359,7 @@ void SceneCalibration::onPlaybackFailed(quint32 ownerId, const QString& error)
 
 bool SceneCalibration::canPlay() const
 {
-  if (calculating() || m_playback->playing() || !m_playback->robotAvailable()) return false;
-  if (m_playback->active()) return ownsPlayback();
-  return path() != nullptr;
+  return !calculating() && m_playback->canPlay(ownsPlayback(), path() != nullptr);
 }
 
 void SceneCalibration::dryRun()

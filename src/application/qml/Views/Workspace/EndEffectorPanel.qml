@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Controls.Basic
 import QtQuick.Layouts
@@ -20,15 +21,10 @@ QxPanel {
   signal tcpVisibilityRequested(bool visible)
   signal colletVisibilityRequested(bool visible)
 
-  property list<string> colletDrafts: []
   property list<string> drafts: []
-  readonly property bool validDraft: (root.measuring || root.validPoseDraft(root.colletDrafts))
-                                    && root.validPoseDraft(root.drafts)
+  readonly property bool validDraft: root.drafts.length === 6
+      && root.drafts.every(value => value.trim().length > 0 && isFinite(Number(value)))
 
-  function validPoseDraft(values) {
-    return values.length === 6 && values.every(
-        value => value.trim().length > 0 && isFinite(Number(value)))
-  }
   function formatReal(value) {
     return (Math.abs(value) < 0.00005 ? 0 : value).toFixed(4)
   }
@@ -38,30 +34,18 @@ QxPanel {
       result.push(values.length === 6 ? root.formatReal(values[i]) : "0.0000")
     return result
   }
-  function loadColletDraft() {
-    root.colletDrafts = root.poseDraft(root.colletPose)
-  }
   function loadTcpDraft() {
     root.drafts = root.poseDraft(root.tcp)
-  }
-  function editColletValue(index, value) {
-    const values = root.colletDrafts.slice()
-    values[index] = value
-    root.colletDrafts = values
   }
   function editValue(index, value) {
     const values = root.drafts.slice()
     values[index] = value
     root.drafts = values
   }
-  onColletPoseChanged: root.loadColletDraft()
   onTcpChanged: root.loadTcpDraft()
-  // Reopening shows the stored poses, not edits left unapplied at Close.
-  onVisibleChanged: if (root.visible) { root.loadColletDraft(); root.loadTcpDraft() }
-  Component.onCompleted: {
-    root.loadColletDraft()
-    root.loadTcpDraft()
-  }
+  // Reopening shows the stored pose, not edits left unapplied at Close.
+  onVisibleChanged: if (root.visible) root.loadTcpDraft()
+  Component.onCompleted: root.loadTcpDraft()
   title: root.measuring ? qsTr("Measuring End Effector") : qsTr("Spindle End Effector")
   implicitHeight: fields.implicitHeight + topPadding + bottomPadding
 
@@ -96,6 +80,7 @@ QxPanel {
             Layout.fillWidth: true
             text: measurement.index === 0 ? root.measuringName
                   : root.formatReal(measurement.index === 1 ? root.ballDiameter : root.stylusLength)
+            textFormat: Text.PlainText
             wrapMode: Text.Wrap
             font: Fonts.body
             color: Colors.foreground.high
@@ -118,23 +103,16 @@ QxPanel {
           Layout.fillWidth: true
           visible: !root.measuring
           enabled: false
-          opacity: colletCoordinate.enabled ? 1.0 : Colors.overlays.disabled
+          opacity: Colors.overlays.disabled
           labelWidth: Metrics.sp24
           labelText: ["X", "Y", "Z", "A", "B", "C"][colletCoordinate.index]
           QxTextInput {
-            id: colletInput
             Layout.fillWidth: true
             Layout.preferredHeight: Metrics.h32
             Layout.minimumWidth: 0
-            text: root.colletDrafts[colletCoordinate.index] ?? ""
+            text: root.poseDraft(root.colletPose)[colletCoordinate.index]
             font: Fonts.caption
             Accessible.name: qsTr("ER %1").arg(colletCoordinate.labelText)
-            validator: DoubleValidator { locale: "C"; decimals: 4; notation: DoubleValidator.StandardNotation }
-            onTextEdited: root.editColletValue(colletCoordinate.index, colletInput.text)
-            onEditingFinished: {
-              if (colletInput.acceptableInput)
-                root.editColletValue(colletCoordinate.index, root.formatReal(Number(colletInput.text)))
-            }
           }
           Label {
             text: colletCoordinate.index < 3 ? qsTr("mm") : qsTr("deg")

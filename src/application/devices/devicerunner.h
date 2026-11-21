@@ -11,10 +11,10 @@ class AbstractDevice;
 class DeviceRunner : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QQmlPropertyMap* data READ data CONSTANT)
-  Q_PROPERTY(int socketState READ socketState NOTIFY socketStateChanged)
-  Q_PROPERTY(bool isConnected READ isConnected NOTIFY socketStateChanged)
-  Q_PROPERTY(bool isDisconnected READ isDisconnected NOTIFY socketStateChanged)
+  Q_PROPERTY(QQmlPropertyMap* data READ data CONSTANT FINAL)
+  Q_PROPERTY(int socketState READ socketState NOTIFY socketStateChanged FINAL)
+  Q_PROPERTY(bool isConnected READ isConnected NOTIFY socketStateChanged FINAL)
+  Q_PROPERTY(bool isDisconnected READ isDisconnected NOTIFY socketStateChanged FINAL)
 
 public:
   explicit DeviceRunner(AbstractDevice* dev, QObject* parent = nullptr);

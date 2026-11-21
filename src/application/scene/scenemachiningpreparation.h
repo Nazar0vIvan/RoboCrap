@@ -23,18 +23,18 @@ class DeviceRunner;
 class SceneMachiningPreparation final : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(bool canPrepare READ canPrepare NOTIFY availabilityChanged)
-  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged)
-  Q_PROPERTY(bool canPrepareCalibration READ canPrepareCalibration NOTIFY availabilityChanged)
-  Q_PROPERTY(QString calibrationUnavailableReason READ calibrationUnavailableReason NOTIFY availabilityChanged)
-  Q_PROPERTY(bool preparing READ preparing NOTIFY preparingChanged)
-  Q_PROPERTY(QString error READ error NOTIFY errorChanged)
-  Q_PROPERTY(QString summary READ summary NOTIFY preparedChanged)
-  Q_PROPERTY(bool canStartCalibration READ canStartCalibration NOTIFY availabilityChanged)
-  Q_PROPERTY(bool calibrationRunning READ calibrationRunning NOTIFY calibrationRunChanged)
-  Q_PROPERTY(int calibrationDetected READ calibrationDetected NOTIFY calibrationRunChanged)
-  Q_PROPERTY(int calibrationTouchCount READ calibrationTouchCount NOTIFY preparedChanged)
-  Q_PROPERTY(QString calibrationRunError READ calibrationRunError NOTIFY calibrationRunChanged)
+  Q_PROPERTY(bool canPrepare READ canPrepare NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool canPrepareCalibration READ canPrepareCalibration NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString calibrationUnavailableReason READ calibrationUnavailableReason NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool preparing READ preparing NOTIFY preparingChanged FINAL)
+  Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
+  Q_PROPERTY(QString summary READ summary NOTIFY preparedChanged FINAL)
+  Q_PROPERTY(bool canStartCalibration READ canStartCalibration NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool calibrationRunning READ calibrationRunning NOTIFY calibrationRunChanged FINAL)
+  Q_PROPERTY(int calibrationDetected READ calibrationDetected NOTIFY calibrationRunChanged FINAL)
+  Q_PROPERTY(int calibrationTouchCount READ calibrationTouchCount NOTIFY preparedChanged FINAL)
+  Q_PROPERTY(QString calibrationRunError READ calibrationRunError NOTIFY calibrationRunChanged FINAL)
 
 public:
   SceneMachiningPreparation(SceneModel* scene, SceneMachining* machining, SceneCalibration* calibration);
@@ -98,7 +98,6 @@ private:
     QString diagnosticId; // Names the procedure's record folder records/<id>.
   };
 
-  SceneMachiningPath* pathById(quint32 objectId) const;
   bool isCurrent(const PreparedRsiStream& prepared) const;
   bool isCurrentCalibration(const std::shared_ptr<const ProbeTouchMotion>& motion) const;
   // Shutdown, a calibration run in any non-Idle state or a running Sampling; empty otherwise.

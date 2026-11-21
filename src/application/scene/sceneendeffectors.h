@@ -12,14 +12,14 @@
 class SceneEndEffectors : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QString measuringName READ measuringName CONSTANT)
-  Q_PROPERTY(double rubyBallDiameter READ rubyBallDiameter CONSTANT)
-  Q_PROPERTY(double stylusLength READ stylusLength CONSTANT)
-  Q_PROPERTY(QList<double> measuringTcp READ measuringTcp NOTIFY measuringTcpChanged)
-  Q_PROPERTY(QList<double> spindleTcp READ spindleTcp NOTIFY spindleTcpChanged)
-  Q_PROPERTY(QList<double> spindleTcpInCollet READ spindleTcpInCollet NOTIFY spindleTcpChanged)
-  Q_PROPERTY(QList<double> spindleColletPose READ spindleColletPose NOTIFY spindleColletChanged)
-  Q_PROPERTY(Tool activeTool READ activeTool NOTIFY activeToolChanged)
+  Q_PROPERTY(QString measuringName READ measuringName CONSTANT FINAL)
+  Q_PROPERTY(double rubyBallDiameter READ rubyBallDiameter CONSTANT FINAL)
+  Q_PROPERTY(double stylusLength READ stylusLength CONSTANT FINAL)
+  Q_PROPERTY(QList<double> measuringTcp READ measuringTcp NOTIFY measuringTcpChanged FINAL)
+  Q_PROPERTY(QList<double> spindleTcp READ spindleTcp NOTIFY spindleTcpChanged FINAL)
+  Q_PROPERTY(QList<double> spindleTcpInCollet READ spindleTcpInCollet NOTIFY spindleTcpChanged FINAL)
+  Q_PROPERTY(QList<double> spindleColletPose READ spindleColletPose NOTIFY spindleColletChanged FINAL)
+  Q_PROPERTY(Tool activeTool READ activeTool NOTIFY activeToolChanged FINAL)
 
 public:
   enum Tool { Measuring, Spindle };

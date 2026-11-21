@@ -305,10 +305,8 @@ void SceneMachining::onPlaybackFailed(quint32 ownerId, const QString& error)
 
 bool SceneMachining::canPlay() const
 {
-  if (m_calculating || m_playback->playing() || !m_playback->robotAvailable()) return false;
-  if (m_playback->active()) return ownsPlayback();
   const auto* path = machiningPath(m_inputId);
-  return path && path->compatible();
+  return !m_calculating && m_playback->canPlay(ownsPlayback(), path && path->compatible());
 }
 
 void SceneMachining::dryRun()

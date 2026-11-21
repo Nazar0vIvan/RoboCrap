@@ -46,11 +46,6 @@ DeviceRunner* DeviceHub::device(const QString& key) const
   return it->runner;
 }
 
-QStringList DeviceHub::keys() const
-{
-  return m_devs.keys();
-}
-
 void DeviceHub::startAll()
 {
   for (const Entry& entry : std::as_const(m_devs))

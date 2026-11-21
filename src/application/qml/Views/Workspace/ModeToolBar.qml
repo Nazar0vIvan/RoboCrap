@@ -58,12 +58,9 @@ ToolBar {
 
     property alias text: button.text
     property alias iconSource: button.icon.source
-    property alias checkable: button.checkable
-    property alias checked: button.checked
     property bool available: false
     property bool preserveIconColors: false
 
-    signal toggled(bool checked)
     signal triggered()
 
     implicitWidth: Math.max(100, button.implicitWidth)
@@ -74,8 +71,7 @@ ToolBar {
     ToolButton {
       id: button
 
-      readonly property color foregroundColor: !button.enabled ? Colors.foreground.disabled
-                                               : button.checked ? "black" : "white"
+      readonly property color foregroundColor: button.enabled ? "white" : Colors.foreground.disabled
 
       anchors.fill: parent
       enabled: tool.available
@@ -92,18 +88,13 @@ ToolBar {
 
       background: Rectangle {
         radius: Metrics.r4
-        color: button.checked ? Colors.secondary.base
-               : button.down ? Colors.background.dp12
+        color: button.down ? Colors.background.dp12
                : button.hovered ? Colors.background.dp04 : "transparent"
-        border.width: button.checked || button.visualFocus ? Metrics.w2 : Metrics.w1
-        border.color: button.visualFocus ? Colors.primary.light
-                      : button.checked ? Colors.secondary.dark : Colors.background.dp12
+        border.width: button.visualFocus ? Metrics.w2 : Metrics.w1
+        border.color: button.visualFocus ? Colors.primary.light : Colors.background.dp12
       }
 
-      onClicked: {
-        tool.triggered()
-        tool.toggled(button.checked)
-      }
+      onClicked: tool.triggered()
     }
   }
 

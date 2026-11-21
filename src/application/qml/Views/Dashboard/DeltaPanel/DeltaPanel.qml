@@ -34,13 +34,9 @@ QxGroupBox {
     }
 
     RowLayout {
-      id: rl
-
       spacing: Metrics.sp16
 
       LedsPanel {
-        id: ledPanel
-
         Layout.alignment: Qt.AlignTop | Qt.AlignHCenter
         title: "Door Panel"
 
@@ -55,8 +51,6 @@ QxGroupBox {
       }
 
       DeltaModuleAP {
-        id: moduleAP_P
-
         plc: root.plc
 
         title: 'AS16AP11<font color="red">P</font>-A'

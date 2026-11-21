@@ -10,13 +10,13 @@
 class SceneMachining : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(SceneMachiningSettings settings READ settings WRITE setSettings NOTIFY settingsChanged)
-  Q_PROPERTY(quint32 inputId READ inputId WRITE setInputId NOTIFY inputChanged)
-  Q_PROPERTY(bool canGenerate READ canGenerate NOTIFY availabilityChanged)
-  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged)
-  Q_PROPERTY(QString error READ error NOTIFY errorChanged)
-  Q_PROPERTY(bool calculating READ calculating NOTIFY calculatingChanged)
-  Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged)
+  Q_PROPERTY(SceneMachiningSettings settings READ settings WRITE setSettings NOTIFY settingsChanged FINAL)
+  Q_PROPERTY(quint32 inputId READ inputId WRITE setInputId NOTIFY inputChanged FINAL)
+  Q_PROPERTY(bool canGenerate READ canGenerate NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
+  Q_PROPERTY(bool calculating READ calculating NOTIFY calculatingChanged FINAL)
+  Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged FINAL)
 public:
   SceneMachining(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
   SceneMachiningSettings settings() const { return m_settings; }
@@ -32,6 +32,8 @@ public:
   // Stops the playback only while a machining path owns it.
   void stop();
   bool canPlay() const;
+  // The saved machining path of scene object id, or null.
+  const SceneMachiningPath* machiningPath(quint32 id) const;
 
 signals:
   void draftAxisChanged(const std::optional<RoboCrap3D::DrawingAxis>& axis);
@@ -45,7 +47,6 @@ signals:
 private:
   std::optional<ChamferPathParameters> sourceParameters() const;
   void synchronizeDraftAxis();
-  const SceneMachiningPath* machiningPath(quint32 id) const;
   bool ownsPlayback() const;
   void applyRobotModel();
   void robotSetupChanged();

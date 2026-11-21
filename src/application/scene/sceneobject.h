@@ -17,20 +17,20 @@ class SceneModel;
 class SceneObject final : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(quint32 objectId READ objectId CONSTANT)
-  Q_PROPERTY(QString name READ name NOTIFY nameChanged)
-  Q_PROPERTY(Kind kind READ kind CONSTANT)
-  Q_PROPERTY(Classification classification READ classification CONSTANT)
-  Q_PROPERTY(bool visible READ visible NOTIFY visibleChanged)
-  Q_PROPERTY(bool showPoints READ showPoints NOTIFY diagnosticOverlaysChanged)
-  Q_PROPERTY(bool showNormals READ showNormals NOTIFY diagnosticOverlaysChanged)
-  Q_PROPERTY(bool showBallCenterSphere READ showBallCenterSphere NOTIFY sphereDisplayChanged)
-  Q_PROPERTY(bool showCompensatedSphere READ showCompensatedSphere NOTIFY sphereDisplayChanged)
-  Q_PROPERTY(QUrl sourceUrl READ sourceUrl CONSTANT)
+  Q_PROPERTY(quint32 objectId READ objectId CONSTANT FINAL)
+  Q_PROPERTY(QString name READ name NOTIFY nameChanged FINAL)
+  Q_PROPERTY(Kind kind READ kind CONSTANT FINAL)
+  Q_PROPERTY(Classification classification READ classification CONSTANT FINAL)
+  Q_PROPERTY(bool visible READ visible NOTIFY visibleChanged FINAL)
+  Q_PROPERTY(bool showPoints READ showPoints NOTIFY diagnosticOverlaysChanged FINAL)
+  Q_PROPERTY(bool showNormals READ showNormals NOTIFY diagnosticOverlaysChanged FINAL)
+  Q_PROPERTY(bool showBallCenterSphere READ showBallCenterSphere NOTIFY sphereDisplayChanged FINAL)
+  Q_PROPERTY(bool showCompensatedSphere READ showCompensatedSphere NOTIFY sphereDisplayChanged FINAL)
+  Q_PROPERTY(QUrl sourceUrl READ sourceUrl CONSTANT FINAL)
   // The saved machining path's QObject; null for every other kind.
-  Q_PROPERTY(QObject* geometry READ geometry CONSTANT)
+  Q_PROPERTY(QObject* geometry READ geometry CONSTANT FINAL)
   // Formatted {label, value} rows for the Properties panel.
-  Q_PROPERTY(QVariantList properties READ properties CONSTANT)
+  Q_PROPERTY(QVariantList properties READ properties CONSTANT FINAL)
 
 public:
   enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath };

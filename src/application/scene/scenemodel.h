@@ -11,7 +11,7 @@ namespace RoboCrap3D { class OccController; }
 class SceneModel : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QQmlListProperty<SceneObject> objects READ objects NOTIFY objectsChanged)
+  Q_PROPERTY(QQmlListProperty<SceneObject> objects READ objects NOTIFY objectsChanged FINAL)
 
 public:
   explicit SceneModel(QObject* parent = nullptr);

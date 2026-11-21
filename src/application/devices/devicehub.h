@@ -3,7 +3,6 @@
 #include <QHash>
 #include <QObject>
 #include <QString>
-#include <QStringList>
 #include <QThread>
 
 class AbstractDevice;
@@ -14,11 +13,11 @@ class DeviceRunner;
 // property.
 //
 // DeviceHub is the parent of every DeviceRunner it holds. AbstractDevice
-// objects live in the shared I/O thread and are deleted in that thread.
+// objects live in their group's I/O thread (ControlIO or GeneralIO) and are
+// deleted there.
 class DeviceHub : public QObject
 {
   Q_OBJECT
-  Q_PROPERTY(QStringList keys READ keys CONSTANT)
 
 public:
   enum class DeviceGroup {
@@ -33,8 +32,6 @@ public:
   void add(const QString& key, AbstractDevice* dev, DeviceGroup group);
 
   Q_INVOKABLE DeviceRunner* device(const QString& key) const;
-
-  QStringList keys() const;
 
 public slots:
   void startAll();

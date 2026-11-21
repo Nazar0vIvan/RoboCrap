@@ -110,6 +110,7 @@ QxPanel {
       Label {
         Layout.fillWidth: true
         text: root.inputName.length ? root.inputName : qsTr("Select one hole edge or machining path.")
+        textFormat: Text.PlainText
         wrapMode: Text.Wrap
         color: Colors.foreground.high
         font: Fonts.body

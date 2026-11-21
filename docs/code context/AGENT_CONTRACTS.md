@@ -10,9 +10,8 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
 - Root CMakeLists.txt owns project/options, dependency discovery, target subdirectories and
   installation. src/application/CMakeLists.txt declares robocrap and owns all application
   C++/QML/resources; it links Geometry, Kinematics, Trajectories, Devices, Viewport and the existing
-  Qt/QML dependencies. QmlChartBridge stays in Application with its QtCharts requirement; RSI XML
-  uses QtCore. Application has no public include directory; no target uses the legacy src include
-  directory.
+  Qt/QML dependencies. RSI XML uses QtCore. Application has no public include directory; no target
+  uses the legacy src include directory.
 - RoboCrapGeometry (surfaces/math), RoboCrapKinematics (KR10 numerics) and RoboCrapTrajectories
   (animation and RSI sampling) are owned by src/{geometry,kinematics,trajectories}/CMakeLists.txt.
   Kinematics publicly links Geometry; Trajectories publicly links Kinematics. Each library exports only
@@ -356,8 +355,8 @@ Apply Geometry and scene to numerical changes.
   one line (point count and movement seconds, or the error); SceneCalibration logs calibration and
   verification touch counts, points, movement seconds and minimum transfer/strut clearances, or the
   error. The candidate's last error
-  string remains the UI error. MotionBuilder and RSI sampling share ChamferTcpSolver::solveTcp; the
-  chamfer start search uses its inverse.
+  string remains the UI error. MotionBuilder, the chamfer start search and RSI sampling share
+  ChamferTcpSolver::solveTcp.
 - Calibration Generate builds createProbeTouchPlan and ProbeTouchMotion::create. The plan is fixed in
   code (accuracy decisions in plans/PROBE_SPHERE_TOUCH_PLAN_EXECPLAN.md; only sphere centre, radii,
   strut and search feed are inputs): passes with one fixed probe orientation each, G1 stylus down

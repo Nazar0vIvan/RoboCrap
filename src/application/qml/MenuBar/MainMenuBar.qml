@@ -47,8 +47,6 @@ MenuBar {
   }
 
   Image {
-    id: logoImage
-
     parent: root
 
     anchors {
