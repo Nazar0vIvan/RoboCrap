@@ -5,8 +5,6 @@
 #include "kinematics/kr10kinematics.h"
 
 #include <QDateTime>
-#include <QDir>
-#include <QSaveFile>
 #include <QStringList>
 
 #include <cmath>
@@ -43,7 +41,7 @@ QString csvPose(const M4d& pose)
   QStringList fields;
   for (int axis = 0; axis < 3; ++axis) fields.append(QString::number(pose(axis, 3), 'f', 9));
   for (double angle : principalEulerDegrees(pose.block<3, 3>(0, 0))) fields.append(QString::number(angle, 'f', 9));
-  return fields.join(QLatin1Char(','));
+  return fields.join(QLatin1Char(';'));
 }
 
 class CalibrationJobSampler
@@ -66,7 +64,7 @@ public:
     const auto tool = wirePose(m_motion.robot().flangeToTcp);
     if (!tool) return {{}, QStringLiteral("Cannot represent the measuring flange-to-TCP transform at six decimal places.")};
     m_job.toolCoordinates = *tool;
-    // Also the name of the procedure's record folder records/<id>.
+    // Pairs the stream table with its job; the job_id of the sessions that run it.
     m_job.diagnosticId = QStringLiteral("calibration_")
         + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
     m_job.streams.append(QVector<V6d>{}); // Touch numbers start at 1.
@@ -75,8 +73,11 @@ public:
       if (!error.isEmpty()) return {{}, steps[index].phase.text(m_motion.plan()) + QStringLiteral(": ") + error};
     }
     m_job.touchCount = static_cast<int>(m_job.streams.size() - 1);
-    const QString planError = writePlan();
-    if (!planError.isEmpty()) return {{}, planError};
+    m_job.plan = (QStringLiteral("touch;search_step;purpose;group;repetition;pass_touch;tilt_deg;roll_deg;normal_x;"
+                                 "normal_y;normal_z;start_x_mm;start_y_mm;start_z_mm;start_a_deg;start_b_deg;start_c_deg;"
+                                 "contact_x_mm;contact_y_mm;contact_z_mm;contact_a_deg;contact_b_deg;contact_c_deg;"
+                                 "start_s;start_t\n")
+                  + m_planRows).toUtf8();
     return {std::move(m_job), {}};
   }
 
@@ -107,7 +108,7 @@ private:
     return {};
   }
 
-  // The touch's stream, its Search step and its row of the plan file.
+  // The touch's stream, its Search step and its row of plan.csv.
   void appendSearch(const ProbeMotionPhase& phase, const ChamferJointPoint& start)
   {
     const ProbeTouchPlan& plan = m_motion.plan();
@@ -125,7 +126,7 @@ private:
                               QString::number(touch.roll, 'f', 6), QString::number(touch.normal.x(), 'f', 9),
                               QString::number(touch.normal.y(), 'f', 9), QString::number(touch.normal.z(), 'f', 9),
                               csvPose(touch.start), csvPose(touch.contact), QString::number(configuration.status),
-                              QString::number(configuration.turn)}.join(QLatin1Char(','))
+                              QString::number(configuration.turn)}.join(QLatin1Char(';'))
                   + QLatin1Char('\n');
   }
 
@@ -148,23 +149,6 @@ private:
     if (!(sum.norm() > 1e-6)) return std::nullopt;
     const double radius = parameters.contactDistance() + ProbeApproachGap;
     return wirePose(makeTransform(end.tcp.block<3, 3>(0, 0), centre + radius * sum.normalized()));
-  }
-
-  QString writePlan() const
-  {
-    const QDir records(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(m_job.diagnosticId));
-    QSaveFile file(records.filePath(QStringLiteral("rsi_plan_%1.csv").arg(m_job.diagnosticId)));
-    const QByteArray contents = (QStringLiteral("# plan_id,") + m_job.diagnosticId
-        + QStringLiteral("\n# XYZ mm; ABC principal Z-Y-X deg; tilt and roll deg; search_step: 1-based step in "
-                         "calibration_data.txt; start_S/start_T: configuration at the search start\n"
-                         "touch,search_step,purpose,group,repetition,pass_touch,tilt,roll,normal_X,normal_Y,normal_Z,"
-                         "start_X,start_Y,start_Z,start_A,start_B,start_C,"
-                         "contact_X,contact_Y,contact_Z,contact_A,contact_B,contact_C,start_S,start_T\n")
-        + m_planRows).toUtf8();
-    if (!QDir().mkpath(records.absolutePath()) || !file.open(QIODevice::WriteOnly)
-        || file.write(contents) != contents.size() || !file.commit())
-      return QStringLiteral("Cannot write the calibration plan %1 (%2).").arg(file.fileName(), file.errorString());
-    return {};
   }
 
   const ProbeTouchMotion& m_motion;

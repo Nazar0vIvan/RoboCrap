@@ -1,28 +1,26 @@
 #include "devices/rsi/rsidevice.h"
 #include "../common/socketconfigutils.h"
+#include "devices/recordclock.h"
 
 #include <QAbstractEventDispatcher>
-#include <QDateTime>
 #include <QDebug>
-#include <QDir>
-#include <QFile>
-#include <QFileInfo>
-#include <QHash>
 #include <QNetworkDatagram>
 #include <QTimer>
 #include <QUdpSocket>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
-#include <chrono>
 #include <cmath>
 #include <optional>
 #include <utility>
 
 namespace {
 
-constexpr qsizetype TraceCapacity = 64 * 1024 * 1024;
-constexpr int CaptureIdleMs = 250; // Save the capture after this long without accepted-peer traffic.
+// Reserved at connect: a full calibration run stores about 133,000 requests of about 430 bytes.
+constexpr qsizetype CaptureRecords = 262144; // About 17 min of continuous RSI.
+constexpr qsizetype CaptureXmlBytes = 128 * 1024 * 1024;
+constexpr qint64 CaptureSilenceNs = 1'000'000'000; // A capture ends after this long without a request.
+constexpr int CaptureCheckMs = 250;
 
 bool isDigits(const QString& text)
 {
@@ -112,47 +110,6 @@ QByteArray encodeReply(const RsiDevice::Reply& reply)
   return datagram;
 }
 
-constexpr char CaptureHeader[] =
-    "# pc_ns: monotonic nanoseconds since device start; rx: controller request, tx: PC reply\n"
-    "# tx only: stream_index (next increment before the reply), writeDatagram result and duration,\n"
-    "# handler entry, last event-loop sleep and wake, previous replying handler end (pc_ns)\n"
-    "# XML values as sent: rx RIst, AIPos (deg), Delay; tx RKorr; xml_base64 only for unreadable XML\n"
-    "pc_ns,direction,stream_index,write_bytes,write_ns,entry_ns,sleep_ns,wake_ns,prev_done_ns,"
-    "ipoc,start,result,touch_index,touch,delay,rist_x,rist_y,rist_z,rist_a,rist_b,rist_c,"
-    "a1,a2,a3,a4,a5,a6,corr_x,corr_y,corr_z,corr_a,corr_b,corr_c,stop,xml_base64\n";
-
-// XML values of the header columns ipoc ... stop: element text or Element.Attribute.
-constexpr const char* XmlColumns[] = {
-    "IPOC", "Start", "Result", "TouchIndex", "Touch", "Delay.D",
-    "RIst.X", "RIst.Y", "RIst.Z", "RIst.A", "RIst.B", "RIst.C",
-    "AIPos.A1", "AIPos.A2", "AIPos.A3", "AIPos.A4", "AIPos.A5", "AIPos.A6",
-    "RKorr.X", "RKorr.Y", "RKorr.Z", "RKorr.A", "RKorr.B", "RKorr.C", "Stop"};
-
-// Buffered row "pc_ns,rx,-1,-1,-1,<Base64 XML>" or "pc_ns,tx,<index>,<bytes>,<write ns>,<Base64 XML>,
-// <entry>,<sleep>,<wake>,<done>" as one CaptureHeader line.
-QByteArray captureRow(const QByteArray& row)
-{
-  const QList<QByteArray> fields = row.split(',');
-  const bool reply = fields.value(1) == "tx";
-  QByteArray line = fields.value(0) + ',' + fields.value(1);
-  for (const int column : {2, 3, 4, 6, 7, 8, 9}) line += ',' + (reply ? fields.value(column) : QByteArray());
-  QXmlStreamReader xml(QByteArray::fromBase64(fields.value(5)));
-  QHash<QString, QString> values;
-  if (xml.readNextStartElement()) {
-    while (xml.readNextStartElement()) {
-      const QString name = xml.name().toString();
-      for (const QXmlStreamAttribute& attribute : xml.attributes())
-        values.insert(name + QLatin1Char('.') + attribute.name().toString(), attribute.value().toString());
-      values.insert(name, xml.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
-    }
-  }
-  while (!xml.atEnd()) xml.readNext();
-  const bool readable = !xml.hasError() && !values.isEmpty();
-  for (const char* key : XmlColumns)
-    line += ',' + (readable ? values.value(QString::fromLatin1(key)).toUtf8() : QByteArray());
-  return line + ',' + (readable ? QByteArray() : fields.value(5)) + '\n';
-}
-
 } // namespace
 
 RsiDevice::RsiDevice(const QString& name, QObject* parent) : AbstractDevice(name, parent) {}
@@ -160,11 +117,9 @@ RsiDevice::RsiDevice(const QString& name, QObject* parent) : AbstractDevice(name
 void RsiDevice::startDevice()
 {
   Q_ASSERT(!m_sock);
-  m_traceClock.start();
-  m_traceTimer = new QTimer(this);
-  m_traceTimer->setSingleShot(true);
-  m_traceTimer->setInterval(CaptureIdleMs);
-  QObject::connect(m_traceTimer, &QTimer::timeout, this, &RsiDevice::saveTrace);
+  m_captureTimer = new QTimer(this);
+  m_captureTimer->setInterval(CaptureCheckMs);
+  QObject::connect(m_captureTimer, &QTimer::timeout, this, &RsiDevice::onCaptureTimer);
   m_sock = new QUdpSocket(this);
   attachSocket(m_sock);
   QObject::connect(m_sock, &QUdpSocket::readyRead, this, &RsiDevice::onReadyRead);
@@ -183,9 +138,7 @@ void RsiDevice::stopDevice()
 {
   if (!m_sock) return;
   disconnectDevice();
-  for (auto& save : m_traceSaves) save.wait();
-  saveTrace();
-  delete std::exchange(m_traceTimer, nullptr);
+  delete std::exchange(m_captureTimer, nullptr);
   delete std::exchange(m_sock, nullptr);
 }
 
@@ -208,7 +161,9 @@ void RsiDevice::connectDevice(const QVariantMap& config)
   const SocketEndpoints& endpoints = *m_endpoints;
   if (m_sock->state() != QAbstractSocket::UnconnectedState) disconnectDevice();
   emit stateReady({{"connectionConfig", connectionConfigMap(endpoints)}});
-  m_trace.reserve(TraceCapacity); // Allocate before peer traffic can start.
+  // Allocate before peer traffic can start; emitCapture keeps the capacity.
+  m_capture.records.reserve(CaptureRecords);
+  m_capture.requestXml.reserve(CaptureXmlBytes);
   if (!m_sock->bind(endpoints.localAddress, endpoints.localPort)) {
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << QString("Bind failed: %1").arg(m_sock->errorString());
     return;
@@ -224,8 +179,7 @@ void RsiDevice::disconnectDevice()
   // The controller peer port is learned again from the next connection.
   m_pp = 0;
   resetRun();
-  saveTrace();
-  m_traceFile.clear(); // Unassigned rows of a new connection go to a new file.
+  emitCapture(false);
   qInfo().noquote() << "[OK]" << objectName() + ":" << "Socket disconnected";
 }
 
@@ -234,14 +188,11 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
   // Buffered requests belong to the outgoing stream, not the new array.
   while (m_sock && m_sock->hasPendingDatagrams()) {
     const QNetworkDatagram datagram = m_sock->receiveDatagram();
-    if (!acceptsSender(datagram)) continue;
-    appendTrace(QByteArray::number(m_traceClock.nsecsElapsed()) + ",rx,-1,-1,-1,"
-                + datagram.data().toBase64() + '\n');
+    if (acceptsSender(datagram)) storeRequest(datagram.data(), recordClockNs());
   }
-  saveTrace();
-  if (m_diagnosticId != diagnosticId) m_traceFile.clear();
+  emitCapture(false);
   m_streams = streams;
-  m_diagnosticId = diagnosticId;
+  m_capture.diagnosticId = diagnosticId;
   m_activeStream = 0;
   m_index = 0;
   m_reportedTouch = 0;
@@ -262,45 +213,48 @@ void RsiDevice::onReadyRead()
 {
   // Replies to older queued packets would arrive late and be rejected, losing
   // their corrections; answer only the newest so the path is delayed, not cut.
-  // No console output before the reply: it can delay it past the controller cycle.
-  // Malformed and unanswered requests remain in the packet capture.
-  const qint64 entryNs = m_traceClock.nsecsElapsed();
+  // No console output, file work or allocation on this path: it can delay the reply past the
+  // controller cycle. Malformed and unanswered requests remain in the capture.
+  const qint64 entryNs = recordClockNs();
   std::optional<Request> newest;
+  qsizetype newestRecord = -1; // Capture record of newest.
   std::optional<Request> detection; // Oldest pending packet that reports a new touch.
-  QVector<QByteArray> receivedRows;
   while (m_sock && m_sock->hasPendingDatagrams()) {
     const QNetworkDatagram datagram = m_sock->receiveDatagram();
     if (!acceptsSender(datagram)) continue;
-    const qint64 receivedNs = m_traceClock.nsecsElapsed();
-    receivedRows.append(QByteArray::number(receivedNs) + ",rx,-1,-1,-1,"
-                        + datagram.data().toBase64() + '\n');
+    const qsizetype record = storeRequest(datagram.data(), recordClockNs());
     const auto request = decodeRequest(datagram.data());
     if (!request) continue;
     m_pp = datagram.senderPort();
     newest = request;
+    newestRecord = record;
     if (!request->start) m_reportedTouch = 0; // KRL sends Start = 0 before every search.
     if (!detection && reportsTouch(*request)) detection = request;
   }
-  if (!newest) {
-    for (const auto& row : std::as_const(receivedRows)) appendTrace(row);
-    return;
-  }
+  if (!newest) return;
   const qsizetype index = m_index;
   Reply reply = advance(*newest);
   reply.ipoc = newest->ipoc;
   const QByteArray encoded = encodeReply(reply);
-  const qint64 sentNs = m_traceClock.nsecsElapsed();
+  const qint64 sentNs = recordClockNs();
   // A reply follows an accepted request, so the endpoints exist.
   const qint64 written = m_sock->writeDatagram(encoded, m_endpoints->peerAddress, m_pp);
-  const qint64 writeNs = m_traceClock.nsecsElapsed() - sentNs;
-  // Capture the whole exchange after replying, outside the reply's measured latency.
-  for (const auto& row : std::as_const(receivedRows)) appendTrace(row);
-  appendTrace(QByteArray::number(sentNs) + ",tx," + QByteArray::number(index)
-              + ',' + QByteArray::number(written) + ',' + QByteArray::number(writeNs)
-              + ',' + encoded.toBase64() + ',' + QByteArray::number(entryNs)
-              + ',' + QByteArray::number(m_sleepNs) + ',' + QByteArray::number(m_wakeNs)
-              + ',' + QByteArray::number(m_handlerDoneNs) + '\n');
-  m_handlerDoneNs = m_traceClock.nsecsElapsed();
+  const qint64 writeNs = recordClockNs() - sentNs;
+  if (newestRecord >= 0) {
+    RsiCaptureRecord& stored = m_capture.records[newestRecord]; // Unshared: no detach.
+    stored.entryNs = entryNs;
+    stored.sleepNs = m_sleepNs;
+    stored.wakeNs = m_wakeNs;
+    stored.previousDoneNs = m_handlerDoneNs;
+    stored.replyNs = sentNs;
+    stored.writeNs = writeNs;
+    stored.written = written;
+    stored.streamIndex = index;
+    stored.correction = reply.correction;
+    stored.stop = reply.stop;
+    stored.result = reply.result;
+  }
+  m_handlerDoneNs = recordClockNs();
   // After the reply: the queued signal must not delay it.
   if (detection) {
     m_reportedTouch = detection->touchIndex;
@@ -316,70 +270,57 @@ bool RsiDevice::reportsTouch(const Request& request) const
 
 void RsiDevice::onDispatcherAboutToBlock()
 {
-  m_sleepNs = m_traceClock.nsecsElapsed();
+  m_sleepNs = recordClockNs();
 }
 
 void RsiDevice::onDispatcherAwake()
 {
-  m_wakeNs = m_traceClock.nsecsElapsed();
+  m_wakeNs = recordClockNs();
 }
 
-void RsiDevice::appendTrace(const QByteArray& row)
+qsizetype RsiDevice::storeRequest(const QByteArray& xml, qint64 receivedNs)
 {
-  if (row.size() <= TraceCapacity - m_trace.size()) m_trace.append(row);
-  else ++m_traceDropped;
-  m_traceTimer->start();
+  if (m_streams.isEmpty()) return -1; // Requests without a table belong to no run.
+  QVector<RsiCaptureRecord>& records = m_capture.records;
+  if (records.size() == CaptureRecords || xml.size() > CaptureXmlBytes - m_capture.requestXml.size()) {
+    ++m_capture.dropped;
+    return -1;
+  }
+  if (records.isEmpty()) m_captureTimer->start(); // Once per capture, never per request.
+  RsiCaptureRecord record;
+  record.receivedNs = receivedNs;
+  record.xmlBegin = m_capture.requestXml.size();
+  record.xmlSize = xml.size();
+  m_capture.requestXml.append(xml);
+  records.append(record);
+  return records.size() - 1;
 }
 
-void RsiDevice::saveTrace()
+void RsiDevice::emitCapture(bool requested)
 {
-  if (!m_traceTimer) return; // Correction updates may arrive before start or after stop.
-  for (auto save = m_traceSaves.begin(); save != m_traceSaves.end();) {
-    if (save->wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-      ++save;
-      continue;
-    }
-    const QString error = save->get();
-    if (!error.isEmpty()) qInfo().noquote() << "[ERROR]" << objectName() + ":" << error;
-    save = m_traceSaves.erase(save);
-  }
-  m_traceTimer->stop();
-  if (!m_trace.isEmpty()) {
-    // One file per table in its record folder records/<id>; unassigned rows in records.
-    if (m_traceFile.isEmpty()) {
-      m_traceFile = m_diagnosticId.isEmpty()
-          ? QStringLiteral("rsi_packets_unassigned_%1.csv")
-                .arg(QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")))
-          : QStringLiteral("%1/rsi_packets_%1.csv").arg(m_diagnosticId);
-    }
-    if (m_traceDropped > 0) m_trace.append("# dropped_rows," + QByteArray::number(m_traceDropped) + '\n');
-    const std::shared_future<QString> previous = m_traceSaves.empty() ? std::shared_future<QString>{}
-                                                                       : m_traceSaves.back();
-    m_traceSaves.push_back(std::async(std::launch::async, &RsiDevice::writeTrace, previous,
-                                      std::exchange(m_trace, {}), m_traceFile).share());
-    m_traceDropped = 0;
-    if (m_sock->state() == QAbstractSocket::BoundState) m_trace.reserve(TraceCapacity);
-  }
-  if (!m_traceSaves.empty()) m_traceTimer->start();
+  if (!m_captureTimer || (!requested && m_capture.records.isEmpty())) return;
+  m_captureTimer->stop();
+  // Deep copies: the reserved members stay unshared, so clearing them keeps their capacity.
+  const RsiCapture capture{m_capture.diagnosticId,
+                           QVector<RsiCaptureRecord>(m_capture.records.cbegin(), m_capture.records.cend()),
+                           QByteArray(m_capture.requestXml.constData(), m_capture.requestXml.size()),
+                           m_capture.dropped, m_capture.completed, requested};
+  m_capture.records.resize(0);
+  m_capture.requestXml.truncate(0);
+  m_capture.dropped = 0;
+  m_capture.completed = false;
+  emit captureReady(capture);
 }
 
-QString RsiDevice::writeTrace(std::shared_future<QString> previous, QByteArray rows, QString fileName)
+void RsiDevice::flushCapture()
 {
-  if (previous.valid()) previous.wait(); // Rows of one file stay in capture order.
-  QFile file(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(fileName));
-  if (!QDir().mkpath(QFileInfo(file.fileName()).absolutePath())
-      || !file.open(QIODevice::WriteOnly | QIODevice::Append)) {
-    return QStringLiteral("cannot open RSI diagnostic %1 (%2)").arg(file.fileName(), file.errorString());
-  }
-  QByteArray contents = file.size() == 0 ? QByteArray(CaptureHeader) : QByteArray();
-  for (const QByteArray& row : rows.split('\n')) {
-    if (row.startsWith('#')) contents += row + '\n';
-    else if (!row.isEmpty()) contents += captureRow(row);
-  }
-  if (file.write(contents) != contents.size() || !file.flush()) {
-    return QStringLiteral("cannot save RSI diagnostic %1 (%2)").arg(file.fileName(), file.errorString());
-  }
-  return {};
+  emitCapture(true);
+}
+
+void RsiDevice::onCaptureTimer()
+{
+  if (!m_capture.records.isEmpty() && recordClockNs() - m_capture.records.constLast().receivedNs >= CaptureSilenceNs)
+    emitCapture(false);
 }
 
 RsiDevice::Reply RsiDevice::advance(const Request& request)
@@ -403,7 +344,10 @@ RsiDevice::Reply RsiDevice::advance(const Request& request)
     return reply;
   }
   // Stop only after the controller echoes Result = 1, so KRL sees completion.
-  if (m_state == RunState::Finished && request.result == 1) setState(RunState::Stopping);
+  if (m_state == RunState::Finished && request.result == 1) {
+    setState(RunState::Stopping);
+    m_capture.completed = true;
+  }
   Reply reply;
   reply.stop = m_state == RunState::Stopping;
   // Stopping is reached only from Finished or from Start without a stream.

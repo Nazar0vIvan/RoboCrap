@@ -1,28 +1,28 @@
 {
     "lastCalibration": {
         "ballCentreF": [
-            0.021323330810961272,
-            -0.055674708869734725,
-            126.97192294766307
+            0.023151409199711818,
+            -0.05401586736901623,
+            126.97280512518807
         ],
         "calibrationTouches": 114,
-        "contactHorizontal": 13.854589867675733,
-        "contactVertical": 13.842660108991124,
-        "id": "calibration_20261120_135817_781",
-        "quantile95": 0.10864680600892385,
-        "repeatability": 0.010405484729387422,
+        "contactHorizontal": 13.85369302374925,
+        "contactVertical": 13.841089815564333,
+        "id": "2026-11-21_19-32-00_calibration",
+        "quantile95": 0.1106248219423609,
+        "repeatability": 0.0102956686145826,
         "setCount": 36,
-        "setsOutsideBound": 25,
-        "smallestSingularValue": 2.0425140584778148,
+        "setsOutsideBound": 26,
+        "smallestSingularValue": 2.0421369151365387,
         "sphereCentreB": [
-            1054.1619429287446,
-            -331.9545081626611,
-            454.2311183075133
+            1054.1690114718072,
+            -331.9593762448044,
+            454.2358853732008
         ],
         "verificationSphereCentreB": [
-            1054.1779170813966,
-            -331.94385622787684,
-            454.245090544926
+            1054.182162951692,
+            -331.94756709862753,
+            454.2479057090262
         ],
         "verificationTouches": 44
     },

@@ -166,12 +166,13 @@ AGENT_CONTRACTS.md. `old_imp/` is not built; `python/` holds analysis scripts.
 
 | Thread | Objects / work | Created by |
 |---|---|---|
-| GUI | `QApplication`, `DeviceHub`, `DeviceRunner`s, scene classes, `OccController`/`OccViewWindow` and OCCT rendering, QML engine; JSON import, `ChamferPath::create`, `shared_data.txt` and `calibration_data.txt` writes, 16 ms Dry Run timer | `main()` stack |
+| GUI | `QApplication`, `DeviceHub`, `DeviceRunner`s, scene classes, `OccController`/`OccViewWindow`, OCCT rendering and QML engine. Owns job exports, `SessionRecorder`, JSON import, `ChamferPath::create` and the Dry Run timer | `main()` stack |
 | `ControlIO` | `FtsDevice`, `RsiDevice`, their sockets/timers | `DeviceHub` |
 | `GeneralIO` | `PlcDevice`, its socket | `DeviceHub` |
 | Generate (`std::async`) | `ChamferMotion::create` on a copied `ChamferPath` + `ChamferRobotSetup`; 30 ms GUI poll | `SceneMachining::generate` |
 | Calibration (`std::async`) | `createProbeTouchPlan` + `ProbeTouchMotion::create` on copied inputs; 30 ms poll | `SceneCalibration::generate` |
-| RSI sampling (`std::async`) | `sampleChamferRsiStream` on a copied `shared_ptr<const ChamferMotion>`, or `sampleProbeCalibrationRsi` on a copied `shared_ptr<const ProbeTouchMotion>` (one at a time); 30 ms poll; each writes its plan file | `SceneMachiningPreparation::prepare` / `prepareCalibration` |
+| RSI sampling (`std::async`) | `sampleChamferRsiStream` or `sampleProbeCalibrationRsi` reads the corresponding shared immutable motion and returns corrections and plan bytes. The GUI polls every 30 ms | `SceneMachiningPreparation::prepare` / `prepareCalibration` |
+| Records write (`std::async`) | `writeSessionFolder` reads a session snapshot, decodes stored request XML, writes the data files and commits `session.json` last | `SessionRecorder::writeSession` |
 | FTS save (`std::async`) | JSON write of a copied buffer | `FtsDevice` |
 | CAD (`QThread` subclasses) | Robot job (seven links, two tools) and `DrawingModel` jobs; reads serialized by a static mutex | `OccController` |
 
@@ -185,19 +186,17 @@ AGENT_CONTRACTS.md. `old_imp/` is not built; `python/` holds analysis scripts.
 
 ## 5. Shutdown
 
-1. `aboutToQuit`, in connection order: `ScenePlayback::end`;
-   `SceneMachiningPreparation::shutdown` (blocks on a sampling future, emits an empty
-   `correctionsReady`, deletes `shared_data.txt` and `calibration_data.txt`); `DeviceHub::stopAll`.
-2. `stopAll` (returns at once if stopped; asserts it runs outside both I/O threads): a
-   `BlockingQueuedConnection` stop per device, then `quit()`/`wait()` both threads. The empty
-   `setCorrections` from step 1 is posted by the same GUI thread before the RSI stop, so it arrives
-   first; this is not a general FIFO guarantee. `FtsDevice::stopDevice` waits for its save.
-3. After `app.exec()`, reverse declaration order: QML engine (`RobotViewport` calls
-   `detachViewWindow`); RobotController marks the robot unavailable and OccController waits for both
-   CAD workers (a BREP read cannot be interrupted) and deletes the window;
-   `SceneMachiningPreparation` (no-op `shutdown`); `SceneCalibration`, `SceneMachining` (future
-   destructors block on running workers); `ScenePlayback`, `SceneEndEffectors`, `SceneModel`;
-   `DeviceHub` (no-op `stopAll`); `QApplication`.
+1. `aboutToQuit` first calls `ScenePlayback::end`, then `SceneMachiningPreparation::shutdown`.
+   Preparation waits for sampling, closes any active calibration with an error, removes exported
+   jobs and queues an empty correction table. The recorder retains the armed job for final captures.
+2. `DeviceHub::stopAll` invokes each device's stop with a blocking queued connection, then quits
+   and joins the I/O threads. The queued empty table reaches `RsiDevice` before its stop.
+   `FtsDevice::stopDevice` waits for its own saves.
+3. `SessionRecorder::shutdown` delivers pending queued calls to itself, including final RSI and PLC
+   records. It closes any outstanding calibration with a missing-capture error and joins its writers.
+4. After `app.exec()`, stack destruction starts with the QML engine. Robot and viewport controllers
+   release scene resources, and `OccController` waits for its CAD workers. Preparation and recorder
+   are destroyed before calibration and machining. The device hub is destroyed before `QApplication`.
 
 ## 6. External-library boundaries
 

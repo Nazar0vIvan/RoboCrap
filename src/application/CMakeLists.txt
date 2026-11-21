@@ -9,6 +9,10 @@ qt_add_executable(robocrap
   devices/devicerunner.cpp
   devices/devicerunner.h
   main.cpp
+  records/sessionfiles.cpp
+  records/sessionfiles.h
+  records/sessionrecorder.cpp
+  records/sessionrecorder.h
   robot/robotcontroller.cpp
   robot/robotcontroller.h
   robot/robotdefinition.cpp
@@ -70,7 +74,6 @@ else()
       "qml/Views/Dashboard/DeltaPanel/LedsPanel.qml"
       "qml/Views/Dashboard/DeltaPanel/DeltaModuleInput.qml"
       "qml/Views/Dashboard/DeltaPanel/DeltaModuleOutput.qml"
-      "qml/Views/Dashboard/DeltaPanel/RobotStartPanel.qml"
       "qml/Views/Dashboard/FtsPanel/FtsPanel.qml"
       "qml/Views/Dashboard/FtsPanel/FtsBars.qml"
       "qml/Views/Network/Network.qml"

@@ -64,10 +64,9 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   snapshots/<date>/ copies of controller files); data/ holds input data that the application does not
   produce (probe point files, workpiece models). The executable-side layout (resources/cad,
   resources/json, resources/occt) does not change with the source layout.
-- Run records (RSI plans and captures, calibration results and touches, PLC and FTS logs) go to the
-  root cache path ROBOCRAP_RECORDS_DIR (default <repository>/records, git-ignored), passed to every
-  target as a compile definition; writers use QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)), never the
-  executable folder, so deleting a build keeps the measurements.
+- `ROBOCRAP_RECORDS_DIR` is the CMake cache path for records (default `<repository>/records`,
+  git-ignored). `SessionRecorder` writes a folder per recorded run. Manual FTS logs go directly
+  under the records root. See [RECORDS_FORMAT.md](RECORDS_FORMAT.md).
 - The probe settings file probe_calibration.json (primary ball centre in {F}, sphere centre in {B},
   contact distances, last calibration result) is in the root cache path ROBOCRAP_SETTINGS_DIR
   (default <repository>/settings, tracked by git so the values move between computers), passed to
@@ -176,8 +175,8 @@ src/application/main.cpp; for QML registration also Build and modules.
   QML-facing models only on their owning thread.
 - Log device diagnostics with qInfo().noquote() on the device thread with category label, device name
   and text; main.cpp configures timestamps. No logging singleton, message type or GUI-thread relay.
-- FTS recording keeps device-thread sockets/timers, copied-input nonblocking file work and completion
-  of outstanding saves before destruction.
+- `FtsDevice` retains its manual JSON recording, saves copied data asynchronously and joins saves at
+  shutdown. PLC and RSI devices send records to the GUI-thread `SessionRecorder` through queued signals.
 - DeviceRunner::invoke(name, args) dispatches public Q_INVOKABLE methods of AbstractDevice subclasses
   returning void with zero arguments or one QVariantMap. Names must be unique (buildApi indexes names,
   not signatures); inspect string call sites. Socket devices expose connectDevice/disconnectDevice,
@@ -194,8 +193,9 @@ src/application/main.cpp; for QML registration also Build and modules.
   SET_VAR and SNAPSHOT requests; writeMessage is private. The IO change frame and the SNAPSHOT reply both
   carry the start-sequence step/program/result; `VAR_TYPE` and the step/result codes equal the PLC
   DUTs. A PLC protocol or check change updates `docs/plc_project_snapshot/ISPSoft project.md`, and
-  RobotStartPanel's enable rules and `robotResumeBlocked` repeat the PLC's FB_RunSetVar/RobotIo
-  checks; change both sides together. The panel never drives module 1 outputs.
+  SceneMachiningPreparation's plcReady and canResumeCalibration repeat the PLC's FB_RunSetVar Run and
+  Resume checks; change both sides together. The PLC panel never drives module 1 outputs and starts no
+  program; programs are started only by Start Calibration and resumed by its Resume.
 - RSI: `RsiDevice` holds a stream table and plays `streams[TouchIndex]` from the first Start = 1
   request after Idle; a Start = 1 request with another TouchIndex while not Idle first ends the run
   as Start = 0 does (consecutive searches may send no Start = 0 packet). `decodeRequest` reads a
@@ -203,9 +203,9 @@ src/application/main.cpp; for QML registration also Build and modules.
   the index and any other text as an invalid packet; `Touch` is on only for "1" and `AIPos` gives the
   angles, neither invalidates a packet. Once per search (reset by every Start = 0 packet and by a new
   table) the oldest pending packet with Start 1, Touch 1, angles and TouchIndex > 0 is emitted as
-  `touchDetected(touch, joints)`, only after the reply and its capture rows. The application writes
-  the detected touches (`calibration_touches_<id>.csv`); the packet capture keeps every accepted
-  request and reply. Protocol details:
+  `touchDetected(touch, joints)` after the send attempt and capture bookkeeping. `RsiDevice` stores
+  accepted-peer requests under the installed table, including unanswered ones, up to each buffer's
+  limits. `captureReady` passes a capture to the recorder. Protocol details are in
   `controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
   `controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md`.
 
@@ -399,44 +399,46 @@ Apply Geometry and scene to numerical changes.
     with the timed phases (PTP to entry, LIN descend/retract/retreat, CIRC transfer, Search for each
     Approach, HOME); targets are the saved end-point TCPs at six decimals within 0.0001 mm and
     0.000001 rotation entries, S/T from the saved joints; at most 600 steps (the KRL DAT arrays). A
-    search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros. A
-    failure to write the plan file fails the Sampling; calibration_data.txt is written with QSaveFile
-    and the table installed only after both succeed.
+    search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros.
+    Sampling returns the plan in memory. After committing `calibration_data.txt` with QSaveFile,
+    preparation arms the recorder with the plan and job bytes and queues the correction table.
   - The RSI test LIN (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md) is the third stream
     source: prepareTestLin drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
     Sampling request, startup or shutdown drops it.
   - Calibration run (startCalibration, plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md): allowed with a
     held current calibration job, no Sampling or run active and the PLC's own Run checks met (step
-    IDLE, X1.0, X1.7, X1.6 off); it sends PLC runRobotProgram 1. Detections arrive through the queued
-    main.cpp link RsiDevice::touchDetected → recordTouch (first per touch number). The PLC state comes
+    IDLE, X1.0 and X1.7 on, X1.6 off). It opens the session before sending PLC runRobotProgram 1.
+    Detections arrive through the queued main.cpp link from RsiDevice::touchDetected to recordTouch
+    (first per touch number). The PLC state comes
     through DeviceRunner::dataUpdated, because QQmlPropertyMap::valueChanged does not report insert().
-    A start failure counts only when this run's start sequence returns to IDLE without STARTED
-    (robotResult repeats with every heartbeat); success needs the program seen running, then
-    robotProgramState finished. From Start Calibration until the run ends (Run requested, PLC start
+    Once the PLC start sequence has left IDLE, a return to IDLE without STARTED or a running program
+    ends the start attempt. A running state or STARTED confirms the start. A subsequent finished state
+    ends the program. From Start Calibration until the run ends (Run requested, PLC start
     sequence or program 1 running), Sampling and the test LIN are refused; a replaced job, a PLC
-    disconnect or a failed start ends the run with an error; an interrupted program keeps it (Resume
-    continues it). Every run end with detections writes them to
-    `records/<id>/calibration_touches_<id>.csv`. On success
-    fitProbeCalibration (trajectories, GUI thread, milliseconds) gives the result; it is written to
-    `records/<id>/calibration_result_<id>.csv` and saved by SceneCalibration::recordCalibrationResult
-    as lastCalibration in the settings file (a write error joins calibrationRunError). A result that
-    the settings reader would reject is neither kept nor saved, opens no result window and is reported
-    as the run error. After a failed read of probe_calibration.json, SceneCalibration writes nothing to
+    disconnect, a failed start or X1.0 AUT EXT off (the operator's abort, e.g. T1 after an EMERGENCY
+    STOP) ends the run with an error; an interrupted program keeps it. resumeCalibration sends PLC
+    resumeRobot only when canResumeCalibration holds (program interrupted, step IDLE, X1.0, X1.6 on,
+    X1.4 and X1.3 off). After a Passive STOP the operator acknowledges the message on the smartPAD
+    before Resume. An observed resume sequence returning to IDLE without success keeps the same run
+    and shows its error. With X1.2 off, calibrationInterruption directs the operator to T1.
+    Leaving AUT EXT closes the session. When detections exist, the recorder retains `touches.csv`
+    even on failure. After program completion, fitProbeCalibration runs on the GUI thread.
+    A fit supplies `residual_sets.csv` and SceneCalibration::recordCalibrationResult updates
+    lastCalibration. The recorder includes `result` in `session.json` only on success. An invalid result
+    is reported as a run error. After a failed read of probe_calibration.json, SceneCalibration writes nothing to
     it in that session, and every refused save reports the read error through settingsError. It becomes
     primary only through Reassign (reassignPrimaryCentres): primary = the last result with source =
     its id, the ball centre applied with A, B, C kept, the sphere moved in the submode; the primary
     centres come only from the calibration touches, never from the verification refit. Reassign
     removes the calibration path and so the prepared job and calibration_data.txt.
-    The run prints only its errors to the console. `python/calibration/calibration_fit.py` repeats
-    the fit offline and must keep matching the result file.
-  - Keep numerical work, file I/O, console output and unfinished-worker waits out of ControlIO receive
-    callbacks; publish on state transitions/correction updates; device shutdown joins outstanding
-    saves. Plan and packet filenames share the stream identifier, and both are written into
-    `records/<id>/` (captures without a stream stay in `records/`); flush old-ID rows before replacing
-    the active stream, keeping whole exchanges. One identifier has one capture file: save workers
-    append in start order (each waits for the previous in its own thread) and decode the XML there;
-    the console shows only save errors.
+    `python/calibration/calibration_fit.py` repeats the fit from `plan.csv` and `touches.csv`.
+  - ControlIO timestamps and stores requests, decodes them for the live protocol, and encodes the
+    reply. File formatting, disk writes and waiting for writers stay off the receive path. Replacing
+    a table flushes its capture before installing the new table. The recorder associates a capture
+    by job ID with the open calibration or currently armed job. On shutdown preparation retains the
+    job until the recorder drains queued captures after DeviceHub::stopAll. A worker decodes the
+    stored XML for both RSI tables and commits the session files individually, `session.json` last.
 
 ## QML
 
@@ -468,8 +470,10 @@ registration, module names or resources.
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
 - In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
   Sampling (App.MachiningPreparation.prepareCalibration, enabled by canPrepareCalibration and the RSI
-  DeviceRunner's isConnected) and Start Calibration (startCalibration, enabled by
-  canStartCalibration and the RSI DeviceRunner's isConnected); Generate Path calls
+  DeviceRunner's isConnected), Start Calibration (startCalibration, enabled by
+  canStartCalibration and the RSI DeviceRunner's isConnected) and Resume (resumeCalibration, enabled by
+  canResumeCalibration and the RSI DeviceRunner's isConnected; a separate tool, so no label change
+  resizes the toolbar); Generate Path calls
   App.Calibration.generate() without an editor; the Scene panel lists only the Calibration group;
   Delete removes nothing. The Settings "RSI test LIN" button (prepareTestLin) requires the RSI
   DeviceRunner's isConnected, no running Sampling and no active calibration run (calibrationRunning).

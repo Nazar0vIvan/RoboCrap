@@ -5,11 +5,10 @@ A hard-coded RSI LIN for testing the WP-500 stop: from HOME and a PTP to `TestSt
 context stops the motion when `$IN[8]` (WP-500 touch) switches on. After the stop or the
 completed 100 mm the program only ends: no retract, no return to HOME. Until 2026-11-11 the
 program, its context and this contract were named `RSI_Probe_Lin` (folder `WP-500_test/`); the
-records of earlier runs in this repository now use the new name. The application keeps the
-"RSI test LIN" button, `prepareTestLin` and the `test_lin_` capture prefix.
+application retains the **RSI test LIN** button, `prepareTestLin` and the `test_lin_` job ID prefix.
 
-Controller files (in the repository the SRC, DAT and this contract are in
-`resources/files/rsi/ProbeCheck/`, the Ethernet configuration in `resources/files/rsi/`):
+The repository stores the SRC/DAT in `controller/krl/rsi/probe_check/` and the Ethernet
+configuration in `controller/rsi_config/`.
 - `RSI_Probe_Check.src` and `RSI_Probe_Check.dat` (module `RSI_Probe_Check`).
 - `RSI_Probe_Check.rsi`, `.rsi.xml` and `.rsi.diagram`: the RSI Visual context described below,
   loaded by `RSI_CREATE("RSI_Probe_Check.rsi")`. Copy them from the RSI Visual export.
@@ -17,13 +16,13 @@ Controller files (in the repository the SRC, DAT and this contract are in
   and `Touch` (BOOL, In4) for `RSI_Probe_Calibration`; this context leaves both inputs unconnected,
   so the controller sends the texts `not linked:3` and `not linked:4` in them.
 
-PC side: the "RSI test LIN" button on the Network page calls
-`SceneMachiningPreparation::prepareTestLin` (`src/application/scene/scenemachiningpreparation.cpp`),
-which replaces any held stream, deletes `C:\RoboCrapJobs\shared_data.txt` and installs the test
-increments in `RsiDevice` through the existing `correctionsReady` link. `RsiDevice` behaves as in
-`RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior"); packet captures are named
-`rsi_packets_test_lin_<UTC>.csv` in the folder `records/test_lin_<UTC>/` (since 2026-11-17). A later
-RSI Sampling replaces the test stream.
+On the Network page, **RSI test LIN** calls `SceneMachiningPreparation::prepareTestLin`, clears
+the previous corrections and exported jobs, and installs the test increments in `RsiDevice`.
+Preparation arms the recorder with the test inputs. A matching capture produces
+`records/yyyy-MM-dd_HH-mm-ss_test-lin/` with `rsi.csv`, `rsi_timing.csv`, `session.json` and,
+when PLC rows exist, `plc.csv`. The test uses no sampled plan or shared KRL job file.
+An exchange ending before the controller echoes completion gets `_failed`.
+See the [record format](../../../../docs/code%20context/RECORDS_FORMAT.md).
 
 ## Frames and motion
 

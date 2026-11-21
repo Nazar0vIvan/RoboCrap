@@ -3,21 +3,22 @@
 Usage:
     python -I python/calibration/calibration_fit.py <record folder>
 
-The record folder is records/<id> in the repository. It must hold the Sampling plan
-(rsi_plan_<id>.csv; the two oldest sessions: rsi_calibration_plan_<id>.csv) and the touch file
-calibration_touches_<id>.csv written by the application at the end of a calibration run.
+The record folder is a calibration session records/<yyyy-MM-dd_HH-mm-ss>_calibration[_failed]
+(format: docs/code context/RECORDS_FORMAT.md). It must hold plan.csv and touches.csv; the
+script also compares its result with the folder's session.json "result" and residual_sets.csv
+and exits with status 1 when a value differs by more than COMPARE_TOLERANCE.
 
 This is a copy of fitProbeCalibration (src/trajectories/probe/probecalibrationfit.cpp): the base
 model of docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_METHOD_RU.md, section 5, with the
 nominal KR 10 forward kinematics of Kr10Kinematics::solveFK and the joint table Joints of
 src/application/robot/robotdefinition.cpp. A change of either must be repeated here; on session
-calibration_20261118_113045_223 the output equals the application's calibration_result file to
-all six decimals. Output: the rows of calibration_result_<id>.csv.
+calibration_20261118_113045_223 the output equals the application's result to all six decimals.
+Output: the result values and the residual sets, then the differences to the stored values.
 """
 
 import argparse
 import csv
-import glob
+import json
 import math
 import os
 import sys
@@ -41,6 +42,7 @@ STEP_TOLERANCE = 1e-9  # mm
 RANK_TOLERANCE = 1e-9  # smallest singular value relative to the largest
 ANGLE_TOLERANCE = 1e-6  # deg
 QUANTILE_LEVEL = 0.95
+COMPARE_TOLERANCE = 1.5e-6  # stored values have six decimals
 
 
 def rotation(axis, angle):
@@ -71,32 +73,38 @@ def flange(joints):
 
 
 def read_rows(path):
-    with open(path, newline="") as file:
-        return list(csv.DictReader(line for line in file if not line.startswith("#")))
+    """Rows of one record CSV (separator ';', one header line) as dicts."""
+    with open(path, newline="", encoding="utf-8") as file:
+        return list(csv.DictReader(file, delimiter=";"))
 
 
-def read_touches(folder):
-    """Plan touches with their flange poses; an error text when a touch is missing."""
-    plans = (glob.glob(os.path.join(folder, "rsi_plan_*.csv"))
-             + glob.glob(os.path.join(folder, "rsi_calibration_plan_*.csv")))
-    detections = glob.glob(os.path.join(folder, "calibration_touches_*.csv"))
-    if not plans or not detections:
-        return None, "The folder needs a plan file and calibration_touches_<id>.csv."
-    plan = read_rows(plans[0])
-    joints = {int(row["touch"]): [float(row["a%d" % axis]) for axis in range(1, 7)]
-              for row in read_rows(detections[0])}
+def read_session(folder):
+    """Plan rows and detected joint angles (touch number -> six deg) of one record folder, or an error."""
+    plan_path, touches_path = os.path.join(folder, "plan.csv"), os.path.join(folder, "touches.csv")
+    if not os.path.exists(plan_path):
+        return None, None, "The folder has no plan.csv."
+    joints = {}
+    if os.path.exists(touches_path):
+        joints = {int(row["touch"]): [float(row["a%d_deg" % axis]) for axis in range(1, 7)]
+                  for row in read_rows(touches_path)}
+    return read_rows(plan_path), joints, None
+
+
+def plan_touches(plan, joints):
+    """Plan touches with their flange poses and the start sphere centre; an error when a touch is missing."""
     missing = [row["touch"] for row in plan if int(row["touch"]) not in joints]
+    if len(missing) == len(plan):
+        return None, "No touch detected."
     if missing:
-        return None, "%d of %d touches detected; the calibration needs all of them." % (
-            len(plan) - len(missing), len(plan))
+        return None, "%d of %d touches detected." % (len(plan) - len(missing), len(plan))
     touches = []
     for row in plan:
         pose = flange(joints[int(row["touch"])])
-        touches.append({"purpose": row["purpose"], "group": int(row["group"]), "tilt": float(row["tilt"]),
-                        "roll": float(row["roll"]), "position": pose[:3, 3], "rotation": pose[:3, :3]})
+        touches.append({"purpose": row["purpose"], "group": int(row["group"]), "tilt": float(row["tilt_deg"]),
+                        "roll": float(row["roll_deg"]), "position": pose[:3, 3], "rotation": pose[:3, :3]})
     first = plan[0]  # tilt 0: contact point = sphere centre + L * normal
-    sphere = np.array([float(first["contact_" + axis]) - CONTACT_START * float(first["normal_" + axis])
-                       for axis in "XYZ"])
+    sphere = np.array([float(first["contact_%s_mm" % axis]) - CONTACT_START * float(first["normal_" + axis])
+                       for axis in "xyz"])
     return (touches, sphere), None
 
 
@@ -169,13 +177,15 @@ def residual_sets(calibration, model, spread):
              3.0 * spread / math.sqrt(entry["count"]), entry["count"]) for entry in sets]
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("folder", help="record folder records/<id>")
-    arguments = parser.parse_args()
-    data, error = read_touches(arguments.folder)
+def rounded(values):
+    return [round(float(value), 6) for value in values]
+
+
+def fit(plan, joints):
+    """Result (keys of session.json "result") and residual sets (rows of residual_sets.csv), or an error."""
+    data, error = plan_touches(plan, joints)
     if error:
-        sys.exit(error)
+        return None, None, error
     touches, sphere = data
     calibration = [touch for touch in touches if touch["purpose"] == "calibration"]
     verification = [touch for touch in touches if touch["purpose"] == "verification"]
@@ -185,19 +195,80 @@ def main():
     magnitudes = sorted(abs(residual(check, touch)) for touch in verification)
     quantile = magnitudes[math.ceil(QUANTILE_LEVEL * len(magnitudes)) - 1]
     ball, centre, vertical, horizontal = model
-    print("quantity,value_1,value_2,value_3")
-    print("ball_centre_F,%.6f,%.6f,%.6f" % tuple(ball))
-    print("sphere_centre_B,%.6f,%.6f,%.6f" % tuple(centre))
-    print("verification_sphere_centre_B,%.6f,%.6f,%.6f" % tuple(check[1]))
-    print("contact_vertical,%.6f" % vertical)
-    print("contact_horizontal,%.6f" % horizontal)
-    print("quantile95,%.6f" % quantile)
-    print("repeatability,%.6f" % spread)
-    print("smallest_singular_value,%.6f" % smallest)
-    print("touches,%d,%d" % (len(calibration), len(verification)))
-    print("set,group,value_deg,mean_mm,bound_mm,count")
-    for ring, group, value, mean, bound, count in residual_sets(calibration, model, spread):
-        print("%s,%d,%.6f,%.6f,%.6f,%d" % ("ring" if ring else "roll", group, value, mean, bound, count))
+    result = {
+        "ball_centre_f_mm": rounded(ball),
+        "sphere_centre_b_mm": rounded(centre),
+        "verification_sphere_centre_b_mm": rounded(check[1]),
+        "contact_vertical_mm": round(float(vertical), 6),
+        "contact_horizontal_mm": round(float(horizontal), 6),
+        "quantile95_mm": round(float(quantile), 6),
+        "repeatability_mm": round(float(spread), 6),
+        "smallest_singular_value": round(float(smallest), 6),
+        "calibration_touches": len(calibration),
+        "verification_touches": len(verification),
+    }
+    sets = [{"set": "ring" if ring else "roll", "group": group, "value_deg": round(float(value), 6),
+             "mean_mm": round(float(mean), 6), "bound_mm": round(float(bound), 6), "count": count}
+            for ring, group, value, mean, bound, count in residual_sets(calibration, model, spread)]
+    return result, sets, None
+
+
+def as_list(value):
+    return value if isinstance(value, list) else [value]
+
+
+def differences(result, sets, folder):
+    """Lines naming every value that differs from the folder's session.json result and residual_sets.csv."""
+    lines = []
+    session_path = os.path.join(folder, "session.json")
+    stored = None
+    if os.path.exists(session_path):
+        with open(session_path, encoding="utf-8") as file:
+            stored = json.load(file).get("result")
+    if not stored:
+        lines.append("session.json has no result")
+    else:
+        for key, value in result.items():
+            other = as_list(stored.get(key))
+            if len(other) != len(as_list(value)) or any(
+                    other_value is None or abs(own - other_value) > COMPARE_TOLERANCE
+                    for own, other_value in zip(as_list(value), other)):
+                lines.append("%s: computed %s, stored %s" % (key, value, stored.get(key)))
+    sets_path = os.path.join(folder, "residual_sets.csv")
+    stored_sets = read_rows(sets_path) if os.path.exists(sets_path) else []
+    if len(stored_sets) != len(sets):
+        lines.append("residual_sets.csv: %d rows stored, %d computed" % (len(stored_sets), len(sets)))
+    for computed, row in zip(sets, stored_sets):
+        if (computed["set"] != row["set"] or computed["group"] != int(row["group"])
+                or computed["count"] != int(row["count"])
+                or any(abs(computed[key] - float(row[key])) > COMPARE_TOLERANCE
+                       for key in ("value_deg", "mean_mm", "bound_mm"))):
+            lines.append("residual set differs: computed %s, stored %s" % (computed, dict(row)))
+    return lines
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("folder", help="calibration record folder records/<name>")
+    arguments = parser.parse_args()
+    plan, joints, error = read_session(arguments.folder)
+    if not error:
+        result, sets, error = fit(plan, joints)
+    if error:
+        sys.exit(error)
+    for key, value in result.items():
+        print("%s;%s" % (key, ";".join("%.6f" % item if isinstance(item, float) else str(item)
+                                       for item in as_list(value))))
+    print("set;group;value_deg;mean_mm;bound_mm;count")
+    for entry in sets:
+        print("%s;%d;%.6f;%.6f;%.6f;%d" % (entry["set"], entry["group"], entry["value_deg"], entry["mean_mm"],
+                                           entry["bound_mm"], entry["count"]))
+    lines = differences(result, sets, arguments.folder)
+    print("differences to the stored result: %s" % ("none" if not lines else len(lines)))
+    for line in lines:
+        print("  " + line)
+    if lines:
+        sys.exit(1)
 
 
 if __name__ == "__main__":

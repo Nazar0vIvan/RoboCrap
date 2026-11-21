@@ -5,9 +5,6 @@
 #include "geometry/utils.h"
 
 #include <QDateTime>
-#include <QDebug>
-#include <QDir>
-#include <QSaveFile>
 #include <QStringList>
 
 #include <algorithm>
@@ -29,7 +26,7 @@ QString csvValues(const V6d& values)
 {
   QStringList fields;
   for (double value : values) fields.append(QString::number(value, 'f', 9));
-  return fields.join(QLatin1Char(','));
+  return fields.join(QLatin1Char(';'));
 }
 
 class RsiStreamSampler
@@ -66,21 +63,9 @@ public:
     m_stream.duration = duration;
     m_stream.increments.reserve(count + RsiSettleCycles);
     m_stream.diagnosticId = QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
-    // The plan and the packet captures of one stream share the record folder records/<id>.
-    const QDir records(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR)).filePath(m_stream.diagnosticId));
-    m_trace.setFileName(records.filePath(QStringLiteral("rsi_plan_%1.csv")
-        .arg(m_stream.diagnosticId)));
-    if (!QDir().mkpath(records.absolutePath()) || !m_trace.open(QIODevice::WriteOnly)) {
-      qInfo().noquote() << "[ERROR] RSI Sampling: cannot open diagnostic" << m_trace.fileName()
-                        << m_trace.errorString();
-    }
-    writeTrace(QStringLiteral("# plan_id,") + m_stream.diagnosticId
-        + QStringLiteral("\n# XYZ mm; ABC/joints deg; joints from rounded offsets; time s; cycle 0.004 s\n# staging_joints_deg,")
-        + csvValues(points[m_motion.boundary(ChamferBoundary::StagingIn)].joints)
-        + QStringLiteral("\n# joint_speed_limits_deg_s,") + csvValues(m_motion.robot().timing.jointSpeed)
-        + QStringLiteral("\ntime_s,target_X,target_Y,target_Z,target_A,target_B,target_C,")
-        + QStringLiteral("joint_A1,joint_A2,joint_A3,joint_A4,joint_A5,joint_A6,")
-        + QStringLiteral("increment_X,increment_Y,increment_Z,increment_A,increment_B,increment_C\n"));
+    m_stream.plan = "time_s;target_x_mm;target_y_mm;target_z_mm;target_a_deg;target_b_deg;target_c_deg;"
+                    "a1_deg;a2_deg;a3_deg;a4_deg;a5_deg;a6_deg;increment_x_mm;increment_y_mm;increment_z_mm;"
+                    "increment_a_deg;increment_b_deg;increment_c_deg\n";
     for (qsizetype index = 0; index <= count; ++index) {
       const double time = index == count ? duration : index * RsiCyclePeriod;
       const QString error = index == 0 ? startCycle() : appendCycle(time);
@@ -106,18 +91,6 @@ public:
     if (!last) return {{}, QStringLiteral("Cannot represent the reconstructed final TCP orientation as A/B/C.")};
     m_stream.finalCoordinates = *last;
     m_stream.stagingPoint = central.path().stagingPoint();
-    writeTrace(QStringLiteral("# tool_xyzabc,") + csvValues(m_stream.toolCoordinates)
-        + QStringLiteral("\n# phase_end_times_s,") + QString::number(central.phaseTimes()[1], 'f', 9)
-        + QLatin1Char(',') + QString::number(central.phaseTimes()[2], 'f', 9)
-        + QLatin1Char(',') + QString::number(duration, 'f', 9)
-        + QStringLiteral("\n# settle_zero_cycles,") + QString::number(RsiSettleCycles) + QLatin1Char('\n'));
-    if (m_trace.isOpen()) {
-      if (m_trace.commit())
-        qInfo().noquote() << "[OK] RSI Sampling: saved diagnostic" << m_trace.fileName();
-      else
-        qInfo().noquote() << "[ERROR] RSI Sampling: cannot save diagnostic" << m_trace.fileName()
-                          << m_trace.errorString();
-    }
     return {std::move(m_stream), {}};
   }
 
@@ -179,27 +152,16 @@ private:
     return {};
   }
 
+  // One plan.csv row: planned time, analytical target, joints of the reconstructed TCP, increment.
   void recordSample(double time, const M4d& target)
   {
-    if (!m_trace.isOpen()) return;
     V6d coordinates = V6d::Zero();
     coordinates << target.block<3, 1>(0, 3), principalEulerDegrees(target.block<3, 3>(0, 0));
     V6d increment = V6d::Zero();
     if (!m_stream.increments.isEmpty()) increment = m_stream.increments.back();
-    writeTrace(QString::number(time, 'f', 9) + QLatin1Char(',') + csvValues(coordinates)
-        + QLatin1Char(',') + csvValues(m_seed.q) + QLatin1Char(',') + csvValues(increment)
-        + QLatin1Char('\n'));
-  }
-
-  void writeTrace(const QString& text)
-  {
-    if (!m_trace.isOpen()) return;
-    const QByteArray bytes = text.toUtf8();
-    if (m_trace.write(bytes) == bytes.size()) return;
-    qInfo().noquote() << "[ERROR] RSI Sampling: cannot write diagnostic" << m_trace.fileName()
-                      << m_trace.errorString();
-    m_trace.cancelWriting();
-    m_trace.commit(); // Close and discard the cancelled temporary file.
+    m_stream.plan += (QString::number(time, 'f', 9) + QLatin1Char(';') + csvValues(coordinates)
+                      + QLatin1Char(';') + csvValues(m_seed.q) + QLatin1Char(';') + csvValues(increment)
+                      + QLatin1Char('\n')).toUtf8();
   }
 
   // Change from the previous cycle's TCP velocity; the first cycle starts at rest.
@@ -216,7 +178,6 @@ private:
   const ChamferMotion& m_motion;
   ChamferTcpSolver m_solver;
   ChamferRsiStream m_stream;
-  QSaveFile m_trace; // Worker-local planned values; never written by ControlIO.
   Kr10Kinematics::IkSolution m_seed;
   M4d m_reconstructedTcp = M4d::Identity(); // Pose after the rounded offsets already appended.
   M3d m_initialRotation = M3d::Identity(); // Fixed reference for the summary's angular excursion.

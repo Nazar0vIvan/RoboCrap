@@ -21,6 +21,7 @@
 #include "backendqmltypes.h"
 #include "workspacecontroller.h"
 #include "devices/devicehub.h"
+#include "records/sessionrecorder.h"
 
 #include "devices/fts/rdtmessage.h"
 #include "devices/fts/ftsdevice.h"
@@ -58,6 +59,8 @@ int main(int argc, char* argv[])
   qRegisterMetaType<QVector<RDTResponse>>("QVector<RDTResponse>");
   qRegisterMetaType<QVector<QVector<V6d>>>("QVector<QVector<V6d>>");
   qRegisterMetaType<V6d>("V6d"); // RsiDevice::touchDetected crosses from ControlIO.
+  qRegisterMetaType<RsiCapture>("RsiCapture");
+  qRegisterMetaType<PlcIoRecord>("PlcIoRecord");
 
   auto* plcDev = new PlcDevice(QStringLiteral("PLC_AS332T"));
   auto* ftsDev = new FtsDevice(QStringLiteral("FTS_Delta"));
@@ -87,8 +90,17 @@ int main(int argc, char* argv[])
   SceneCalibration calibration(&scene, &endEffectors, &playback);
   SceneCalibrationQml::s_inst = &calibration;
 
+  // Declared before preparation, which calls it until its own destruction.
+  SessionRecorder recorder;
+  QObject::connect(rsiDev, &RsiDevice::captureReady, &recorder, &SessionRecorder::addRsiCapture,
+                   Qt::QueuedConnection);
+  QObject::connect(plcDev, &PlcDevice::ioRecorded, &recorder, &SessionRecorder::addPlcRecord, Qt::QueuedConnection);
+  QObject::connect(&recorder, &SessionRecorder::captureRequested, rsiDev, &RsiDevice::flushCapture,
+                   Qt::QueuedConnection);
+
   SceneMachiningPreparation preparation(&scene, &machining, &calibration);
   SceneMachiningPreparationQml::s_inst = &preparation;
+  preparation.attachRecorder(&recorder);
   // Implicitly shared corrections and their log identifier cross to ControlIO together.
   QObject::connect(&preparation, &SceneMachiningPreparation::correctionsReady,
                    rsiDev, &RsiDevice::setCorrections, Qt::QueuedConnection);
@@ -99,6 +111,8 @@ int main(int argc, char* argv[])
   // Disable result dispatch and finish the worker before shutting down ControlIO.
   QObject::connect(&app, &QApplication::aboutToQuit, &preparation, &SceneMachiningPreparation::shutdown);
   QObject::connect(&app, &QApplication::aboutToQuit, &hub, &DeviceHub::stopAll);
+  // After stopAll: the devices' last captures and PLC rows, then the record writes.
+  QObject::connect(&app, &QApplication::aboutToQuit, &recorder, &SessionRecorder::shutdown);
 
   RoboCrap3D::OccController viewportController(
       RoboCrap3D::ViewportAssets::applicationAssets().occtResources);

@@ -13,6 +13,7 @@
 #include <optional>
 
 class DeviceRunner;
+class SessionRecorder;
 
 // RSI Sampling: turns a selected saved machining path into the controller correction stream and
 // C:/RoboCrapJobs/shared_data.txt, or the calibration path into one search stream per touch and
@@ -31,6 +32,8 @@ class SceneMachiningPreparation final : public QObject
   Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
   Q_PROPERTY(QString summary READ summary NOTIFY preparedChanged FINAL)
   Q_PROPERTY(bool canStartCalibration READ canStartCalibration NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool canResumeCalibration READ canResumeCalibration NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QString calibrationInterruption READ calibrationInterruption NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool calibrationRunning READ calibrationRunning NOTIFY calibrationRunChanged FINAL)
   Q_PROPERTY(int calibrationDetected READ calibrationDetected NOTIFY calibrationRunChanged FINAL)
   Q_PROPERTY(int calibrationTouchCount READ calibrationTouchCount NOTIFY preparedChanged FINAL)
@@ -54,6 +57,9 @@ public:
   void shutdown();
   // The PLC runner (GUI thread); called once after DeviceHub exists.
   void attachPlc(DeviceRunner* plc);
+  // The session recorder (GUI thread), which a calibration Sampling arms and a calibration run
+  // opens and closes; called once after construction.
+  void attachRecorder(SessionRecorder* recorder);
   // Held, current calibration job, no Sampling or run active, PLC ready to start a program.
   bool canStartCalibration() const;
   bool calibrationRunning() const { return m_run != CalibrationRun::Idle; }
@@ -62,6 +68,12 @@ public:
   QString calibrationRunError() const { return m_runError; }
   // Starts program 1 (RSI_Probe_Calibration) through the PLC.
   Q_INVOKABLE void startCalibration();
+  // This run's program is interrupted by the smartPAD STOP key and its message acknowledged.
+  bool canResumeCalibration() const;
+  // Continues the interrupted program 1 through the PLC.
+  Q_INVOKABLE void resumeCalibration();
+  // Status-bar line while this run's program is interrupted or resuming; empty otherwise.
+  QString calibrationInterruption() const;
 
 public slots:
   // RsiDevice::touchDetected; kept only during a run, the first detection of each touch.
@@ -79,8 +91,16 @@ signals:
   void calibrationRunFinished();
 
 private:
-  // Requested: Run sent; Starting: PLC start sequence seen; Started: program 1 seen running.
-  enum class CalibrationRun { Idle, Requested, Starting, Started };
+  // Requested: Run sent; Starting: PLC start sequence seen; Started: program 1 seen running (it may be
+  // interrupted); Resuming: Resume sent; ResumeStarting: PLC sequence of that Resume seen.
+  enum class CalibrationRun { Idle, Requested, Starting, Started, Resuming, ResumeStarting };
+
+  // Program 1 of this run was seen running (it may be interrupted or resuming).
+  bool programStarted() const
+  {
+    return m_run == CalibrationRun::Started || m_run == CalibrationRun::Resuming
+        || m_run == CalibrationRun::ResumeStarting;
+  }
 
   struct PreparedRsiStream
   {
@@ -95,7 +115,6 @@ private:
     std::shared_ptr<const ProbeTouchMotion> motion; // Identity of the sampled calibration path.
     int touchCount = 0;
     qsizetype stepCount = 0;
-    QString diagnosticId; // Names the procedure's record folder records/<id>.
   };
 
   bool isCurrent(const PreparedRsiStream& prepared) const;
@@ -130,6 +149,7 @@ private:
   bool m_testLin = false; // The installed stream is the test LIN, not a sampled path.
   bool m_shuttingDown = false;
   DeviceRunner* m_plc = nullptr;
+  SessionRecorder* m_recorder = nullptr;
   CalibrationRun m_run = CalibrationRun::Idle;
   QVector<ProbeTouchDetection> m_detections; // Of the current or last run.
   QString m_runError;

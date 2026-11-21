@@ -125,24 +125,21 @@ the common systematic part. Drift between repetitions still contributes to that 
 4. Each animated approach travels 3 mm to nominal contact at 1 mm/s. Calibration RSI sampling
    exports a 5 mm search: 1250 increments of 0.004 mm, one per 4 ms cycle, then 50 zero increments.
    Thus the robot search includes 2 mm beyond the animated nominal contact.
-5. Sampling writes the touch plan as comma-separated values (CSV) under `records/<id>/`, then
-   application completion writes `calibration_data.txt` and installs one correction stream per touch. The documented session
+5. Sampling keeps the touch plan in memory. Preparation exports `calibration_data.txt`, arms the
+   recorder with the plan and job bytes, and installs the search streams. The documented session
    has 158 touches, 485 KRL steps and 159 stream slots, including an empty slot 0.
 6. KRL executes the transfers. Each search sets its touch number, enables relative RSI, waits
    12 ms, sets Start and calls `RSI_MOVECORR`. The documented RSI STOP block ends the search on
    the probe signal. A failed search retracts LIN to its recorded start and ends the program.
-7. At the end of a run the application writes, for every detected touch, the actual joint angles
-   of the first packet with the probe signal to `records/<id>/calibration_touches_<id>.csv`. The
-   packet capture keeps every 4 ms cycle: the controller's millisecond counter IPOC, the actual
-   joint angles and the corrections.
+7. For each detected touch, `touches.csv` records the first reported actual joint angles for that
+   touch. `rsi.csv` retains IPOC, actual joint angles and any attempted correction per stored request.
+   The calibration session folder also contains `plan.csv`. The [record format](../../code%20context/RECORDS_FORMAT.md)
+   defines the capture limits and the files available after a failed run.
 
-Code evidence: `src/application/scene/scenecalibration.cpp:28-105, 144-168, 241-248`;
-`src/geometry/spherefit.cpp:7-50`; `src/trajectories/probe/probetouchplan.cpp:26-159`;
-`src/trajectories/probe/probetouchmotion.cpp:40-163`;
-`src/trajectories/probe/probersistream.cpp:20-53, 128-187`;
-`src/application/scene/scenemachiningpreparation.cpp:307-348`;
-`controller/krl/rsi/calibration/RSI_Probe_Calibration.src:43-100`;
-`src/application/scene/scenemachiningpreparation.cpp:219-234` (touch file).
+The calibration geometry and path are implemented in `scenecalibration.cpp`, `spherefit.cpp`,
+`probetouchplan.cpp` and `probetouchmotion.cpp`. `sampleProbeCalibrationRsi` builds the sampled job.
+`RSI_Probe_Calibration.src` executes it. `SceneMachiningPreparation::recordTouch` and `endRun`
+collect and format detections, and `writeSessionFolder` commits the files.
 
 ### What verification means
 

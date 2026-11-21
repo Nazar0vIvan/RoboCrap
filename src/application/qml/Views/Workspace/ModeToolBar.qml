@@ -15,6 +15,7 @@ ToolBar {
   property bool preparationAvailable: false
   property bool preparing: false
   property bool calibrationStartAvailable: false
+  property bool calibrationResumeAvailable: false
   property bool playbackAvailable: false
   property bool playing: false
   property bool playbackActive: false
@@ -33,6 +34,7 @@ ToolBar {
   signal generationRequested()
   signal preparationRequested()
   signal calibrationStartRequested()
+  signal calibrationResumeRequested()
   signal toolSetupRequested()
 
   readonly property bool measuring: root.mode === WorkflowPanel.Measuring
@@ -228,6 +230,16 @@ ToolBar {
         preserveIconColors: true
         available: root.calibrationStartAvailable
         onTriggered: root.calibrationStartRequested()
+      }
+
+      // A separate tool, so no label change resizes the toolbar.
+      Tool {
+        visible: root.calibration
+        text: qsTr("Resume")
+        iconSource: "qrc:/icons/run.svg"
+        preserveIconColors: true
+        available: root.calibrationResumeAvailable
+        onTriggered: root.calibrationResumeRequested()
       }
 
       Tool {

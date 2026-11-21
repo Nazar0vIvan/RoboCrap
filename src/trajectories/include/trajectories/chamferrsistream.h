@@ -2,6 +2,7 @@
 
 #include "trajectories/chamfermotion.h"
 
+#include <QByteArray>
 #include <QVector>
 #include <optional>
 
@@ -16,7 +17,9 @@ struct ChamferRsiStream
   V6d toolCoordinates = V6d::Zero(); // Six-decimal flange-to-TCP XYZABC for KRL $TOOL.
   // One increment per controller cycle after Start = 1, then settle zeros.
   QVector<V6d> increments;
-  QString diagnosticId; // Shared number in the plan and its packet-log filenames.
+  QString diagnosticId; // Pairs the stream table with this job; job_id in the session records.
+  // plan.csv of the sessions that run this stream (docs/code context/RECORDS_FORMAT.md), one row per cycle.
+  QByteArray plan;
   int motionCycles = 0; // Increments that carry motion, excluding settle zeros.
   double duration = 0.0; // Central movement seconds, not computation time.
   double maximumTranslationOffset = 0.0; // Largest |X|, |Y| or |Z| displacement from LeadStart, mm.
@@ -29,5 +32,5 @@ struct ChamferRsiStreamResult
   QString error;
 };
 
-// Copied-input worker operation on the 4 ms controller clock; never retimes.
+// Copied-input worker operation on the 4 ms controller clock; never retimes and writes no file.
 ChamferRsiStreamResult sampleChamferRsiStream(const ChamferMotion& motion);

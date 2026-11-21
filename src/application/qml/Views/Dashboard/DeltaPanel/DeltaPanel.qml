@@ -86,12 +86,5 @@ QxGroupBox {
         moduleIndex: 2
       }
     }
-
-    RobotStartPanel {
-      Layout.fillWidth: true
-
-      plc: root.plc
-      x1: root.x1
-    }
   }
 }

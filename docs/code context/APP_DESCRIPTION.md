@@ -43,24 +43,23 @@ point on the hole axis, outside the hole.
    PTP turn of the probe and a descent. *Dry Run* animates it; editing the file and entering the
    submode again uses the new sphere.
 
-   With the RSI socket bound, *RSI Sampling* in the submode turns the generated path into
-   `C:/RoboCrapJobs/calibration_data.txt` (485 KRL steps: PTP, LIN, CIRC, search, HOME) and one
-   search stream per touch (5 mm along the approach direction at 1 mm/s), and writes a plan file
-   naming every touch. The KRL program `RSI_Probe_Calibration`
-   ([contract](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md)), started
-   by *Start Calibration* in the submode (or from the PLC panel) as program 1 in Automatic External,
+   With the RSI socket bound, *RSI Sampling* prepares one search stream per touch (5 mm at the
+   configured search feed), keeps the touch plan in memory and exports `C:/RoboCrapJobs/calibration_data.txt`
+   (485 KRL steps for the 158-touch plan). *Start Calibration* opens a record and requests program 1
+   in Automatic External. After a Passive STOP, acknowledge the message on the smartPAD and use
+   *Resume* in the calibration toolbar. Leaving AUT EXT ends the run. `RSI_Probe_Calibration`
    executes the steps; each search runs under RSI and stops on the probe signal `$IN[8]`. The status
    bar shows the share of touches detected so far and, at its left, whether the controller is in
    AUT EXT. When the program finishes, the application fits the ball centre in the flange frame, the
    sphere centre, the two contact distances (stylus down, stylus horizontal) and the 95 % quantile
    of the verification residuals from the actual joint angles of every touch, shows them in the window
-   "Calibration complete", writes them to `records/<id>/` and saves them as the last result in
-   `settings/probe_calibration.json`. *Reassign* in that window makes the ball centre, the sphere
-   centre and the contact distances primary: the measuring TCP and the sphere change, and the path
-   must be generated again; *Cancel* keeps the previous values. With nothing selected, the
-   Properties panel shows the last result. The joint angles of every detected touch are written to
-   `records/<id>/calibration_touches_<id>.csv`, and the packet capture keeps the robot's actual
-   joint angles of every cycle; `python/calibration/calibration_fit.py` repeats the fit offline.
+   “Calibration complete”, records the result in `session.json` and saves the last result in
+   `settings/probe_calibration.json`. *Reassign* makes the fitted centres and contact distances
+   primary and requires generating the path again. *Cancel* keeps the previous primary values.
+   With nothing selected, the Properties panel shows the last result. Each start has its own
+   session folder. `touches.csv` retains detected joint angles even after an interrupted run.
+   `python/calibration/calibration_fit.py` repeats the fit from those angles and `plan.csv`.
+   See the [calibration contract](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md).
 
 2. **Load measured geometry (Measuring mode, Rough submode).**
    Import the workpiece end surface with *Plane from JSON* and the hole with *Cylinder from JSON*.
@@ -97,9 +96,9 @@ point on the hole axis, outside the hole.
    (version 2): the PTP/LIN targets PsIn, LeadStart and LeadEnd with their KUKA Status/Turn
    (S/T) joint-configuration values, PsOut's S/T, the flange-to-TCP frame and the transfer
    `$VEL.CP`/`$ACC.CP` in m/s and m/s². Only after a successful write are the corrections handed
-   to the RSI device. Each sampling saves a diagnostic plan CSV in `records/<id>/` of the records
-   folder (`records/` in the repository by default, CMake path `ROBOCRAP_RECORDS_DIR`); UDP
-   exchanges are captured in one file in the same folder with the same identifier.
+   to the RSI device. Sampling keeps the plan and exported job bytes in memory. A recorded chamfer
+   exchange gets its own folder with `plan.csv`, `shared_data.txt`, both RSI tables, `session.json`
+   and available PLC rows. See the [record format](RECORDS_FORMAT.md).
 
 6. **Run on the controller (T1, manual start).**
    The operator starts `controller/krl/rsi/chamfer/RSI_Chamfer_Hole.src`/`.dat` with the helpers in

@@ -1,12 +1,10 @@
 #include "devices/plc/plcdevice.h"
 #include "common/socketconfigutils.h"
+#include "devices/recordclock.h"
 
 #include <winsock2.h>
 
-#include <QDateTime>
 #include <QDebug>
-#include <QDir>
-#include <QFile>
 #include <QTcpSocket>
 #include <QTimer>
 
@@ -18,33 +16,23 @@ constexpr int ReplyTimeoutMs = 1000;
 constexpr int HeartbeatMs = 2000;
 
 // KUKA Automatic External outputs wired to PLC module 1 inputs X1.n.
-constexpr int X1AutExt = 0;
 constexpr int X1ProAct = 4;
 constexpr int X1PgnoReq = 5;
 constexpr int X1ApplRun = 6;
-
-// records/plc_io_*.csv: one row per change, with the full current state of the robot interface.
-const QString LogHeader = QStringLiteral(
-    "time;event;X1.0 AUT_EXT;X1.2 PERI_RDY;X1.3 STOPMESS;X1.4 PRO_ACT;X1.5 PGNO_REQ;X1.6 APPL_RUN;"
-    "X1.7 IN_HOME;Y1.0 EXT_START;Y1.1 DRIVES_ON;Y1.2 CONF_MESS;Y1.3 PGNO0;Y1.4 PGNO1;step;program;result\n");
-const QStringList StepNames{"IDLE", "PREP", "START", "SELECT"};
-const QStringList ResultNames{"-", "STARTED", "RESUMED", "TIMEOUT", "ABORTED", "AUT_EXT_LOST"};
 
 bool matchesResponseField(const QVariantMap& data, const char* key, uint expected)
 {
   return data.contains(key) && data.value(key).toUInt() == expected;
 }
 
-// PLC E_RSTEP / E_RRESULT code as its name; an unknown code as its number.
-QString codeName(const QVariant& code, const QStringList& names)
+// Bit n set for a true element n of a published IO list (x1, y1, y2).
+quint8 bitMask(const QVariant& bits)
 {
-  const int value = code.toInt();
-  return value >= 0 && value < names.size() ? names.at(value) : QString::number(value);
-}
-
-QString bitText(const QVariantList& bits, int index)
-{
-  return bits.value(index).toBool() ? QStringLiteral("1") : QStringLiteral("0");
+  const QVariantList list = bits.toList();
+  quint8 mask = 0;
+  for (int bit = 0; bit < 8; ++bit)
+    if (list.value(bit).toBool()) mask |= static_cast<quint8>(1u << bit);
+  return mask;
 }
 
 } // namespace
@@ -62,7 +50,6 @@ void PlcDevice::startDevice()
   m_replyTimer->setInterval(ReplyTimeoutMs);
   m_heartbeat = new QTimer(this);
   m_heartbeat->setInterval(HeartbeatMs);
-  m_log = new QFile(this);
 
   attachSocket(m_sock);
 
@@ -86,8 +73,6 @@ void PlcDevice::stopDevice()
   m_replyTimer = nullptr;
   delete m_heartbeat;
   m_heartbeat = nullptr;
-  delete m_log;
-  m_log = nullptr;
 }
 
 // Reached only through AbstractDevice::invoke, which refuses calls while the device is stopped.
@@ -179,23 +164,15 @@ void PlcDevice::runRobotProgram(const QVariantMap& args)
     return;
   }
 
-  writeLog(QString("run %1").arg(request.data.toMap().value("attr").toUInt()));
+  recordIo(QString("run %1").arg(request.data.toMap().value("attr").toUInt()));
   writeMessage(request.data.toMap());
 }
 
 void PlcDevice::resumeRobot()
 {
-  writeLog(QStringLiteral("resume"));
+  recordIo(QStringLiteral("resume"));
   writeMessage({
     {"cmd", PlcMessageManager::SET_VAR}, {"var", PlcMessageManager::ROBOT_RESUME}, {"attr", 0}
-  });
-}
-
-void PlcDevice::abortRobotStart()
-{
-  writeLog(QStringLiteral("abort"));
-  writeMessage({
-    {"cmd", PlcMessageManager::SET_VAR}, {"var", PlcMessageManager::ROBOT_ABORT}, {"attr", 0}
   });
 }
 
@@ -238,7 +215,7 @@ void PlcDevice::onReplyTimeout()
 {
   qInfo().noquote() << "[ERROR]" << objectName() + ":"
       << QString("PLC reply timeout for transaction %1").arg(static_cast<uint>(m_nextTid));
-  writeLog(QString("reply timeout %1").arg(static_cast<uint>(m_nextTid)));
+  recordIo(QString("reply timeout %1").arg(static_cast<uint>(m_nextTid)));
   m_pend.clear();
   sendNext();
 }
@@ -255,41 +232,13 @@ void PlcDevice::onConnected()
   // No request right at connect: the PLC never answered it (a timeout at every connect, 2026-11-13).
   // Its IO change frame on a new connection gives the state; the heartbeat follows in 2 s.
   m_heartbeat->start();
-  openLog();
 }
 
-void PlcDevice::openLog()
+void PlcDevice::recordIo(const QString& event)
 {
-  const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
-  const QString fileName = QStringLiteral("plc_io_%1.csv")
-      .arg(QDateTime::currentDateTime().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")));
-
-  m_log->setFileName(records.filePath(fileName));
-  if (!QDir().mkpath(records.absolutePath()) || !m_log->open(QIODevice::WriteOnly)) {
-    qInfo().noquote() << "[ERROR]" << objectName() + ":"
-        << QString("Cannot write the PLC log '%1'").arg(m_log->fileName());
-    return;
-  }
-
-  m_log->write(LogHeader.toUtf8());
-  m_log->flush();
-}
-
-void PlcDevice::writeLog(const QString& event)
-{
-  if (!m_log->isOpen()) return;
-
-  const QVariantList x1 = m_logged.value("x1").toList();
-  const QVariantList y1 = m_logged.value("y1").toList();
-  QStringList cells{QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss.zzz")), event};
-  for (const int bit : {0, 2, 3, 4, 5, 6, 7}) cells << bitText(x1, bit);
-  for (int bit = 0; bit < 5; ++bit) cells << bitText(y1, bit);
-  cells << codeName(m_logged.value("robotStep"), StepNames)
-        << m_logged.value("robotProgram").toString()
-        << codeName(m_logged.value("robotResult"), ResultNames);
-
-  m_log->write((cells.join(';') + '\n').toUtf8());
-  m_log->flush();
+  emit ioRecorded(PlcIoRecord{recordClockNs(), event, bitMask(m_logged.value("x1")), bitMask(m_logged.value("y1")),
+                              bitMask(m_logged.value("y2")), m_logged.value("robotStep").toInt(),
+                              m_logged.value("robotProgram").toInt(), m_logged.value("robotResult").toInt()});
 }
 
 bool PlcDevice::matchResponse(const QVariantMap& data)
@@ -338,7 +287,7 @@ void PlcDevice::processIncoming(const QByteArray& bytes)
 
     if (!parsed.ok()) {
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "READ ERROR: " + QString::number(parsed.error);
-      writeLog(QString("read error %1 frame %2")
+      recordIo(QString("read error %1 frame %2")
                    .arg(static_cast<int>(parsed.error)).arg(QString(frame.toHex(' ').toUpper())));
       continue;
     }
@@ -348,7 +297,7 @@ void PlcDevice::processIncoming(const QByteArray& bytes)
     if (data.contains("tid")) {
       if (!matchResponse(data)) {
         qInfo().noquote() << "[ERROR]" << objectName() + ":" << "Unmatched PLC response for transaction " + data.value("tid").toString();
-        writeLog("unmatched reply " + data.value("tid").toString());
+        recordIo("unmatched reply " + data.value("tid").toString());
         continue;
       }
     }
@@ -359,7 +308,7 @@ void PlcDevice::processIncoming(const QByteArray& bytes)
                  .arg(data.value("cmd").toUInt())
                  .arg(data.value("err").toUInt())
                  .arg(data.value("code").toUInt());
-      writeLog(QString("error cmd=%1 code=%2").arg(data.value("cmd").toUInt()).arg(data.value("code").toUInt()));
+      recordIo(QString("error cmd=%1 code=%2").arg(data.value("cmd").toUInt()).arg(data.value("code").toUInt()));
 
       continue;
     }
@@ -380,8 +329,6 @@ void PlcDevice::onStateChanged(QAbstractSocket::SocketState state)
   m_replyTimer->stop();
   m_heartbeat->stop();
   m_programState = ProgramState::Unknown;
-  m_resumeBlocked = false;
-  m_log->close();
   m_logged.clear();
 
   // Clear the persistent PLC state seen by QML.
@@ -393,8 +340,7 @@ void PlcDevice::onStateChanged(QAbstractSocket::SocketState state)
     {"robotStep", 0},
     {"robotProgram", 0},
     {"robotResult", 0},
-    {"robotProgramState", static_cast<int>(ProgramState::Unknown)},
-    {"robotResumeBlocked", false}
+    {"robotProgramState", static_cast<int>(ProgramState::Unknown)}
   });
 }
 
@@ -437,29 +383,20 @@ void PlcDevice::publishIo(const QVariantMap& data)
   for (const char* key : {"x1", "y1", "x2", "y2", "robotStep", "robotProgram", "robotResult"})
     values.insert(key, data.value(key));
 
-  // The heartbeat SNAPSHOT repeats unchanged values every 2 s; the log keeps only changes.
+  // The heartbeat SNAPSHOT repeats unchanged values every 2 s; the records keep only changes.
   bool changed = false;
-  for (const char* key : {"x1", "y1", "robotStep", "robotProgram", "robotResult"}) {
+  for (const char* key : {"x1", "y1", "y2", "robotStep", "robotProgram", "robotResult"}) {
     if (values.value(key) == m_logged.value(key)) continue;
     m_logged.insert(key, values.value(key));
     changed = true;
   }
-  if (changed) writeLog(QStringLiteral("io"));
+  if (changed) recordIo(QStringLiteral("io"));
 
   const QVariantList x1 = data.value("x1").toList();
   const ProgramState next = nextProgramState(m_programState, x1);
   if (next != m_programState) {
     m_programState = next;
     values.insert("robotProgramState", static_cast<int>(next));
-  }
-
-  // The same rule as the PLC's ResumeBlocked: a program held by APPL_RUN while AUT EXT dropped
-  // (an operating-mode change) keeps velocities planned in the other mode, so it is restarted from
-  // CELL, not resumed. Cleared when APPL_RUN falls.
-  const bool blocked = x1.value(X1ApplRun).toBool() && (m_resumeBlocked || !x1.value(X1AutExt).toBool());
-  if (blocked != m_resumeBlocked) {
-    m_resumeBlocked = blocked;
-    values.insert("robotResumeBlocked", blocked);
   }
 
   emit stateReady(values);

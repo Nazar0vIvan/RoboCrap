@@ -298,8 +298,11 @@ ApplicationWindow {
       if (App.MachiningPreparation.calibrationRunning) {
         const detected = App.MachiningPreparation.calibrationDetected
         const count = App.MachiningPreparation.calibrationTouchCount
-        return qsTr("Calibration run: %1 % · %2/%3 touches")
-               .arg(count > 0 ? Math.floor(100 * detected / count) : 0).arg(detected).arg(count)
+        const progress = qsTr("Calibration run: %1 % · %2/%3 touches")
+                         .arg(count > 0 ? Math.floor(100 * detected / count) : 0).arg(detected).arg(count)
+        // Joined with " · " in the one status line.
+        const interruption = App.MachiningPreparation.calibrationInterruption
+        return interruption ? progress + "\n" + interruption : progress
       }
       if (App.Machining.calculating || App.Calibration.calculating) return qsTr("Calculating trajectory…")
       if (App.MachiningPreparation.preparing) return qsTr("RSI Sampling…")
@@ -468,6 +471,9 @@ ApplicationWindow {
         calibrationStartAvailable: App.MachiningPreparation.canStartCalibration
                                    && !!statusBar.rsi && statusBar.rsi.isConnected
         onCalibrationStartRequested: App.MachiningPreparation.startCalibration()
+        calibrationResumeAvailable: App.MachiningPreparation.canResumeCalibration
+                                    && !!statusBar.rsi && statusBar.rsi.isConnected
+        onCalibrationResumeRequested: App.MachiningPreparation.resumeCalibration()
         onPreparationRequested: {
           if (root.calibrationActive) App.MachiningPreparation.prepareCalibration()
           else App.MachiningPreparation.prepare()

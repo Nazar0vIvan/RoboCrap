@@ -138,7 +138,7 @@ placeholders (programs 2–4). Velocities are programmed, not reduced by the ove
   10 mm/s); the RSI search speed is the PC stream.
 - A motion keeps the velocity planned by the advance run, so after an operating-mode change an
   interrupted program is restarted from CELL, not resumed: the PLC refuses RESUME
-  (`ResumeBlocked`) and RoboCrap shows "Program interrupted · mode changed · restart from CELL".
+  (`ResumeBlocked`), and RoboCrap ends its calibration run as soon as AUT EXT is left.
 
 Starting CELL requires its BCO run to HOME in T1 before switching to Automatic External (KSS 8.3 SI
 §8.11); CELL's INIT fold also clears a stale APPL_RUN (`$OUT[7]`) during that BCO run. A new job
@@ -148,4 +148,6 @@ operator acknowledges it on the smartPAD before Resume (RoboCrap disables Resume
 external acknowledgement through `KrcExtConfMsg.xml` is described, not applied, in
 `docs/solutions/KUKA_PASSIVE_STOP_EXTERNAL_ACK.md`). After a released, unacknowledged EMERGENCY STOP
 a Run cleared `$STOPMESS` during ST_PREP without any smartPAD input, so the PLC's `$CONF_MESS` pulse
-acknowledges that message (stage A test A6, 2026-11-14).
+acknowledges that message (stage A test A6, 2026-11-14). The smartPAD cannot acknowledge it in AUT EXT
+(KSS01367 "Active status required", 2026-11-21), and after an EMERGENCY STOP during program 1 APPL_RUN
+falls, so the PLC refuses Resume; recovery: T1, acknowledge on the smartPAD, CELL BCO run to HOME.

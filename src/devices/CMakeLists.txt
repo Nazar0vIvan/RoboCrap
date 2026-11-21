@@ -7,6 +7,7 @@ qt_add_library(RoboCrapDevices STATIC
   include/devices/fts/rdtmessage.h
   include/devices/plc/plcdevice.h
   include/devices/plc/plcmessagemanager.h
+  include/devices/recordclock.h
   include/devices/rsi/rsidevice.h
   plc/plcdevice.cpp
   plc/plcmessagemanager.cpp

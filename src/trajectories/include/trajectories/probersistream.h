@@ -2,6 +2,7 @@
 
 #include "trajectories/probetouchmotion.h"
 
+#include <QByteArray>
 #include <QVector>
 #include <optional>
 
@@ -22,12 +23,14 @@ struct ProbeRsiStep
 
 struct ProbeCalibrationRsi
 {
-  QString diagnosticId; // Shared number of the plan file and the packet captures.
+  QString diagnosticId; // Pairs the stream table with this job; job_id in the session records.
   V6d toolCoordinates = V6d::Zero(); // Six-decimal flange-to-TCP XYZABC for KRL $TOOL.
   QVector<ProbeRsiStep> steps;
   // Index = global touch number; index 0 is empty. Increments in WORLD XYZ mm, ABC zero.
   QVector<QVector<V6d>> streams;
   int touchCount = 0;
+  // plan.csv of the sessions that run this job (docs/code context/RECORDS_FORMAT.md), one row per touch.
+  QByteArray plan;
 };
 
 struct ProbeCalibrationRsiResult
@@ -36,6 +39,5 @@ struct ProbeCalibrationRsiResult
   QString error;
 };
 
-// Copied-input worker operation; also writes records/<id>/rsi_plan_<id>.csv in the records
-// folder ROBOCRAP_RECORDS_DIR, which names every touch number.
+// Copied-input worker operation; writes no file.
 ProbeCalibrationRsiResult sampleProbeCalibrationRsi(const ProbeTouchMotion& motion);

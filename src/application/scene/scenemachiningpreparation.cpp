@@ -3,6 +3,7 @@
 #include "devices/devicerunner.h"
 #include "geometry/utils.h"
 #include "kinematics/kr10kinematics.h"
+#include "records/sessionrecorder.h"
 
 #include <QDateTime>
 #include <QDebug>
@@ -72,7 +73,7 @@ QString poseRow(const V6d& coordinates, const ProbeRsiStep& step)
 // Version 1 (RSI_Probe_Calibration): ToolFrame, transfer $VEL.CP in m/s and $ACC.CP in m/s^2, the
 // step count, then per step "kind;touch" and the target row (PTP, LIN), the auxiliary and target
 // rows (CIRC) or no row (Search, HOME).
-QString writeCalibrationData(const ProbeCalibrationRsi& job, const ChamferTimingParameters& timing)
+QByteArray calibrationData(const ProbeCalibrationRsi& job, const ChamferTimingParameters& timing)
 {
   QString contents = QStringLiteral("1\r\n") + frameRow(job.toolCoordinates) + QStringLiteral("\r\n")
       + number(timing.transferFeed / 1000.0) + QStringLiteral("\r\n")
@@ -84,12 +85,19 @@ QString writeCalibrationData(const ProbeCalibrationRsi& job, const ChamferTiming
     if (step.kind != ProbeRsiStepKind::Search && step.kind != ProbeRsiStepKind::Home)
       contents += poseRow(step.target, step);
   }
-  return saveFile(CalibrationDataPath, contents.toLatin1());
+  return contents.toLatin1();
 }
+
+// The text of a KRL job file, or the error that prevents it.
+struct JobFile
+{
+  QByteArray contents;
+  QString error;
+};
 
 // Version 2: PsIn/LeadStart/LeadEnd XYZABC+S/T, PsOut S/T, ToolFrame, CP rates.
 // KRL constructs PsOut from PsIn XYZ and LeadEnd ABC; each point has its own S/T.
-QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& motion)
+JobFile sharedData(const ChamferRsiStream& stream, const ChamferMotion& motion)
 {
   const RoboCrap3D::Kr10Kinematics kinematics(motion.robot().model);
   const V3d staging = ((stream.stagingPoint * 1e6).array().round() / 1e6).matrix();
@@ -107,8 +115,8 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
     if (!coordinates.allFinite()
         || (coordinates.head<3>() - point.tcp.block<3, 1>(0, 3)).norm() > RoboCrap3D::Kr10PosEps
         || (rotation - point.tcp.block<3, 3>(0, 0)).cwiseAbs().maxCoeff() > RoboCrap3D::Kr10RotEps)
-      return QStringLiteral("Exported %1 does not match its saved animation TCP pose.")
-          .arg(QString::fromLatin1(name));
+      return {{}, QStringLiteral("Exported %1 does not match its saved animation TCP pose.")
+                      .arg(QString::fromLatin1(name))};
     const auto frames = kinematics.solveFK(point.joints);
     const auto configuration = kinematics.configuration(point.joints, frames);
     const QString statusTurn = QStringLiteral("%1;%2\r\n")
@@ -120,14 +128,51 @@ QString writeSharedData(const ChamferRsiStream& stream, const ChamferMotion& mot
   contents += (frameRow(stream.toolCoordinates) + QStringLiteral("\r\n")
                + number(timing.transferFeed / 1000.0) + QStringLiteral("\r\n")
                + number(timing.transferAcceleration / 1000.0) + QStringLiteral("\r\n")).toLatin1();
-  return saveFile(SharedDataPath, contents);
+  return {contents, {}};
+}
+
+// session.json "inputs" of a chamfer session, without path_name (docs/code context/RECORDS_FORMAT.md).
+QJsonObject chamferInputs(const ChamferRsiStream& stream, const ChamferMotion& motion)
+{
+  const ChamferPathParameters& path = motion.parameters();
+  const ChamferTimingParameters& timing = motion.robot().timing;
+  const std::array<double, 4>& phaseTimes = motion.centralMotion().phaseTimes();
+  const std::array<double, 3> phaseEnds{phaseTimes[1], phaseTimes[2], phaseTimes[3]};
+  return {{QStringLiteral("tool_xyzabc"), recordArray(stream.toolCoordinates.data(), 6)},
+          {QStringLiteral("chamfer_size_mm"), recordNumber(path.chamferSize)},
+          {QStringLiteral("chamfer_angle_deg"), recordNumber(path.chamferAngleDegrees)},
+          {QStringLiteral("flip_axis"), path.flipAxis},
+          {QStringLiteral("staging_distance_mm"), recordNumber(path.stagingDistance)},
+          {QStringLiteral("lead_in_clearance_mm"), recordNumber(path.leadIn.clearance)},
+          {QStringLiteral("lead_in_span_deg"), recordNumber(path.leadIn.spanDegrees)},
+          {QStringLiteral("lead_out_clearance_mm"), recordNumber(path.leadOut.clearance)},
+          {QStringLiteral("lead_out_span_deg"), recordNumber(path.leadOut.spanDegrees)},
+          {QStringLiteral("machining_feed_mm_s"), recordNumber(timing.machiningFeed)},
+          {QStringLiteral("acceleration_distance_fraction"), recordNumber(timing.accelerationDistanceFraction)},
+          {QStringLiteral("transfer_feed_mm_s"), recordNumber(timing.transferFeed)},
+          {QStringLiteral("transfer_acceleration_mm_s2"), recordNumber(timing.transferAcceleration)},
+          {QStringLiteral("staging_joints_deg"),
+           recordArray(motion.points()[motion.boundary(ChamferBoundary::StagingIn)].joints.data(), 6)},
+          {QStringLiteral("joint_speed_limits_deg_s"), recordArray(timing.jointSpeed.data(), 6)},
+          {QStringLiteral("phase_end_times_s"), recordArray(phaseEnds.data(), 3)},
+          {QStringLiteral("cycle_s"), RsiCycleSeconds},
+          {QStringLiteral("settle_zero_cycles"), static_cast<qint64>(stream.increments.size() - stream.motionCycles)}};
 }
 
 // PlcDevice state values (src/devices/plc/plcdevice.cpp): robotProgramState and robotResult.
 constexpr int ProgramRunning = 1;
 constexpr int ProgramFinished = 2;
+constexpr int ProgramInterrupted = 3;
 constexpr int StartResultStarted = 1;
-// robotResult names of the PLC's E_RRESULT, as in RobotStartPanel.qml.
+constexpr int StartResultResumed = 2;
+// PLC inputs X1.n: KUKA Automatic External outputs (docs/hardware context/HARDWARE_SETUP.md).
+constexpr int X1AutExt = 0; // $I_O_ACTCONF
+constexpr int X1PeriRdy = 2; // drives on; an EMERGENCY STOP drops it, the smartPAD STOP key does not
+constexpr int X1StopMess = 3;
+constexpr int X1ProAct = 4;
+constexpr int X1ApplRun = 6;
+constexpr int X1InHome = 7;
+// robotResult names of the PLC's E_RRESULT.
 const QStringList StartResultNames{QStringLiteral("-"), QStringLiteral("STARTED"), QStringLiteral("RESUMED"),
                                    QStringLiteral("TIMEOUT"), QStringLiteral("ABORTED"), QStringLiteral("AUT EXT LOST")};
 
@@ -137,52 +182,58 @@ QString joinedError(const QString& first, const QString& second)
   return first.isEmpty() ? second : second.isEmpty() ? first : first + QLatin1Char(' ') + second;
 }
 
-QByteArray resultLine(const QString& name, const QStringList& values)
+// session.json "inputs" of a calibration session (docs/code context/RECORDS_FORMAT.md).
+QJsonObject calibrationInputs(const ProbeCalibrationRsi& job, const ProbeTouchMotion& motion)
 {
-  return (name + QLatin1Char(',') + values.join(QLatin1Char(',')) + QLatin1Char('\n')).toUtf8();
+  const ProbeTouchPlanParameters& plan = motion.plan().parameters;
+  const ChamferTimingParameters& timing = motion.robot().timing;
+  return {{QStringLiteral("tool_xyzabc"), recordArray(job.toolCoordinates.data(), 6)},
+          {QStringLiteral("sphere_centre_b_mm"), recordArray(plan.sphereCentre.data(), 3)},
+          {QStringLiteral("sphere_radius_mm"), recordNumber(plan.sphereRadius)},
+          {QStringLiteral("ball_radius_mm"), recordNumber(plan.ballRadius)},
+          {QStringLiteral("strut_radius_mm"), recordNumber(plan.strutRadius)},
+          {QStringLiteral("strut_recess_mm"), recordNumber(plan.strutRecess)},
+          {QStringLiteral("search_feed_mm_s"), recordNumber(plan.searchFeed)},
+          {QStringLiteral("transfer_feed_mm_s"), recordNumber(timing.transferFeed)},
+          {QStringLiteral("transfer_acceleration_mm_s2"), recordNumber(timing.transferAcceleration)},
+          {QStringLiteral("touches"), job.touchCount},
+          {QStringLiteral("steps"), static_cast<qint64>(job.steps.size())}};
 }
 
-QByteArray vectorLine(const QString& name, const V3d& value)
+// session.json "result" of a successful calibration session.
+QJsonObject resultObject(const ProbeCalibrationFit& fit)
 {
-  return resultLine(name, {number(value.x()), number(value.y()), number(value.z())});
+  return {{QStringLiteral("ball_centre_f_mm"), recordArray(fit.ballCentre.data(), 3)},
+          {QStringLiteral("sphere_centre_b_mm"), recordArray(fit.sphereCentre.data(), 3)},
+          {QStringLiteral("verification_sphere_centre_b_mm"), recordArray(fit.verificationSphereCentre.data(), 3)},
+          {QStringLiteral("contact_vertical_mm"), recordNumber(fit.contactVertical)},
+          {QStringLiteral("contact_horizontal_mm"), recordNumber(fit.contactHorizontal)},
+          {QStringLiteral("quantile95_mm"), recordNumber(fit.quantile95)},
+          {QStringLiteral("repeatability_mm"), recordNumber(fit.repeatability)},
+          {QStringLiteral("smallest_singular_value"), recordNumber(fit.smallestSingularValue)},
+          {QStringLiteral("calibration_touches"), fit.calibrationTouches},
+          {QStringLiteral("verification_touches"), fit.verificationTouches}};
 }
 
-// records/<id>/calibration_result_<id>.csv in ROBOCRAP_RECORDS_DIR: the fit and the step K7 sets.
-QString writeCalibrationResult(const ProbeCalibrationFit& fit, const QString& id)
+// residual_sets.csv: the step K7 sets of the fit.
+QByteArray residualSetsCsv(const ProbeCalibrationFit& fit)
 {
-  QByteArray contents = "# plan_id," + id.toUtf8() + "\n# mm; {F} flange, {B} base; sets: method step K7\n"
-                        "quantity,value_1,value_2,value_3\n";
-  contents += vectorLine(QStringLiteral("ball_centre_F"), fit.ballCentre);
-  contents += vectorLine(QStringLiteral("sphere_centre_B"), fit.sphereCentre);
-  contents += vectorLine(QStringLiteral("verification_sphere_centre_B"), fit.verificationSphereCentre);
-  contents += resultLine(QStringLiteral("contact_vertical"), {number(fit.contactVertical)});
-  contents += resultLine(QStringLiteral("contact_horizontal"), {number(fit.contactHorizontal)});
-  contents += resultLine(QStringLiteral("quantile95"), {number(fit.quantile95)});
-  contents += resultLine(QStringLiteral("repeatability"), {number(fit.repeatability)});
-  contents += resultLine(QStringLiteral("smallest_singular_value"), {number(fit.smallestSingularValue)});
-  contents += resultLine(QStringLiteral("touches"), {QString::number(fit.calibrationTouches),
-                                                    QString::number(fit.verificationTouches)});
-  contents += "set,group,value_deg,mean_mm,bound_mm,count\n";
+  QString contents = QStringLiteral("set;group;value_deg;mean_mm;bound_mm;count\n");
   for (const ProbeResidualSet& set : fit.residualSets)
-    contents += resultLine(set.ring ? QStringLiteral("ring") : QStringLiteral("roll"),
-                           {QString::number(set.group), number(set.value), number(set.mean), number(set.bound),
-                            QString::number(set.count)});
-  return saveFile(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR))
-                      .filePath(QStringLiteral("%1/calibration_result_%1.csv").arg(id)), contents);
+    contents += QStringList{set.ring ? QStringLiteral("ring") : QStringLiteral("roll"), QString::number(set.group),
+                            number(set.value), number(set.mean), number(set.bound), QString::number(set.count)}
+                    .join(QLatin1Char(';'))
+                + QLatin1Char('\n');
+  return contents.toUtf8();
 }
 
-// records/<id>/calibration_touches_<id>.csv in ROBOCRAP_RECORDS_DIR: AIPos of every detected touch.
-QString writeCalibrationTouches(const QVector<ProbeTouchDetection>& detections, const QString& id)
+// touches.csv: AIPos of every detected touch, deg, in detection order.
+QByteArray touchesCsv(const QVector<ProbeTouchDetection>& detections)
 {
-  QByteArray contents = "# plan_id," + id.toUtf8() + "\n# AIPos at detection, deg, in detection order; touch numbers "
-                        "as in rsi_plan_" + id.toUtf8() + ".csv\ntouch,a1,a2,a3,a4,a5,a6\n";
-  for (const ProbeTouchDetection& detection : detections) {
-    QStringList joints;
-    for (double value : detection.joints) joints.append(number(value));
-    contents += resultLine(QString::number(detection.touch), joints);
-  }
-  return saveFile(QDir(QStringLiteral(ROBOCRAP_RECORDS_DIR))
-                      .filePath(QStringLiteral("%1/calibration_touches_%1.csv").arg(id)), contents);
+  QString contents = QStringLiteral("touch;a1_deg;a2_deg;a3_deg;a4_deg;a5_deg;a6_deg\n");
+  for (const ProbeTouchDetection& detection : detections)
+    contents += QString::number(detection.touch) + QLatin1Char(';') + frameRow(detection.joints) + QLatin1Char('\n');
+  return contents.toUtf8();
 }
 
 } // namespace
@@ -325,8 +376,14 @@ void SceneMachiningPreparation::prepareTestLin()
   for (int cycle = 0; cycle < TestLinCycles; ++cycle) increments[cycle][0] = TestLinStep;
   setError({});
   m_testLin = true;
-  emit correctionsReady({increments}, QStringLiteral("test_lin_")
-      + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz")));
+  const QString id = QStringLiteral("test_lin_")
+      + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
+  m_recorder->arm(SessionJob{SessionKind::TestLin, id, {},
+                             {{QStringLiteral("direction"), QStringLiteral("WORLD +X")},
+                              {QStringLiteral("step_mm"), TestLinStep},
+                              {QStringLiteral("cycles"), TestLinCycles},
+                              {QStringLiteral("settle_zero_cycles"), TestLinSettleCycles}}});
+  emit correctionsReady({increments}, id);
   emit preparedChanged();
 }
 
@@ -346,8 +403,16 @@ void SceneMachiningPreparation::finishPreparation()
   } else if (!result.stream) {
     setError(result.error);
   } else {
-    const QString writeError = writeSharedData(*result.stream, *m_pending.motion);
+    const JobFile jobFile = sharedData(*result.stream, *m_pending.motion);
+    const QString writeError = jobFile.error.isEmpty() ? saveFile(SharedDataPath, jobFile.contents) : jobFile.error;
     if (writeError.isEmpty()) {
+      QJsonObject inputs = chamferInputs(*result.stream, *m_pending.motion);
+      inputs.insert(QStringLiteral("path_name"), m_pending.pathName);
+      // The plan text moves to the recorder; the held stream keeps only what the run needs.
+      m_recorder->arm(SessionJob{SessionKind::Chamfer, result.stream->diagnosticId,
+                                 {{QStringLiteral("plan.csv"), std::exchange(result.stream->plan, {})},
+                                  {QStringLiteral("shared_data.txt"), jobFile.contents}},
+                                 inputs});
       m_pending.stream = std::move(*result.stream);
       m_prepared = std::move(m_pending);
       emit correctionsReady({m_prepared->stream.increments}, m_prepared->stream.diagnosticId);
@@ -377,10 +442,15 @@ void SceneMachiningPreparation::finishCalibration()
   } else if (!result.job) {
     setError(result.error);
   } else {
-    const QString writeError = writeCalibrationData(*result.job, m_pendingCalibration->robot().timing);
+    const QByteArray jobFile = calibrationData(*result.job, m_pendingCalibration->robot().timing);
+    const QString writeError = saveFile(CalibrationDataPath, jobFile);
     if (writeError.isEmpty()) {
       m_preparedCalibration = PreparedCalibration{m_pendingCalibration, result.job->touchCount,
-                                                  result.job->steps.size(), result.job->diagnosticId};
+                                                  result.job->steps.size()};
+      m_recorder->arm(SessionJob{SessionKind::Calibration, result.job->diagnosticId,
+                                 {{QStringLiteral("plan.csv"), result.job->plan},
+                                  {QStringLiteral("calibration_data.txt"), jobFile}},
+                                 calibrationInputs(*result.job, *m_pendingCalibration)});
       emit correctionsReady(result.job->streams, result.job->diagnosticId);
       emit preparedChanged();
     }
@@ -407,6 +477,8 @@ QString SceneMachiningPreparation::clearPrepared()
   m_prepared.reset();
   m_testLin = false;
   m_preparedCalibration.reset();
+  // At shutdown the recorder still needs the job to write the RSI device's final capture.
+  if (m_recorder && !m_shuttingDown) m_recorder->disarm();
   emit correctionsReady({}, {});
   if (wasPrepared) emit preparedChanged();
   return error;
@@ -431,6 +503,7 @@ void SceneMachiningPreparation::shutdown()
   m_pending = {};
   m_pendingCalibration.reset();
   m_preparing = false;
+  if (m_run != CalibrationRun::Idle) endRun(tr("Application closed during the calibration run."));
   clearPrepared(); // A removal failure is already logged; nothing shows the text after shutdown.
   emit preparingChanged();
   emit availabilityChanged();
@@ -445,15 +518,58 @@ void SceneMachiningPreparation::attachPlc(DeviceRunner* plc)
   emit availabilityChanged();
 }
 
-// The PLC's own start checks, as RobotStartPanel.qml's Run: step IDLE, X1.0 AUT EXT, X1.7 $IN_HOME,
-// X1.6 APPL_RUN off.
+void SceneMachiningPreparation::attachRecorder(SessionRecorder* recorder)
+{
+  Q_ASSERT(recorder && !m_recorder && recorder->thread() == thread());
+  m_recorder = recorder;
+}
+
+// The PLC's own Run checks (FB_RunSetVar): step IDLE, AUT EXT, $IN_HOME, APPL_RUN off.
 bool SceneMachiningPreparation::plcReady() const
 {
   if (!m_plc || !m_plc->isConnected()) return false;
+  const QVariantList x1 = m_plc->data()->value(QStringLiteral("x1")).toList();
+  return m_plc->data()->value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(X1AutExt).toBool()
+      && x1.value(X1InHome).toBool() && !x1.value(X1ApplRun).toBool();
+}
+
+// The PLC's own Resume checks (FB_RunSetVar) for this run's interrupted program: step IDLE, AUT EXT,
+// APPL_RUN without $PRO_ACT and no stop message. After an EMERGENCY STOP APPL_RUN falls and the
+// message stays (only the PLC's $CONF_MESS acknowledges it in AUT EXT), so the PLC refuses Resume.
+bool SceneMachiningPreparation::canResumeCalibration() const
+{
+  if (m_run != CalibrationRun::Started || !m_plc || !m_plc->isConnected()) return false;
   const QQmlPropertyMap& data = *m_plc->data();
   const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
-  return data.value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(0).toBool() && x1.value(7).toBool()
-      && !x1.value(6).toBool();
+  return data.value(QStringLiteral("robotProgramState")).toInt() == ProgramInterrupted
+      && data.value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(X1AutExt).toBool()
+      && x1.value(X1ApplRun).toBool() && !x1.value(X1ProAct).toBool() && !x1.value(X1StopMess).toBool();
+}
+
+QString SceneMachiningPreparation::calibrationInterruption() const
+{
+  if (!programStarted() || !m_plc) return {};
+  if (m_run != CalibrationRun::Started) return tr("Resuming…");
+  const QQmlPropertyMap& data = *m_plc->data();
+  if (data.value(QStringLiteral("robotProgramState")).toInt() != ProgramInterrupted) return {};
+  const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
+  // Short texts: the status line elides its end. Without Resume, leaving AUT EXT ends the run.
+  const QString state = !x1.value(X1PeriRdy).toBool() ? tr("E-STOP · switch to T1 to end the run")
+      : !x1.value(X1ApplRun).toBool() ? tr("Interrupted · switch to T1 to end the run")
+      : x1.value(X1StopMess).toBool() ? tr("Interrupted · acknowledge the message on the smartPAD")
+      : tr("Interrupted · press Resume");
+  return m_runError.isEmpty() ? state : m_runError + QStringLiteral(" · ") + state;
+}
+
+void SceneMachiningPreparation::resumeCalibration()
+{
+  Q_ASSERT(QThread::currentThread() == thread());
+  if (!canResumeCalibration()) return;
+  m_runError.clear();
+  m_run = CalibrationRun::Resuming;
+  m_plc->invoke(QStringLiteral("resumeRobot"));
+  emit calibrationRunChanged();
+  emit availabilityChanged();
 }
 
 bool SceneMachiningPreparation::canStartCalibration() const
@@ -469,6 +585,7 @@ void SceneMachiningPreparation::startCalibration()
   m_detections.clear();
   m_runError.clear();
   m_run = CalibrationRun::Requested;
+  m_recorder->openCalibration(); // Before Run, so the PLC start sequence is inside the session.
   m_plc->invoke(QStringLiteral("runRobotProgram"), {{QStringLiteral("program"), 1}});
   emit calibrationRunChanged();
   emit availabilityChanged();
@@ -483,17 +600,35 @@ void SceneMachiningPreparation::recordTouch(int touch, const V6d& joints)
   emit calibrationRunChanged();
 }
 
-// The PLC sends robotResult with every 2 s heartbeat, so a start failure is taken only when the start
-// sequence of this run (robotStep above IDLE) returns to IDLE without program 1 running.
+// The PLC sends robotResult with every 2 s heartbeat, so a start or resume failure is taken only when
+// the start sequence of this run (robotStep above IDLE) returns to IDLE without program 1 running.
 void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
 {
   const int state = values.value(QStringLiteral("robotProgramState"), -1).toInt(); // -1: unchanged.
   const QQmlPropertyMap& data = *m_plc->data();
   const int step = data.value(QStringLiteral("robotStep")).toInt();
   const int result = data.value(QStringLiteral("robotResult")).toInt();
-  if (m_run == CalibrationRun::Started && state == ProgramFinished) {
+  // Leaving AUT EXT is the operator's abort: a program interrupted in another mode is restarted from
+  // CELL, never resumed (the PLC's ResumeBlocked).
+  if (m_run != CalibrationRun::Idle && !data.value(QStringLiteral("x1")).toList().value(X1AutExt).toBool()) {
+    endRun(tr("AUT EXT was left during the calibration run."));
+    return;
+  }
+  if (programStarted() && state == ProgramFinished) {
     endRun({});
     return;
+  }
+  if (m_run == CalibrationRun::Resuming || m_run == CalibrationRun::ResumeStarting) {
+    // A failed resume keeps the run interrupted; its reason is shown with the interruption.
+    if (state == ProgramRunning || (m_run == CalibrationRun::ResumeStarting && step == 0 && result == StartResultResumed)) {
+      m_run = CalibrationRun::Started;
+    } else if (step != 0) {
+      m_run = CalibrationRun::ResumeStarting;
+    } else if (m_run == CalibrationRun::ResumeStarting) {
+      m_run = CalibrationRun::Started;
+      m_runError = tr("Resume failed: %1.").arg(StartResultNames.value(result, QString::number(result)));
+    }
+    emit calibrationRunChanged();
   }
   if (m_run == CalibrationRun::Requested || m_run == CalibrationRun::Starting) {
     // A start sequence ending with STARTED also counts: the running state can be lost with a PLC frame.
@@ -518,23 +653,23 @@ void SceneMachiningPreparation::onPlcSocket()
 void SceneMachiningPreparation::endRun(const QString& error)
 {
   Q_ASSERT(m_preparedCalibration); // clearPrepared ends a run before it drops the job.
-  // Copied, because handlers of the signals of recordCalibrationResult could drop the held job.
-  const QString id = m_preparedCalibration->diagnosticId;
   m_run = CalibrationRun::Idle;
   m_runError = error;
   // The touches are kept also when the run or the fit fails.
-  const QString touchesError = m_detections.isEmpty() ? QString{} : writeCalibrationTouches(m_detections, id);
+  if (!m_detections.isEmpty()) m_recorder->addFile({QStringLiteral("touches.csv"), touchesCsv(m_detections)});
   if (error.isEmpty()) {
     const ProbeCalibrationFitResult result = fitProbeCalibration(*m_preparedCalibration->motion, m_detections);
     if (result.fit) {
+      m_recorder->addFile({QStringLiteral("residual_sets.csv"), residualSetsCsv(*result.fit)});
+      m_recorder->setResult(resultObject(*result.fit));
       // Emits lastCalibrationChanged, which opens the result window; it binds calibrationRunError.
-      const QString settingsError = m_calibration->recordCalibrationResult(*result.fit, id);
-      m_runError = joinedError(writeCalibrationResult(*result.fit, id), settingsError);
+      m_runError = m_calibration->recordCalibrationResult(*result.fit, m_recorder->sessionName());
     } else {
       m_runError = result.error;
     }
   }
-  m_runError = joinedError(m_runError, touchesError);
+  // The record folder is written after RsiDevice returns the remaining requests; failed with an error.
+  m_recorder->closeCalibration(m_runError);
   if (!m_runError.isEmpty()) qInfo().noquote() << "Probe calibration run:" << m_runError;
   emit calibrationRunChanged();
   emit availabilityChanged();

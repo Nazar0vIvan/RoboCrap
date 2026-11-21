@@ -9,7 +9,7 @@ Status (2026-11-14): **proposed, not applied, not verified on the controller.** 
 - Robot: KUKA KR10 R1420 with a KR C4 smallsize-2 controller, KUKA System Software (KSS) 8.3.
 - PLC: Delta AS332T with expansion module 1, AS16AP11P-A (inputs X1.0 … X1.7, outputs Y1.0 … Y1.7), wired to the KR C4 EtherCAT terminals EL1809 (`$IN[1]` … `$IN[16]`) and EL2809 (`$OUT[1]` … `$OUT[16]`).
 - Automatic External (AUT EXT): a KR C4 operating mode in which a higher-level controller, here the PLC, starts programs through digital signals. In AUT EXT the controller runs `CELL.SRC`, which reads a program number from the PLC and calls the matching program (repository copy `controller/krl/autext/cell.src`).
-- RoboCrap: the PC application. Its PLC panel (`src/application/qml/Views/Dashboard/DeltaPanel/RobotStartPanel.qml`) has the buttons Run, Resume and Abort and shows the PLC inputs X1.x.
+- The November 14 experiment used the former PLC Run/Resume/Abort panel. The current Measuring / Calibration toolbar starts program 1 and resumes an interrupted calibration.
 - The live AUT EXT signal assignment is recorded in `docs/plc_project_snapshot/AUT_EXT_DIOs_live.md`. The work around it is planned in `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`.
 
 Signals used here (direction from the KR C4's point of view):
@@ -33,13 +33,13 @@ Resume continues a stopped program from the point where it stopped; it does not 
 1. The smartPAD STOP key triggers a STOP 2 (KSS 8.3 SI §3.4): the robot brakes along its programmed path, the drives stay on, and the program pointer stays on the interrupted motion instruction.
 2. RoboCrap's Resume sends the PLC the command ROBOT_RESUME. The PLC accepts it only while APPL_RUN is TRUE and `$PRO_ACT` is FALSE (an interrupted program).
 3. The PLC start sequence (PLC program `RobotIo`, SFC `RobotHandler`) runs the step ST_PREP: `$DRIVES_ON` high from 0 to 200 ms, `$CONF_MESS` high from 300 to 500 ms, then it waits until `$PERI_RDY` is TRUE and `$STOPMESS` is FALSE, for at most 5 s, otherwise the result is TIMEOUT.
-4. In ST_START the PLC raises `$EXT_START` from 0.1 s on. The controller then finishes the interrupted motion from the stop point to that motion's target (at the programmed velocity times the program override, 10 % in this cell), and the program continues with the next instructions. If the robot was moved off the path in the meantime (`$ON_PATH` FALSE), the controller first makes a repositioning move back to the path (KSS 8.3 SI Fig. 6-25).
+4. In ST_START the PLC raises `$EXT_START` from 0.1 s on. The controller then finishes the interrupted motion from the stop point to that motion's target (at the programmed velocity times the program override, 10 % in the November 14 experiment), and the program continues with the next instructions. If the robot was moved off the path in the meantime (`$ON_PATH` FALSE), the controller first makes a repositioning move back to the path (KSS 8.3 SI Fig. 6-25).
 
 Example without motion (program 4 is `WAIT SEC 3`): the STOP key came 0.83 s after the start; after Resume the program finished 2.15 s after `$PRO_ACT` rose again, i.e. the remaining part of the same wait.
 
 ## Problem
 
-After the smartPAD STOP key in AUT EXT the controller shows the acknowledgeable message "KSS01370 Passive STOP" and sets `$STOPMESS` TRUE. The PLC's `$CONF_MESS` pulse in ST_PREP does not clear this message, so `$STOPMESS` stays TRUE and every Resume ends with TIMEOUT. After the operator acknowledges the message on the smartPAD, `$STOPMESS` becomes FALSE and Resume works.
+In the November 14 experiment, after the smartPAD STOP key in AUT EXT the controller shows the acknowledgeable message "KSS01370 Passive STOP" and sets `$STOPMESS` TRUE. The PLC's `$CONF_MESS` pulse in ST_PREP does not clear this message, so `$STOPMESS` stays TRUE and the attempted Resume ended with TIMEOUT. After the operator acknowledges the message on the smartPAD, `$STOPMESS` becomes FALSE and Resume works.
 
 Evidence: RoboCrap's PLC log `records/plc_io_20261114_152647.csv` (then beside the executable), one action at a time:
 
@@ -97,7 +97,7 @@ Number format: one forum example writes the number with leading zeros as shown i
 
 ### Verification
 
-Repeat the clean A3 run of the ExecPlan (robot at HOME, AUT EXT, one action at a time with 10 s pauses, new log by Disconnect/Connect in RoboCrap): run program 4, press the smartPAD STOP key while "program running" is shown, then press Resume in RoboCrap **without** acknowledging on the smartPAD.
+The original A3 proposal called for repeating the November 14 program 4 experiment with the former PLC controls and a connection log. The current calibration toolbar starts program 1. **Start Calibration** opens the session before the PLC request, and **Resume** continues that session after smartPAD acknowledgement. Its `plc.csv` records the commands and observed signals. Reconnecting the PLC does not start a log. The following outcomes were the criteria proposed for A3.
 
 - Works: in ST_PREP the `$CONF_MESS` pulse is followed by `$STOPMESS` = 0, then ST_START, `$EXT_START`, `$PRO_ACT` = 1, result RESUMED, and the program finishes; KSS01370 disappears from the smartPAD message window.
 - Does not work: `$STOPMESS` stays 1 and the result is TIMEOUT, as before. Try `Number="1370"`, check step 2 and the file location, and record the outcome in the ExecPlan.
@@ -108,9 +108,9 @@ Delete the `<Message Number="01370" … />` line (or the file, if it was created
 
 ## Safety consequence
 
-Without the entry, continuing after a STOP key needs two actions in two places: someone acknowledges KSS01370 on the smartPAD, then someone presses Resume in RoboCrap. With the entry, one action in RoboCrap is enough: Resume acknowledges the stop message and continues the interrupted motion. The robot then moves on along the rest of its path although nobody at the smartPAD confirmed it, and the person who pressed STOP has no say in when it continues.
+The current calibration workflow requires two actions after a Passive STOP. The operator acknowledges KSS01370 on the smartPAD, then presses **Resume** in the calibration toolbar. The November 14 proposal would have allowed remote acknowledgement, subject to the application and PLC guards described below.
 
-Limits that stay in place: the entry changes only this one message; EMERGENCY STOP, operator safety and other safety stops are not affected (their messages keep their own acknowledgement rules). The STOP key is an operational stop (STOP 2), not a safety function. The PLC accepts Resume only in AUT EXT with APPL_RUN TRUE and `$PRO_ACT` FALSE, and the program override stays at 10 %.
+The proposal concerns KSS01370 only. The STOP key is an operational stop (STOP 2). EMERGENCY STOP and operator safety have their own acknowledgement requirements. The 10 % override was a condition of the historical experiment.
 
 Forum users explicitly warn against allowing remote acknowledgement of collision or safety faults. KUKA's default requires local acknowledgement of the passive STOP. Whether a remote continuation after a local STOP is acceptable for this cell is the user's decision, to be recorded in the ExecPlan's Decision Log.
 
@@ -118,7 +118,7 @@ Forum users explicitly warn against allowing remote acknowledgement of collision
 
 The operator acknowledges KSS01370 on the smartPAD, as today, and RoboCrap shows whether that has happened. The acknowledgement status is already available to RoboCrap: `$STOPMESS` is wired to PLC input X1.3 and travels to the PC in every IO change frame and every 2 s heartbeat reply (key `x1`, bit 3). Acknowledging KSS01370 sets `$STOPMESS` FALSE (15:30:26.090 in the log above), provided no other stop message (for example a pressed EMERGENCY STOP) is pending.
 
-Implemented on 2026-11-14 (current behaviour without the whitelist entry): RoboCrap enables Resume only while X1.3 is FALSE. While the program is interrupted (APPL_RUN TRUE, `$PRO_ACT` FALSE, PLC step IDLE) the status line shows "Program interrupted · acknowledge message on smartPAD" with X1.3 TRUE and "Program interrupted · message acknowledged · Resume ready" with X1.3 FALSE. The PLC's RESUME check (`FB_RunSetVar`) refuses RESUME with NOT_ALLOWED while `STOPMESS` is TRUE. This avoids the 5 s TIMEOUT but cannot tell which message holds `$STOPMESS`, so the texts say "message". If the whitelist entry is applied later, both Resume conditions on X1.3 must be removed again, otherwise Resume stays disabled until the smartPAD acknowledgement.
+The current **Resume** control requires an active calibration, a connected PLC reporting an interrupted program, step IDLE, AUT EXT and APPL_RUN on, and `$PRO_ACT` and `$STOPMESS` off. While `$STOPMESS` is on after a Passive STOP, the status directs the operator to acknowledge the message on the smartPAD. With drives off, the status directs the operator to T1. Leaving AUT EXT ends the calibration and closes its session. The PLC also checks `$STOPMESS` in `FB_RunSetVar`.
 
 Identifying the message itself would need KUKA's error-number transmission (KSS 8.3 SI §6.17.3, `PLC_ENABLE=TRUE` in `P00.DAT`, which writes the number of a configured `$STOPMESS` message to 8 outputs). The PLC's module 1 has only one free input (X1.1, wired from `$OUT[2]`), so this is not possible with the current wiring.
 

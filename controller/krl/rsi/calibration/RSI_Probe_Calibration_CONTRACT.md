@@ -6,16 +6,15 @@ executed by KRL as PTP, LIN and CIRC moves, except that every approach to the sp
 under RSI that stops at the WP-500 touch (`$IN[8]`). The plan behind it is
 `plans/PROBE_SPHERE_RSI_CALIBRATION_EXECPLAN.md`.
 
-Controller files (in the repository the SRC, DAT and this contract are in
-`resources/files/rsi/Calibration/`, the Ethernet configuration and `FILE_UTILS/` in
-`resources/files/rsi/`):
+The repository stores the calibration SRC/DAT in `controller/krl/rsi/calibration/`, the Ethernet
+configuration in `controller/rsi_config/` and the shared KRL helpers in `controller/krl/lib/`.
 - `RSI_Probe_Calibration.src` and `RSI_Probe_Calibration.dat` (module `RSI_Probe_Calibration`) with
   the local functions `SEARCH()` and `READ_JOB()`.
 - `RSI_Probe_Calibration.rsi`, `.rsi.xml` and `.rsi.diagram`: the RSI Visual context below, loaded
   by `RSI_CREATE("RSI_Probe_Calibration.rsi")`. Copy them from the RSI Visual export; do not
   hand-edit them.
 - `RSI_EthernetConfig.xml`: shared with `RSI_Chamfer_Hole` and `RSI_Probe_Check`.
-- `FILE_UTILS/REMOUNT_SHARE.src`, `READ_POS.src` and `READ_FRAME.src`: the helpers of
+- `REMOUNT_SHARE.src`, `READ_POS.src` and `READ_FRAME.src`: the helpers of
   `RSI_Chamfer_Hole`.
 
 PC side: "RSI Sampling" in Measuring mode, Calibration submode, calls
@@ -26,9 +25,9 @@ per touch in `RsiDevice` (`src/devices/rsi/rsidevice.cpp`).
 
 ## AUT EXT start
 
-In Automatic External the program is program 1 of RoboCrap's PLC panel, also started by *Start
-Calibration* in the Calibration submode: the PLC sends program number
-PGNO 0 and `CELL.SRC` calls `RSI_Probe_Calibration ( )` in CASE 0 (`resources/files/AutExt/cell.src`,
+In Automatic External the program is RoboCrap's program 1, started by *Start Calibration* in the
+Calibration submode. After a Passive STOP, acknowledge the message on the smartPAD before using
+*Resume*. The PLC sends PGNO 0 and `CELL.SRC` calls `RSI_Probe_Calibration ( )` in CASE 0 (`controller/krl/autext/cell.src`,
 `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`). A new start requires `$IN_HOME`, because the program
 begins with `PTP HOME` and in AUT EXT there is no BCO run; after a `StepLimit` end or a missed search
 the robot stands near the sphere (3 mm from it after a search), so jog it clear in T1, select CELL and
@@ -45,7 +44,7 @@ KRL: `$BASE=$NULLFRAME` (BASE = WORLD; `$ROBROOT` is zero in the archived machin
 `TOOL_DATA` entry), `$IPO_MODE=#BASE`, `$ORI_TYPE=#CONSTANT` (the probe orientation is fixed within
 each pass), `$VEL.CP`/`$ACC.CP` from the job file (the Generate transfer feed and acceleration, by
 default 0.01 m/s and 0.02 m/s²), `$ACC_AXIS[1..6]` = 20 % for every PTP of the session. The PTP
-velocity comes from `INIT_PTP_VEL ( )` (`resources/files/AutExt/INIT_PTP_VEL.src`, since 2026-11-14),
+velocity comes from `INIT_PTP_VEL ( )` (`controller/krl/lib/INIT_PTP_VEL.src`, since 2026-11-14),
 called after `BAS (#PTP_PARAMS,20 )` of the first `PTP HOME`, which is plain KRL, not an inline form:
 `$VEL_AXIS[1..6]` = 100 % in T1 (limited by the controller to 250 mm/s) and `PtpVelAuto` (5 %) in
 AUT EXT, AUT and T2. Every later PTP, including the final `PTP XHOME`, keeps it. In AUT EXT CELL sets
@@ -176,36 +175,28 @@ After HOME and `READ_JOB`, the program executes steps 1 to M, or 1 to `StepLimit
 - Neither end moves PTP near the sphere. The robot then stands about 3 mm from the sphere: jog it
   clear in T1 before the next start, because the program begins with `PTP HOME`.
 
-The search steps of every touch number are listed in the plan file (`search_step`), for choosing
-`StepLimit` (a search step plus 1 includes its retract). For the current plan: steps 1 and 2 are the
+The archived `plan.csv` lists the search step of each touch in `search_step`. In the exported job,
+a search step plus one includes its retract. For the current plan, steps 1 and 2 are the
 entry PTP and the descent, touch 1 searches at step 3, and each further touch adds transfer, search
 and retract; `StepLimit` = 10 executes touches 1–3, `StepLimit` = 58 the whole first pass (touch 19
 searches at step 57).
 
 ## Plan, packet and touch files
 
-All files of one procedure (one RSI Sampling and the runs of its job) are in its own folder
-`records/<id>/` in the records folder `ROBOCRAP_RECORDS_DIR` (default `records/` in the repository,
-since 2026-11-18; before, beside the executable). `<id>` is `calibration_<UTC timestamp
-yyyyMMdd_HHmmss_zzz>` of the Sampling, unique per Sampling (since 2026-11-17; earlier procedures used
-the bare timestamp and `records/` itself; the procedures of 2026-11-14 and 2026-11-17 were moved into
-`records/calibration_<timestamp>/` with their file names kept). A rerun with the same Sampling
-appends to the capture and replaces the touch and result files:
-- `rsi_plan_<id>.csv` (written by Sampling): one row per touch number with its search
-  step, purpose, group, repetition, touch within the pass, tilt, roll, normal, nominal start and
-  contact poses and the S/T at the search start. A failure to write it fails the Sampling.
-- `rsi_packets_<id>.csv` (written by `RsiDevice`): the packet capture of
-  `RSI_Chamfer_Hole_CONTRACT.md`, one file; a save appends after every search, because the
-  controller sends no packets between `RSI_OFF` and the next `RSI_ON`. Captures before 2026-11-18
-  are split into `rsi_packets_<id>_partN.csv` files with Base64 XML.
-- `calibration_touches_<id>.csv` (written by the application at the end of every run with
-  detections, also a failed one): `# plan_id`, then `touch,a1,…,a6`, one row per detected touch in
-  detection order, the AIPos (deg, six decimals) of the first packet with Start 1 and `Touch` 1 of
-  that touch's search. The touch files of the sessions before 2026-11-18 were made from their
-  captures with the same rule.
-- `calibration_result_<id>.csv` (written by the application after a successful fit): the estimated
-  quantities and the step-K7 sets. `python -I python/calibration/calibration_fit.py records/<id>`
-  recomputes it from the plan and touch files.
+RSI Sampling prepares `plan.csv` in memory and exports `calibration_data.txt` for KRL.
+**Start Calibration** opens a session before sending PLC program 1. A Passive STOP and Resume
+belong to that same session. Leaving AUT EXT ends it. Each new start gets its own record.
+
+After the run ends, the recorder requests the remaining RSI capture and writes the session under
+`records/yyyy-MM-dd_HH-mm-ss_calibration`, with `_failed` on error. The folder contains the
+sampled plan, a copy of the exported job and `session.json`. `plc.csv` contains available PLC
+rows. When there is a capture, `rsi.csv` and `rsi_timing.csv` cover the individual searches.
+A failed start can produce a session before any RSI traffic or touch.
+
+`touches.csv` keeps the first reported joint angles per detected touch, including on failure.
+A computed fit supplies `residual_sets.csv`. A successful session also stores the fitted values
+in `session.json`. `python -I python/calibration/calibration_fit.py records/<folder>` repeats
+the fit from the plan and touch angles. See the [record format](../../../../docs/code%20context/RECORDS_FORMAT.md).
 
 ## Verified on the controller
 

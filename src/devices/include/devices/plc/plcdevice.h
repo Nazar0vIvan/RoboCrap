@@ -8,9 +8,21 @@
 #include <QQueue>
 #include <QVariantList>
 
-class QFile;
 class QTcpSocket;
 class QTimer;
+
+// One change of the robot interface or one PLC event, stamped with recordClockNs() (devices/recordclock.h).
+struct PlcIoRecord
+{
+  qint64 timeNs = 0;
+  QString event; // "io", "run <n>", "resume", "abort", "reply timeout <tid>", ...
+  quint8 x1 = 0; // Bit n = terminal X1.n.
+  quint8 y1 = 0; // Bit n = terminal Y1.n.
+  quint8 y2 = 0; // Bit n = terminal Y2.n.
+  int step = 0; // PLC E_RSTEP code.
+  int program = 0;
+  int result = 0; // PLC E_RRESULT code.
+};
 
 class PlcDevice : public AbstractDevice
 {
@@ -25,8 +37,10 @@ public:
   Q_INVOKABLE void setOutput(const QVariantMap& args);
   Q_INVOKABLE void runRobotProgram(const QVariantMap& args);
   Q_INVOKABLE void resumeRobot();
-  // Aborts only the PLC start sequence; a running KRL program is not stopped.
-  Q_INVOKABLE void abortRobotStart();
+
+signals:
+  // Every logged change and event, for the session records; no file is written here.
+  void ioRecorded(const PlcIoRecord& record);
 
 protected:
   void startDevice() override;
@@ -53,16 +67,14 @@ private:
 
   void publishData(const QVariantMap& data);
   void publishIo(const QVariantMap& data);
-  // records/plc_io_<time>.csv, one file per connection.
-  void openLog();
-  void writeLog(const QString& event);
+  // Emits ioRecorded with the full logged state and event.
+  void recordIo(const QString& event);
 
   QTcpSocket* m_sock = nullptr;
   PlcMessageManager m_mgr;
   QTimer* m_replyTimer = nullptr;
   QTimer* m_heartbeat = nullptr;
-  QFile* m_log = nullptr;
-  // Last logged x1/y1 bits and robot step/program/result: every log row shows the full state.
+  // Last logged x1/y1/y2 bits and robot step/program/result: every record shows the full state.
   QVariantMap m_logged;
 
   std::optional<SocketEndpoints> m_endpoints; // With a peer port; never cleared after the first valid set.
@@ -72,6 +84,4 @@ private:
   QHash<quint8, QVariantMap> m_pend;
   quint8 m_nextTid = 1;
   ProgramState m_programState = ProgramState::Unknown;
-  // Mirror of the PLC's ResumeBlocked, published as robotResumeBlocked.
-  bool m_resumeBlocked = false;
 };
