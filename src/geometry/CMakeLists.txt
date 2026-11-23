@@ -9,6 +9,8 @@ qt_add_library(RoboCrapGeometry STATIC
   plane.cpp
   include/geometry/spherefit.h
   spherefit.cpp
+  include/geometry/endgaugefit.h
+  endgaugefit.cpp
   include/geometry/mathtypes.h
   include/geometry/utils.h
   utils.cpp

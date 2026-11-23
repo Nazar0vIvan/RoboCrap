@@ -42,7 +42,7 @@ if(NOT DEFINED ROBOCRAP_DEPLOY_CONFIG)
 "set(occt_prefix [==[${occt_prefix}]==])
 set(cad_source [==[${PROJECT_SOURCE_DIR}/resources/deploy/cad/robot/kr10]==])
 set(cad_generated [==[${cad_generated}]==])
-set(calibration_source [==[${PROJECT_SOURCE_DIR}/resources/deploy/config/calibration_sphere.json]==])
+set(fixture_source_dir [==[${PROJECT_SOURCE_DIR}/resources/deploy/config]==])
 set(runtime_search [==[${OCCT_RUNTIME_SEARCH_DIRS}]==])
 set(objdump [==[${CMAKE_OBJDUMP}]==])
 set(runtime_roots
@@ -110,9 +110,9 @@ file(COPY "${occt_prefix}/share/opencascade/resources/"
 file(COPY "${occt_prefix}/share/doc/opencascade/LICENSE_LGPL_21.txt"
   DESTINATION "${ROBOCRAP_DEPLOY_DEST}/licenses/occt")
 
-# The deployed sphere file is edited in place and later refined; never overwrite it.
-set(calibration_target "${ROBOCRAP_DEPLOY_DEST}/resources/json/calibration_sphere.json")
-if(EXISTS "${calibration_source}" AND NOT EXISTS "${calibration_target}")
-  file(MAKE_DIRECTORY "${ROBOCRAP_DEPLOY_DEST}/resources/json")
-  file(COPY "${calibration_source}" DESTINATION "${ROBOCRAP_DEPLOY_DEST}/resources/json")
-endif()
+# Installed observations are edited independently on each equipment computer.
+foreach(fixture IN ITEMS calibration_sphere.json end_gauge.json)
+  if(EXISTS "${fixture_source_dir}/${fixture}" AND NOT EXISTS "${ROBOCRAP_DEPLOY_DEST}/resources/json/${fixture}")
+    file(COPY "${fixture_source_dir}/${fixture}" DESTINATION "${ROBOCRAP_DEPLOY_DEST}/resources/json")
+  endif()
+endforeach()

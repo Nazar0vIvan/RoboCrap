@@ -115,28 +115,34 @@ def residual(model, touch):
     return np.linalg.norm(touch["position"] + touch["rotation"] @ ball - sphere) - contact
 
 
+def jacobian(touches, model, calibration):
+    """Derivative of each touch residual with respect to the fitted parameters."""
+    columns = 8 if calibration else 3
+    ball, sphere, _, _ = model
+    rows = np.zeros((len(touches), columns))
+    for row, touch in enumerate(touches):
+        direction = touch["position"] + touch["rotation"] @ ball - sphere
+        direction /= np.linalg.norm(direction)
+        if calibration:
+            rows[row, :3] = direction @ touch["rotation"]
+            rows[row, 3:6] = -direction
+            rows[row, 7 if touch["group"] == 2 else 6] = -1.0
+        else:
+            rows[row] = -direction
+    return rows
+
+
 def solve(touches, model, calibration):
     """Gauss-Newton: all 8 parameters (calibration) or only the sphere centre (verification)."""
-    columns = 8 if calibration else 3
     ball, sphere, vertical, horizontal = model
     for _ in range(MAX_ITERATIONS):
-        jacobian = np.zeros((len(touches), columns))
-        residuals = np.zeros(len(touches))
-        for row, touch in enumerate(touches):
-            direction = touch["position"] + touch["rotation"] @ ball - sphere
-            direction /= np.linalg.norm(direction)
-            residuals[row] = residual((ball, sphere, vertical, horizontal), touch)
-            if not calibration:
-                jacobian[row] = -direction
-                continue
-            jacobian[row, 0:3] = direction @ touch["rotation"]
-            jacobian[row, 3:6] = -direction
-            jacobian[row, 6] = 0.0 if touch["group"] == 2 else -1.0
-            jacobian[row, 7] = -1.0 if touch["group"] == 2 else 0.0
-        singular = np.linalg.svd(jacobian, compute_uv=False)
+        model = ball, sphere, vertical, horizontal
+        rows = jacobian(touches, model, calibration)
+        residuals = np.array([residual(model, touch) for touch in touches])
+        singular = np.linalg.svd(rows, compute_uv=False)
         if not singular[-1] >= RANK_TOLERANCE * singular[0]:
             sys.exit("The parameters are not identifiable from these touches.")
-        step = np.linalg.lstsq(jacobian, -residuals, rcond=None)[0]
+        step = np.linalg.lstsq(rows, -residuals, rcond=None)[0]
         if calibration:
             ball, sphere = ball + step[0:3], sphere + step[3:6]
             vertical, horizontal = vertical + step[6], horizontal + step[7]

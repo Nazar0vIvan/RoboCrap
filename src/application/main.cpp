@@ -125,6 +125,8 @@ int main(int argc, char* argv[])
   WorkspaceController workspaceController(&scene, &machining, &endEffectors);
   QObject::connect(&workspaceController, &WorkspaceController::calibrationActiveChanged,
                    &calibration, &SceneCalibration::setActive);
+  QObject::connect(&workspaceController, &WorkspaceController::preciseActiveChanged,
+                   &calibration, &SceneCalibration::setPreciseActive);
   QObject::connect(&workspaceController, &WorkspaceController::selectionChanged,
                    &viewportController, &RoboCrap3D::OccController::setSelectedObjects);
   QObject::connect(&viewportController, &RoboCrap3D::OccController::applicationSelectionRequested,

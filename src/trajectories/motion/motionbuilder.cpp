@@ -22,12 +22,6 @@ QString atTime(const QString& label, const QString& message, double seconds)
   return QStringLiteral("%1: %2 (t=%3 s)").arg(label, message).arg(seconds, 0, 'g', 12);
 }
 
-bool samePose(const M4d& first, const M4d& second)
-{
-  return (first.block<3, 1>(0, 3) - second.block<3, 1>(0, 3)).norm() <= Kr10PosEps
-      && (first.block<3, 3>(0, 0) - second.block<3, 3>(0, 0)).cwiseAbs().maxCoeff() <= Kr10RotEps;
-}
-
 QString accelerationError(const Rates& before, const Rates& after, const ChamferTimingParameters& timing)
 {
   const double elapsed = 0.5 * (before.seconds + after.seconds);

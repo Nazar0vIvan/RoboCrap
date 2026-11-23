@@ -19,10 +19,14 @@ struct ProbeMotionPhase
   QString text(const ProbeTouchPlan& plan) const;
 };
 
+// Movement of the nominal path and its controller job encoding.
+enum class ProbeRsiStepKind { Ptp = 1, Lin = 2, Circ = 3, Search = 4, Home = 5 };
+
 // One motion step: its phase and the TCP pose at its end (unused by ReturnHome).
 struct ProbeMotionStep
 {
   ProbeMotionPhase phase;
+  ProbeRsiStepKind kind;
   M4d target = M4d::Identity();
 };
 
@@ -32,7 +36,7 @@ struct ProbeMotionStep
 // pass ended (a zero-length CIRC is degenerate).
 QVector<ProbeMotionStep> probeMotionSteps(const ProbeTouchPlan& plan);
 
-// Smallest ball clearances of a probe motion, mm.
+// Smallest sampled ball clearances during the sphere passes, mm.
 struct ProbeClearances
 {
   double transfer = 0.0; // To the sphere, outside Approach and Retract.

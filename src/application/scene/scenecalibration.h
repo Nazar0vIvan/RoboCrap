@@ -64,6 +64,7 @@ class SceneCalibration : public QObject
   Q_PROPERTY(bool canGenerate READ canGenerate NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(QString unavailableReason READ unavailableReason NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool calculating READ calculating NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool ownsPlayback READ ownsPlayback NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged FINAL)
 public:
   SceneCalibration(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
@@ -77,8 +78,10 @@ public:
   // the ball centre (A, B, C kept) and, in the submode, moves the sphere. False without a last
   // result or when the file cannot be written (settingsError).
   Q_INVOKABLE bool reassignPrimaryCentres();
-  // Entering re-reads the sphere file and hides every other object; leaving restores them.
+  // Entering reloads both fixtures and hides non-calibration objects; leaving restores them.
   void setActive(bool active);
+  void setPreciseActive(bool active);
+  bool ownsPlayback() const;
   bool canGenerate() const { return unavailableReason().isEmpty(); }
   QString unavailableReason() const;
   bool calculating() const { return m_calculation.valid(); }
@@ -101,9 +104,10 @@ private:
   void activate();
   void deactivate();
   const SceneSphere* sphere() const;
-  bool ownsPlayback() const;
+  void onObjectRemoved(quint32 id);
   void onPlaybackFailed(quint32 ownerId, const QString& error);
   void replaceSphere(const SceneSphere& sphere);
+  QString reloadEndGauge(const QString& path);
   // A changed sphere, measuring TCP or robot model makes the calibration path invalid.
   void invalidatePath();
   void finishCalculation();
@@ -122,10 +126,13 @@ private:
   SceneEndEffectors* m_effectors;
   ScenePlayback* m_playback;
   bool m_active = false;
+  bool m_precise = false;
   quint32 m_sphereId = 0;
-  quint32 m_pathId = 0;
+  quint32 m_endGaugeId = 0;
+  quint32 m_pathId = 0; // Combined sphere and gauge path.
   QList<quint32> m_hiddenIds; // Objects hidden on entry, shown again on exit.
   QString m_error;
+  QString m_sphereError; // An invalid configured obstacle prevents generating a scan with missing geometry.
   ProbeSettings m_settings; // Empty when the file is missing or invalid.
   QString m_settingsError;
   QString m_settingsReadError; // The start read's error; while set, nothing is written to the settings file.

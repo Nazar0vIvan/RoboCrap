@@ -9,8 +9,6 @@
 // Controller job of the probe sphere calibration (controller/krl/rsi/calibration): KRL executes
 // every step of the saved calibration path; each Search runs under RSI with its own correction
 // stream, selected by the touch number that KRL sends as TouchIndex.
-enum class ProbeRsiStepKind { Ptp = 1, Lin = 2, Circ = 3, Search = 4, Home = 5 };
-
 struct ProbeRsiStep
 {
   ProbeRsiStepKind kind = ProbeRsiStepKind::Ptp;

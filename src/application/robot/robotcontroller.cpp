@@ -12,13 +12,6 @@
 
 namespace RoboCrap3D {
 
-namespace {
-
-// Ruby ball centre in the model frame of EE_WP-500.brep, mm.
-const V3d MeasuringModelBallCentre{0.0, 0.0, 127.0};
-
-} // namespace
-
 RobotController::RobotController(OccController* viewport, SceneEndEffectors* effectors, ScenePlayback* playback)
   : m_viewport(viewport), m_endEffectors(effectors), m_playback(playback)
 {
@@ -72,6 +65,8 @@ DrawingPose RobotController::drawingPose(const QList<M4d>& links, const std::opt
 {
   // The probe model keeps its CAD frame and moves so that its ball centre is the measuring TCP.
   const QList<double>& ball = m_endEffectors->measuringTcp();
+  // Located ruby centre in the EE_WP-500 CAD model, mm.
+  const V3d MeasuringModelBallCentre{0, 0, 127.7};
   const V3d offset = V3d{ball[0], ball[1], ball[2]} - MeasuringModelBallCentre;
   DrawingPose result{links, links.back(), {}, {}, links.back() * makeTranslation(offset)};
   if (m_endEffectors->activeTool() != SceneEndEffectors::Spindle) return result;

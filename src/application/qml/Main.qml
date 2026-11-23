@@ -20,16 +20,13 @@ ApplicationWindow {
   id: root
 
   readonly property int workflowMode: App.WorkspaceController.mode
-  property bool dryScanActive: false
-  property bool dryScanRunning: false
-  onMeasurementSubmodeChanged: { root.dryScanActive = false; root.dryScanRunning = false }
   readonly property int measurementSubmode: App.WorkspaceController.submode
   readonly property bool calibrationActive: root.workflowMode === WorkflowPanel.Measuring
                                             && root.measurementSubmode === WorkflowPanel.Calibration
 
+  readonly property bool preciseActive: root.workflowMode === WorkflowPanel.Measuring
+                                        && root.measurementSubmode === WorkflowPanel.Precise
   onWorkflowModeChanged: {
-    root.dryScanActive = false
-    root.dryScanRunning = false
     root.toolSetupOpen = false
     if (root.chamferEditorOpen) machiningPanel.cancelEditing()
   }
@@ -293,7 +290,7 @@ ApplicationWindow {
                                  || App.MachiningPreparation.preparing || statusBar.sceneLoading
     // Calibration playback without an error, or the Dry Run of the open chamfer editor.
     readonly property bool playbackShown: App.Playback.active
-                                          && (root.calibrationActive ? !App.Calibration.error : root.chamferEditorOpen)
+                                          && (root.calibrationActive ? App.Calibration.ownsPlayback && !App.Calibration.error : root.chamferEditorOpen)
     readonly property string message: {
       if (App.MachiningPreparation.calibrationRunning) {
         const detected = App.MachiningPreparation.calibrationDetected
@@ -314,7 +311,10 @@ ApplicationWindow {
       if (root.chamferEditorOpen) return machiningPanel.message
       if (!root.calibrationActive && root.workflowMode !== WorkflowPanel.Machining) return ""
       const preparation = App.MachiningPreparation
-      const status = preparation.error || preparation.summary
+      const status = preparation.error || (root.calibrationActive
+                     ? (preparation.canPrepareCalibration && preparation.lastCalibrationRecord
+                        ? qsTr("Last sampling record: %1").arg(preparation.lastCalibrationRecord) : "")
+                     : preparation.summary)
                      || (root.calibrationActive ? preparation.calibrationUnavailableReason
                                                 : preparation.unavailableReason)
                      || qsTr("Ready for RSI Sampling.")
@@ -438,6 +438,7 @@ ApplicationWindow {
         sceneModel: root.sceneModel
         selectedObjectIds: root.selectedObjectIds
         calibration: root.calibrationActive
+        preciseScanning: root.preciseActive
         onSelectionRequested: (objectId, additive) => App.WorkspaceController.selectObject(objectId, additive)
         onVisibilityRequested: (object, visible) => root.sceneModel.setObjectVisible(object, visible)
         onRenameRequested: (object, name) => root.sceneModel.renameObject(object, name)
@@ -459,15 +460,15 @@ ApplicationWindow {
         submode: root.measurementSubmode
         planeImportAvailable: root.geometryImportAvailable
         cylinderImportAvailable: root.geometryImportAvailable
-        playbackAvailable: root.calibrationActive ? App.Calibration.canPlay : App.Machining.canPlay
-        playing: App.Playback.playing
-        playbackActive: App.Playback.active
+        playbackAvailable: root.calibrationActive ? App.Calibration.canPlay
+                                             : !root.preciseActive && App.Machining.canPlay
+        playing: App.Playback.playing && (!root.calibrationActive || App.Calibration.ownsPlayback)
+        playbackActive: root.calibrationActive ? App.Calibration.ownsPlayback : App.Playback.active
         preparationAvailable: !root.chamferEditorOpen
-                              && (root.calibrationActive ? App.MachiningPreparation.canPrepareCalibration
-                                                         : App.MachiningPreparation.canPrepare)
-                              && statusBar.rsi && statusBar.rsi.isConnected
+                              && (root.calibrationActive ? App.MachiningPreparation.canPrepareCalibration && !App.Playback.active
+                                                         : App.MachiningPreparation.canPrepare && !!statusBar.rsi && statusBar.rsi.isConnected)
         preparing: App.MachiningPreparation.preparing
-        // The RSI socket must be bound for the search streams, as for RSI Sampling.
+        // A live calibration run requires the RSI socket.
         calibrationStartAvailable: App.MachiningPreparation.canStartCalibration
                                    && !!statusBar.rsi && statusBar.rsi.isConnected
         onCalibrationStartRequested: App.MachiningPreparation.startCalibration()
@@ -479,24 +480,13 @@ ApplicationWindow {
           else App.MachiningPreparation.prepare()
         }
         onPauseRequested: App.Playback.pause()
-        scanActive: root.dryScanActive
-        scanRunning: root.dryScanRunning
-        scanAvailable: root.selectedSceneObject !== null
-                       && (root.selectedSceneObject.kind === App.SceneObject.Plane
-                           || root.selectedSceneObject.kind === App.SceneObject.Cylinder
-                           || root.selectedSceneObject.kind === App.SceneObject.Cone)
-        onScanToggleRequested: {
-          root.dryScanActive = true
-          root.dryScanRunning = !root.dryScanRunning
-        }
-        onScanStopRequested: { root.dryScanActive = false; root.dryScanRunning = false }
         onDryRunRequested: {
           if (root.calibrationActive) App.Calibration.dryRun()
           else App.Machining.dryRun()
         }
         onStopRequested: App.Playback.stop()
         generationAvailable: root.calibrationActive ? App.Calibration.canGenerate
-                             : !App.Playback.active && root.selectedSceneObject !== null
+                             : !root.preciseActive && !App.Playback.active && root.selectedSceneObject !== null
                                && (root.selectedSceneObject.kind === App.SceneObject.Edge
                                    || root.selectedSceneObject.kind === App.SceneObject.MachiningPath)
         onToolSetupRequested: root.openToolSetup()

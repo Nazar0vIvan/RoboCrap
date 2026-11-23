@@ -6,11 +6,13 @@
 #include <QVector>
 #include <optional>
 
-// Calibration and verification touches of the calibration sphere with the measuring TCP. The probe
-// keeps one fixed orientation per pass; transfers are CIRC arcs on the start shell.
+// Distance from search start to nominal contact, along the accessible surface normal.
 constexpr double ProbeApproachGap = 3.0; // mm from the start shell to the contact shell.
 
-enum class ProbeTouchPurpose { Calibration, Verification };
+constexpr double ProbeSearchFeed = 1.0; // mm/s
+
+enum class ProbeTouchPurpose { Calibration, Verification, Gauge };
+enum class ProbeFace { Sphere, A, B };
 
 // Sphere and strut of the calibration fixture, mm in BASE.
 struct ProbeTouchPlanParameters
@@ -20,7 +22,7 @@ struct ProbeTouchPlanParameters
   double ballRadius = 1.5; // Ruby ball of the measuring TCP.
   double strutRadius = 8.9; // Vertical strut on the axis through the sphere centre.
   double strutRecess = 2.0; // Strut top above the lowest sphere point.
-  double searchFeed = 1.0; // mm/s, constant during every Approach; Retract uses the transfer limits.
+  double searchFeed = ProbeSearchFeed; // mm/s, constant during every Approach; Retract uses the transfer limits.
 
   // Ball-centre distance from the sphere centre at contact.
   double contactDistance() const { return sphereRadius + ballRadius; }
@@ -28,14 +30,17 @@ struct ProbeTouchPlanParameters
   double strutClearance(const V3d& ball) const;
 };
 
-// The transfer into a touch is the CIRC on the start shell from the preceding start.
+// Nominal search endpoints in robot base coordinates.
 struct ProbeTouch
 {
   M4d start = M4d::Identity();
   M4d contact = M4d::Identity();
-  V3d normal = V3d::Zero(); // Outward sphere normal at the contact.
+  V3d normal = V3d::Zero(); // Outward surface normal at the contact.
   double tilt = 0.0; // deg, between the stylus and the approach direction.
   double roll = 0.0; // deg, about the stylus.
+  int facePoint = 0; // Original 1-based point on a planar face, independent of traversal order.
+  double overtravel = 2.0; // Maximum inward travel beyond predicted contact, mm.
+  double searchDistance() const { return (start.col(3) - contact.col(3)).norm() + overtravel; }
 };
 
 // One execution of a group's direction list in the group's fixed probe orientation.
@@ -48,15 +53,29 @@ struct ProbeTouchPass
   QVector<ProbeTouch> touches;
   M4d exit = M4d::Identity(); // Outward along the last normal.
 
-  // "Calibration G2 pass 1".
+  ProbeFace face = ProbeFace::Sphere;
+  // Optional plane in BASE for a joint move to entry. The unit normal points to the allowed
+  // side; the offset already includes the ruby radius and required surface clearance (mm).
+  std::optional<V4d> entryClearancePlane = std::nullopt;
+
+  // "Calibration G2 pass 1" or "GE-22 face A G2 pass 1".
   QString label() const;
+};
+
+struct ProbeGaugeMount
+{
+  M4d workpieceInBase = M4d::Identity();
+  QString source;
+  QString observationsSha256;
 };
 
 struct ProbeTouchPlan
 {
-  ProbeTouchPlanParameters parameters;
+  std::optional<ProbeTouchPlanParameters> sphere; // Physical fixture when present in the scene.
   QVector<ProbeTouchPass> passes; // Calibration passes first, then verification passes.
+  std::optional<ProbeGaugeMount> gauge = std::nullopt;
 
+  double searchFeed() const { return sphere ? sphere->searchFeed : ProbeSearchFeed; }
   int touchCount(ProbeTouchPurpose purpose) const;
 };
 
@@ -67,3 +86,4 @@ struct ProbeTouchPlanResult
 };
 
 ProbeTouchPlanResult createProbeTouchPlan(const ProbeTouchPlanParameters& parameters);
+ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double ballRadius);

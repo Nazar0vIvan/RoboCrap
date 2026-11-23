@@ -15,6 +15,7 @@ import argparse
 import csv
 import math
 import os
+from itertools import zip_longest
 
 import numpy as np
 
@@ -29,35 +30,51 @@ HANDLER_COLUMNS = ("entry_us", "sleep_us", "wake_us", "prev_done_us")
 
 def read_rows(path):
     with open(path, newline="", encoding="utf-8") as file:
-        return list(csv.DictReader(file, delimiter=";"))
+        yield from csv.DictReader(file, delimiter=";")
 
 
-def read_packets(folder):
-    """Requests and replies in capture order (each reply right after its request), each as a dict."""
-    packets = []
-    for row, timing in zip(read_rows(os.path.join(folder, "rsi.csv")),
-                           read_rows(os.path.join(folder, "rsi_timing.csv"))):
+def packet_joints(row):
+    try:
+        joints = tuple(float(row["a%d_deg" % i]) for i in range(1, 7))
+    except ValueError:
+        return None
+    return joints if all(map(math.isfinite, joints)) else None
+
+
+def iter_packets(folder):
+    """Yield each request, followed by its reply when the recorder saw a send attempt."""
+    for row, timing in zip_longest(read_rows(os.path.join(folder, "rsi.csv")),
+                                   read_rows(os.path.join(folder, "rsi_timing.csv"))):
+        if row is None or timing is None or (row["ipoc"], row["t_s"]) != (timing["ipoc"], timing["t_s"]):
+            raise ValueError("rsi.csv and rsi_timing.csv have different request rows")
         if not row["ipoc"]:
             continue  # unreadable request XML
         ns = round(float(row["t_s"]) * 1e9)
         ipoc = int(row["ipoc"])
-        packets.append({
+        yield {
             "ns": ns, "rx": True, "index": -1, "ipoc": ipoc,
+            "joints": packet_joints(row),
+            "touch_index": int(row["touch_index"]) if row["touch_index"].isdecimal() else None,
+            "touch": int(row["touch"]) if row["touch"] in ("0", "1") else None,
+            "start": int(row["start"]) if row["start"] in ("0", "1") else None,
             "delay": int(row["delay"]) if row["delay"] else None,
             "rist": tuple(float(row["rist_%s_%s" % (axis, "mm" if axis in "xyz" else "deg")])
                           for axis in "xyzabc") if row["rist_x_mm"] else None,
             "control": False, "times": None,
-        })
+        }
         if not row["stream_index"]:
             continue  # unanswered
         handler = [timing[name] for name in HANDLER_COLUMNS]
-        packets.append({
+        yield {
             "ns": ns + round(float(timing["reply_us"]) * 1000), "rx": False,
             "index": int(row["stream_index"]), "ipoc": ipoc, "delay": None, "rist": None,
             "control": row["stop"] == "1" or row["reply_result"] == "1",
             "times": [ns + round(float(value) * 1000) for value in handler] if all(handler) else None,
-        })
-    return packets
+        }
+
+
+def read_packets(folder):
+    return list(iter_packets(folder))
 
 
 def reference_fit(requests):

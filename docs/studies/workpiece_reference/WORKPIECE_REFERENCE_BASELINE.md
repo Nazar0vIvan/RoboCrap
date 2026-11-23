@@ -8,15 +8,15 @@ It does not select an industrial CAM procedure or specify an implementation.
 
 ## Scope and sources
 
-All four files in `docs/code context` and all three requested calibration documents were read in full.
+All four files in `docs/code_context` and all three requested calibration documents were read in full.
 The directory inventory, including hidden entries, contained no other context files.
 
 | Document | Physical lines | Nonblank lines |
 | --- | ---: | ---: |
-| `docs/code context/AGENT_CONTRACTS.md` | 423 | 406 |
-| `docs/code context/APP_DESCRIPTION.md` | 113 | 98 |
-| `docs/code context/ARCHITECTURE.md` | 448 | 383 |
-| `docs/hardware context/HARDWARE_SETUP.md` | 151 | 126 |
+| `docs/code_context/AGENT_CONTRACTS.md` | 423 | 406 |
+| `docs/code_context/APP_DESCRIPTION.md` | 113 | 98 |
+| `docs/code_context/ARCHITECTURE.md` | 448 | 383 |
+| `docs/hardware_context/HARDWARE_SETUP.md` | 151 | 126 |
 | `plans/PROBE_SPHERE_RSI_CALIBRATION_EXECPLAN.md` | 955 | 829 |
 | `docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_THEORY_RU.md` | 518 | 364 |
 | `docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_METHOD_RU.md` | 446 | 308 |
@@ -24,7 +24,7 @@ The directory inventory, including hidden entries, contained no other context fi
 
 Relevant C++, QML, controller code and the explicitly targeted Python measurement/study tools
 were traced through their producers and consumers. No build, application run, device connection
-or robot action was performed. The supplied `Blank - holes.stp` was not examined in this step.
+or robot action was performed. The supplied `BlankHoles.stp` was not examined in this step.
 Procedural instructions inside the calibration documents were treated as descriptions of that
 work, not as requests to execute their commands or change hardware settings.
 
@@ -56,7 +56,7 @@ Software (KSS) 8.3 and RobotSensorInterface (RSI) 3.3, a WP-500 probe with a nom
 and a nominal 25 mm reference sphere. RSI exchanges occur every 4 ms. The probe signal passes
 through programmable logic controller (PLC) input X2.0, output Y1.7 and
 Beckhoff EL1809 input 8 to controller input `$IN[8]`
-(`docs/code context/ARCHITECTURE.md:15-23, 73-94`).
+(`docs/code_context/ARCHITECTURE.md:15-23, 73-94`).
 
 The documents define {B} as the robot base frame, {F} as the flange frame, {P} as the probe frame
 with origin at the ruby centre and axes parallel to {F}, and {S} as the sphere frame with origin

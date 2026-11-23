@@ -21,6 +21,8 @@
 
 - Answer the exact question first. When asked for the next step, explain only that step.
   Be concise by removing repetition, never by omitting the mechanics needed to understand it.
+- Number every list in chat (`1)`, `2)`, …). For multiple lists in one reply, restart numbering
+  and use a distinct letter for each list (`1a)`, `2a)`, … then `1b)`, `2b)`, …).
 - Be concrete: identify the inputs and where they come from, the actual operations in order,
   and the result and where it is used. Do not substitute abstract labels such as "adaptive",
   "validation", or "decoupling" for an explanation of what the code actually does.

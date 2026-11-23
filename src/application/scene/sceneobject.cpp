@@ -1,6 +1,9 @@
 #include "sceneobject.h"
+#include "assetpaths.h"
+#include "geometry/utils.h"
 #include "viewport/occcontroller.h"
 
+#include <QDir>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -88,6 +91,14 @@ QVariantList SceneObject::properties() const
             propertyRow(tr("Length"), formatReal(value->length())),
             propertyRow(tr("Points"), QString::number(value->points().size()))};
   }
+  if (const auto* gauge = endGauge()) {
+    const auto& frame = gauge->workpieceInBase;
+    return {propertyRow(tr("Observations"), gauge->source),
+            propertyRow(tr("Origin in {B}, mm"), formatVector(toArray(frame.col(3).head<3>()))),
+            propertyRow(tr("X of {W} in {B}"), formatVector(toArray(frame.col(0).head<3>()))),
+            propertyRow(tr("Y of {W} in {B}"), formatVector(toArray(frame.col(1).head<3>()))),
+            propertyRow(tr("Z of {W} in {B}"), formatVector(toArray(frame.col(2).head<3>())))};
+  }
   if (const auto* value = sphere()) {
     const V3d& center = value->center;
     const V3d& rough = value->roughCenter;
@@ -174,7 +185,17 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
                                                 0.5 * table.widthY - table.sphereFromMinusY, -table.sphereAboveTop};
     result.parts.append({DrawingPlane{tableCenter, V3d::UnitZ(), V3d::UnitX(), table.lengthX, table.widthY},
                          {{190, 190, 190}, 0.0, true}});
-    result.parts.append({DrawingModel{value->standModel, value->center}, {{140, 140, 140}, 0.0, true}});
+    result.parts.append({DrawingModel{value->standModel, makeTranslation(value->center)}, {{140, 140, 140}, 0.0, true}});
+  } else if (const auto* gauge = endGauge()) {
+    const auto& frame = gauge->workpieceInBase;
+    const QString model = QDir(ViewportAssets::applicationAssets().cadDirectory).filePath(QStringLiteral("GE-22.brep"));
+    result.parts.append({DrawingModel{model, frame}, {{160, 165, 170}}});
+    constexpr DrawingStyle axes[] = {{{255, 0, 0}, 2.0, true}, {{0, 180, 0}, 2.0, true}, {{0, 0, 255}, 2.0, true}};
+    const V3d origin = frame.col(3).head<3>();
+    for (int axis = 0; axis < 3; ++axis) {
+      const V3d tip = origin + 15.0 * frame.col(axis).head<3>();
+      result.parts.append({QList<V3d>{origin, tip}, axes[axis]});
+    }
   } else if (const auto* motion = machiningPath()) {
     // Phase i runs from boundary i to boundary i + 1.
     for (qsizetype phase = 0; phase < ChamferPhaseCount; ++phase) {

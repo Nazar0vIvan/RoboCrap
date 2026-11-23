@@ -50,11 +50,14 @@ void WorkspaceController::setSubmode(Submode submode)
 
 void WorkspaceController::synchronizeCalibration()
 {
-  const bool active = m_mode == Measuring && m_submode == Calibration;
-  if (active == m_calibrationActive) return;
-  m_calibrationActive = active;
+  const auto next = m_mode == Measuring ? m_submode : Rough;
+  if (next == m_activeMeasurement) return;
+  const auto previous = std::exchange(m_activeMeasurement, next);
   setSelection({});
-  emit calibrationActiveChanged(active);
+  if (previous == Precise) emit preciseActiveChanged(false);
+  if (previous == Calibration) emit calibrationActiveChanged(false);
+  if (next == Precise) emit preciseActiveChanged(true);
+  if (next == Calibration) emit calibrationActiveChanged(true);
 }
 
 SceneObject* WorkspaceController::selectedObject() const
@@ -120,7 +123,7 @@ void WorkspaceController::synchronizeMachiningInput()
 void WorkspaceController::deleteSelected()
 {
   // The calibration sphere and path cannot be deleted; other objects are hidden there.
-  if (m_calibrationActive) return;
+  if (m_activeMeasurement == Calibration) return;
   const auto ids = m_selectedIds;
   setSelection({});
   m_scene->removeObjects(ids);

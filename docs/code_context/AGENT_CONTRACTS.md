@@ -54,8 +54,8 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   CMAKE_RUNTIME_OUTPUT_DIRECTORY overrides.
 - Application, the executable's declaring directory, attaches the OCCT POST_BUILD deployment helper;
   root owns deployment setup and installation. Deployed CAD/resources stay beside the executable.
-  resources/deploy/config/calibration_sphere.json is copied to <exe dir>/resources/json/ only when
-  absent (an edited deployed file is never overwritten) and is not in a qrc. File/type moves require
+  The sphere and end-gauge JSON files in resources/deploy/config/ are copied independently to
+  <exe dir>/resources/json/ when absent, preserving deployed observations. File/type moves require
   owning source-list/import updates; asset moves require resource-URL updates.
 - Source layout: resources/qrc/ holds the compiled resources (icons.qrc → qrc:/icons/, fonts.qrc →
   qrc:/fonts/, config.qrc → :/config/db.json); resources/deploy/ holds what the deployment copies
@@ -132,12 +132,12 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   worker-independent); OCCT parsing is serialized. One robot job loads seven links, then
   EE_WP-500.brep (measuring) and EE_GDZ-65-800A.brep (spindle); OccRobotAdapter installs them together
   and shows only the active tool. The spindle model sits at the flange matrix. The probe model keeps
-  its CAD frame (ball centre at (0; 0; 127) mm) and sits at the flange matrix times the translation by
+  its CAD frame (ball centre at (0, 0, 127.7) mm) and sits at the flange matrix times the translation by
   the measuring TCP position minus that point; an applied measuring TCP redraws the current pose.
   Only the displayed end-effector part is pickable (as a whole; links are not): a left click on it
   gives OccController::toolSelectionRequested, and DrawingDocument::toolSelected highlights it in
   the same OccScene selection as the selected objects.
-- A DrawingModel part (absolute BREP path, translation-only origin in {B}) loads once per path on a
+- A DrawingModel part (absolute BREP path, rigid placement in {B}) loads once per path on a
   separate worker, one path at a time; finished loads, failures included, stay in
   DrawingDocument::models. Insertion accepts an object whose model is loading or failed and skips that
   part; a successful load redraws its users. A failure is reported once, never retried and never
@@ -237,7 +237,7 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   primary ball centre (A, B, C kept) before connecting its save slot, which saves a changed X, Y, Z
   with source "manual" and writes nothing when they equal the saved value.
 - SceneModel owns SceneObject; QML changes scene state through model methods. SceneObject holds a
-  plane, cylinder, intersection edge (with its two source IDs), calibration sphere or calibration path
+  plane, cylinder, intersection edge (with its two source IDs), GE-22 placement, calibration sphere or generated probe path
   (the shared immutable ProbeTouchMotion) by value in a std::variant; only a machining path has a child
   QObject (exposed as geometry). Its CONSTANT properties list supplies the {label, value} rows of the
   Properties panel. Preserve stable scene-allocated IDs (0 = none), shared references and GUI-thread
@@ -258,9 +258,17 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   subtracts the ruby ball radius; the nominal radius only sizes the touch plan. SceneSphere::center
   is the saved primary sphere centre when present, otherwise roughCenter; it places the drawn
   spheres, table, stand and touch plan. A changed sphere replaces the object. While
-  Calibration is active only the sphere and calibration path are visible and listed; entry records and
+  Calibration is active the sphere, end gauge and calibration path form the Calibration group. Entry records and
   hides other visible objects (also ones added meanwhile), exit shows the recorded ones that still
-  exist. Neither calibration object can be deleted.
+  exist. Delete is disabled for the Calibration group.
+- On entry to Calibration or Precise, the executable-side `resources/json/end_gauge.json` supplies
+  GE-22 ball centres in {B} and their observation radius in mm. Native X=0 (wide), Y=0 (end)
+  and Z=0 (top) have outward normals near base −X, +Y and +Z respectively. Compensate each
+  fitted plane inward before intersecting them. The top fixes Z and the wide face fixes X
+  projected onto that top. Keep gauge placement independent of sphere placement and probe settings.
+  Display GE-22.brep and the three positive {W} axes using that single placement. The solid is
+  selectable and participates in fit bounds. Its axes are decorations. An absent or invalid gauge
+  removes the prior gauge on re-entry, and invalid input reports the filename and reason.
 
 ## Machining and playback
 
@@ -358,8 +366,8 @@ Apply Geometry and scene to numerical changes.
   string remains the UI error. MotionBuilder, the chamfer start search and RSI sampling share
   ChamferTcpSolver::solveTcp.
 - Calibration Generate builds createProbeTouchPlan and ProbeTouchMotion::create. The plan is fixed in
-  code (accuracy decisions in plans/PROBE_SPHERE_TOUCH_PLAN_EXECPLAN.md; only sphere centre, radii,
-  strut and search feed are inputs): passes with one fixed probe orientation each, G1 stylus down
+  code (accuracy decisions in plans/PROBE_SPHERE_TOUCH_PLAN_EXECPLAN.md; sphere centre, radii,
+  strut, search feed and the placed gauge are inputs): passes with one fixed probe orientation each, G1 stylus down
   (A 180, B 0, C 180), G2 stylus along +X (A 0, B 90, C 0), G3 stylus down turned 180° (A 0, B 0,
   C 180); calibration passes G1, G2, G3, G3, G2, G1 (second pass reversed) on the same 19 directions
   (tilt, roll) in every group, then verification passes G1 and G2 on 25 directions, unreachable ones
@@ -367,17 +375,26 @@ Apply Geometry and scene to numerical changes.
   LIN descend; per touch a CIRC transfer on the start shell, a constant-search-feed LIN Approach and
   a LIN Retract with the transfer limits; between passes of different groups LIN retreat, PTP to the next entry and LIN
   descend, between passes of one group a transfer (none when the next pass starts at the last start);
-  finally LIN retreat and PTP HOME. Every stored point keeps the ball ≥ 3 mm from the strut, and every
+  finally LIN retreat and PTP HOME. During sphere passes each stored point keeps the ball ≥ 3 mm from the strut, and every
   point outside Approach/Retract ≥ 3 mm from the sphere (0.001 mm tolerance). Errors start with the
   phase text ("Calibration G2 pass 1, touch 12/19: transfer: ..."), also shown by Dry Run.
-  ProbeTouchMotion keeps its plan, which calibration RSI Sampling exports for the robot (below).
+  ProbeTouchMotion keeps the plan used by Calibration RSI Sampling (below).
+  Calibration requires the placed gauge. Its single Generate Path appends eight four-point gauge passes after sphere verification. Each probe orientation (G2 then G1) visits A, B, B reversed and A reversed.
+  Stage face or orientation changes through exit and entry. Each motion step carries its own
+  movement kind. Gauge transfers are straight and sphere transfers are circular. Draw and play
+  the saved timed joints with the same ScenePlayback and robot as Calibration. Both orientation-change
+  waypoints lie 50 mm above the local gauge top. Generation requires at least 20 mm between
+  the ruby surface and the top plane throughout the previewed joint turn. The operator reviews the move from the
+  sphere exit to the first gauge entry in Dry Run. Calibration RSI Sampling automatically saves the combined plan in the configured records directory
+  for synthetic and measured placements. Controller delivery is deferred. The snapshot includes the placement
+  file hash and active gauge pose. Replacing either fixture or the measuring TCP invalidates the combined path.
 - RSI: before edits read controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md (frames, signals, PC
   behavior, offset reconstruction, diagnostics, shared_data.txt and the KRL reader) and, for
   calibration, controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md (job file, search
   streams, KRL flow, record files), then chamferrsistream, probersistream, scenemachiningpreparation
   and devices/rsi/rsidevice. The constraints below are not repeated there:
   - Sampling success, a bound socket or a delivered reply is not controller readiness and never grants
-    permission to move the robot. The RSI Sampling button also requires RSI DeviceRunner.isConnected.
+    permission to move the robot. Physical RSI Sampling also requires RSI DeviceRunner.isConnected. Combined calibration samples offline for either placement source.
   - sampleChamferRsiStream targets come only from ChamferCentralMotion::evaluate (inverse quintic arc
     map), never from interpolated stored poses. The chord bound relies on every saved central Generate
     interval being ≥ 4 ms. Keep composed TCP feedback separate from FK residual checking.
@@ -389,8 +406,7 @@ Apply Geometry and scene to numerical changes.
     shared stream table QVector<QVector<V6d>> plus its diagnosticId through the queued main.cpp link
     (chamfer and test LIN: one stream at index 0; calibration: index t = touch number, index 0 empty);
     keep that identifier paired with the active corrections.
-  - At most one table and its job file are held: every accepted Sampling request (chamfer, calibration
-    or test LIN) first removes shared_data.txt and calibration_data.txt and sends an empty table; a removed,
+  - At most one table and its job file are held: preparing chamfer or test LIN first removes shared_data.txt and sends an empty table; a removed,
     incompatible or regenerated source path drops its table and file. A job file that cannot be removed
     is shown as the preparation error and stops that Sampling or test LIN request before sampling or
     installing a stream; startup and invalidation show it too.
@@ -400,12 +416,12 @@ Apply Geometry and scene to numerical changes.
     Approach, HOME); targets are the saved end-point TCPs at six decimals within 0.0001 mm and
     0.000001 rotation entries, S/T from the saved joints; at most 600 steps (the KRL DAT arrays). A
     search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros.
-    Sampling returns the plan in memory. After committing `calibration_data.txt` with QSaveFile,
-    preparation arms the recorder with the plan and job bytes and queues the correction table.
+    After checking that the sampled motion is still current, preparation saves plan.csv, calibration_data.txt
+    and session.json under records with outcome sampled. Start remains unavailable pending controller integration.
   - The RSI test LIN (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md) is the third stream
     source: prepareTestLin drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
-    Sampling request, startup or shutdown drops it.
+    chamfer or test LIN request, startup or shutdown drops it.
   - Calibration run (startCalibration, plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md): allowed with a
     held current calibration job, no Sampling or run active and the PLC's own Run checks met (step
     IDLE, X1.0 and X1.7 on, X1.6 off). It opens the session before sending PLC runRobotProgram 1.
@@ -431,7 +447,7 @@ Apply Geometry and scene to numerical changes.
     primary only through Reassign (reassignPrimaryCentres): primary = the last result with source =
     its id, the ball centre applied with A, B, C kept, the sphere moved in the submode; the primary
     centres come only from the calibration touches, never from the verification refit. Reassign
-    removes the calibration path and so the prepared job and calibration_data.txt.
+    removes the calibration path. Saved sampling records remain available.
     `python/calibration/calibration_fit.py` repeats the fit from `plan.csv` and `touches.csv`.
   - ControlIO timestamps and stores requests, decodes them for the live protocol, and encodes the
     reply. File formatting, disk writes and waiting for writers stay off the receive path. Replacing
@@ -469,8 +485,7 @@ registration, module names or resources.
   editor settings; a successful Generate closes its editor before requesting selection. Main creation
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
 - In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
-  Sampling (App.MachiningPreparation.prepareCalibration, enabled by canPrepareCalibration and the RSI
-  DeviceRunner's isConnected), Start Calibration (startCalibration, enabled by
+  Sampling (requires canPrepareCalibration and inactive playback for both placement sources), Start Calibration (startCalibration, enabled by
   canStartCalibration and the RSI DeviceRunner's isConnected) and Resume (resumeCalibration, enabled by
   canResumeCalibration and the RSI DeviceRunner's isConnected; a separate tool, so no label change
   resizes the toolbar); Generate Path calls

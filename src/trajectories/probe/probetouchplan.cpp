@@ -1,6 +1,7 @@
 #include "trajectories/probetouchplan.h"
 
 #include "geometry/utils.h"
+#include "../motion/jointsegments.h"
 
 #include <algorithm>
 #include <array>
@@ -72,11 +73,6 @@ constexpr std::array<PassRow, 8> Passes{{{ProbeTouchPurpose::Calibration, 1, 1, 
                                          {ProbeTouchPurpose::Verification, 1, 1, false},
                                          {ProbeTouchPurpose::Verification, 2, 1, false}}};
 
-bool positive(double value)
-{
-  return std::isfinite(value) && value > 0.0;
-}
-
 QVector<Direction> passDirections(const PassRow& row)
 {
   QVector<Direction> directions = row.purpose == ProbeTouchPurpose::Calibration
@@ -113,6 +109,8 @@ double ProbeTouchPlanParameters::strutClearance(const V3d& ball) const
 
 QString ProbeTouchPass::label() const
 {
+  if (purpose == ProbeTouchPurpose::Gauge)
+    return QStringLiteral("GE-22 face %1 G%2 pass %3").arg(face == ProbeFace::A ? "A" : "B").arg(group).arg(repetition);
   const QString name = purpose == ProbeTouchPurpose::Calibration ? QStringLiteral("Calibration")
                                                                  : QStringLiteral("Verification");
   return QStringLiteral("%1 G%2 pass %3").arg(name).arg(group).arg(repetition);
@@ -128,10 +126,10 @@ int ProbeTouchPlan::touchCount(ProbeTouchPurpose purpose) const
 
 ProbeTouchPlanResult createProbeTouchPlan(const ProbeTouchPlanParameters& parameters)
 {
-  if (!parameters.sphereCentre.allFinite() || !positive(parameters.sphereRadius)
-      || !positive(parameters.ballRadius) || !positive(parameters.strutRadius)
-      || !positive(parameters.strutRecess) || parameters.strutRecess >= 2.0 * parameters.sphereRadius
-      || !positive(parameters.searchFeed))
+  if (!parameters.sphereCentre.allFinite() || !positiveFinite(parameters.sphereRadius)
+      || !positiveFinite(parameters.ballRadius) || !positiveFinite(parameters.strutRadius)
+      || !positiveFinite(parameters.strutRecess) || parameters.strutRecess >= 2.0 * parameters.sphereRadius
+      || !positiveFinite(parameters.searchFeed))
     return {{}, QStringLiteral("Invalid sphere centre, radii, strut recess or search feed.")};
   const V3d& centre = parameters.sphereCentre;
   ProbeTouchPlan plan{parameters, {}};
@@ -155,6 +153,56 @@ ProbeTouchPlanResult createProbeTouchPlan(const ProbeTouchPlanParameters& parame
     pass.entry = makeTransform(rotation, centre + EntryDistance * pass.touches.front().normal + EntryRise * V3d::UnitZ());
     pass.exit = makeTransform(rotation, centre + ExitDistance * pass.touches.back().normal);
     plan.passes.append(std::move(pass));
+  }
+  return {std::move(plan), {}};
+}
+
+ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double ballRadius)
+{
+  if (!rigid(workpieceInBase) || !positiveFinite(ballRadius) || 12.0 + ballRadius > 27.0)
+    return {{}, QStringLiteral("Invalid GE-22 placement or ball radius for the 27 mm touch area.")};
+  static constexpr std::array<double, 4> width{2.5, 6.5, 6.5, 2.5};
+  static constexpr std::array<double, 4> depth{5.0, 5.0, 12.0, 12.0};
+  const M3d axes = workpieceInBase.topLeftCorner<3, 3>();
+  const V3d origin = workpieceInBase.topRightCorner<3, 1>();
+  ProbeTouchPlan plan;
+  plan.gauge.emplace();
+  plan.gauge->workpieceInBase = workpieceInBase;
+  for (int group : {2, 1}) {
+    const auto& angles = Groups[group - 1];
+    const M3d rotation = euler2rot(angles.a, angles.b, angles.c);
+    for (int sweep = 0; sweep < 4; ++sweep) {
+      const bool faceA = sweep == 0 || sweep == 3;
+      const double side = faceA ? -1.0 : 1.0;
+      const double faceY = faceA ? -22.0 : 0.0;
+      const V3d normal = side * axes.col(1);
+      const V3d approach = -rotation.transpose() * normal;
+      const double tilt = std::acos(std::clamp(approach.z(), -1.0, 1.0)) * GeomConst::RadToDeg;
+      const double roll = std::atan2(approach.y(), -approach.x()) * GeomConst::RadToDeg;
+      ProbeTouchPass pass;
+      pass.purpose = ProbeTouchPurpose::Gauge;
+      pass.face = faceA ? ProbeFace::A : ProbeFace::B;
+      pass.group = group;
+      pass.repetition = sweep / 2 + 1;
+      for (int number = 0; number < 4; ++number) {
+        const int point = sweep < 2 ? number : 3 - number;
+        const V3d contact = origin + axes * V3d(width[point], faceY + side * ballRadius, -depth[point]);
+        pass.touches.append({makeTransform(rotation, contact + ProbeApproachGap * normal),
+                             makeTransform(rotation, contact), normal, tilt, roll < 0.0 ? roll + 360.0 : roll,
+                             point + 1});
+      }
+      const double entryY = faceY + side * (ballRadius + ProbeApproachGap + 20.0);
+      pass.entry = makeTransform(rotation, origin + axes * V3d(width[pass.touches.front().facePoint - 1], entryY, 20.0));
+      pass.exit = makeTransform(rotation, origin + axes * V3d(width[pass.touches.back().facePoint - 1], entryY, 20.0));
+      if (!plan.passes.isEmpty() && plan.passes.back().group != group) {
+        // Raise both ends of the orientation change from 20 to 50 mm along workpiece Z.
+        const V3d up = axes.col(2);
+        plan.passes.back().exit.topRightCorner<3, 1>() += 30.0 * up;
+        pass.entry.topRightCorner<3, 1>() += 30.0 * up;
+        pass.entryClearancePlane = V4d(up.x(), up.y(), up.z(), -up.dot(origin) - ballRadius - 20.0);
+      }
+      plan.passes.append(std::move(pass));
+    }
   }
   return {std::move(plan), {}};
 }

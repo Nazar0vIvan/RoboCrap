@@ -19,11 +19,6 @@ ToolBar {
   property bool playbackAvailable: false
   property bool playing: false
   property bool playbackActive: false
-  property bool scanAvailable: false
-  property bool scanRunning: false
-  property bool scanActive: false
-  signal scanToggleRequested()
-  signal scanStopRequested()
   signal pauseRequested()
   signal dryRunRequested()
   signal stopRequested()
@@ -166,7 +161,7 @@ ToolBar {
       }
 
       Tool {
-        visible: !root.measuring || root.calibration
+        visible: !root.rough
         text: qsTr("Generate Path")
         iconSource: "qrc:/icons/generate_path.svg"
         available: root.generationAvailable
@@ -183,16 +178,11 @@ ToolBar {
 
       Tool {
         visible: !root.rough
-        text: (root.precise ? root.scanRunning : root.playing) ? qsTr("Pause")
-              : root.precise ? qsTr("Dry Scan") : qsTr("Dry Run")
-        iconSource: (root.precise ? root.scanRunning : root.playing) ? "qrc:/icons/pause.svg" : "qrc:/icons/dry.svg"
+        text: root.playing ? qsTr("Pause") : qsTr("Dry Run")
+        iconSource: root.playing ? "qrc:/icons/pause.svg" : "qrc:/icons/dry.svg"
         preserveIconColors: true
-        available: root.precise ? root.scanActive || root.scanAvailable : root.playing || root.playbackAvailable
-        onTriggered: {
-          if (root.precise) root.scanToggleRequested()
-          else if (root.playing) root.pauseRequested()
-          else root.dryRunRequested()
-        }
+        available: root.playing || root.playbackAvailable
+        onTriggered: root.playing ? root.pauseRequested() : root.dryRunRequested()
       }
 
       Tool {
@@ -200,11 +190,8 @@ ToolBar {
         text: qsTr("Stop")
         iconSource: "qrc:/icons/stop.svg"
         preserveIconColors: true
-        available: root.precise ? root.scanActive : root.playbackActive
-        onTriggered: {
-          if (root.precise) root.scanStopRequested()
-          else root.stopRequested()
-        }
+        available: root.playbackActive
+        onTriggered: root.stopRequested()
       }
 
       Rectangle {

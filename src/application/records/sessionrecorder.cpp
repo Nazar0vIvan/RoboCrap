@@ -5,7 +5,6 @@
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
-#include <QFileInfo>
 #include <QStringList>
 
 #include <chrono>
@@ -138,32 +137,41 @@ QVector<PlcIoRecord> SessionRecorder::plcRows(const OpenSession& session) const
   return rows;
 }
 
-void SessionRecorder::writeSession(const OpenSession& session)
+RecordWriteResult SessionRecorder::saveCalibrationPlan(const SessionJob& job) const
+{
+  return writeSessionFolder(recordFor(createSession(job, recordClockNs()), QStringLiteral("sampled")));
+}
+
+SessionRecord SessionRecorder::recordFor(const OpenSession& session, const QString& outcome) const
 {
   const bool failed = !session.error.isEmpty();
   const QString name = session.name + (failed ? QStringLiteral("_failed") : QString());
   const QDir records(QStringLiteral(ROBOCRAP_RECORDS_DIR));
-  QString folder = records.filePath(name);
-  for (int copy = 2; QFileInfo::exists(folder); ++copy) folder = records.filePath(name + QStringLiteral("_%1").arg(copy));
   const int kind = static_cast<int>(session.job.kind);
   SessionRecord record{
-      folder,
+      records.filePath(name),
       {{QStringLiteral("format"), 1},
        {QStringLiteral("kind"), KindNames[kind]},
        {QStringLiteral("krl_program"), KrlPrograms[kind]},
        {QStringLiteral("start"), session.start.toOffsetFromUtc(session.start.offsetFromUtc()).toString(Qt::ISODateWithMs)},
        {QStringLiteral("duration_s"), std::round((session.endNs - session.startNs) / 1e6) / 1e3},
-       {QStringLiteral("outcome"), failed ? QStringLiteral("failed") : QStringLiteral("ok")},
+       {QStringLiteral("outcome"), outcome},
        {QStringLiteral("error"), session.error},
        {QStringLiteral("job_id"), session.job.jobId},
        {QStringLiteral("inputs"), session.job.inputs}},
       session.startNs,
       session.captures,
-      plcRows(session),
+      outcome == QStringLiteral("sampled") ? QVector<PlcIoRecord>{} : plcRows(session),
       session.job.files + session.files};
   if (!failed && !session.result.isEmpty())
     record.session.append(qMakePair(QStringLiteral("result"), QJsonValue(session.result)));
-  m_writes.push_back(std::async(std::launch::async, &writeSessionFolder, std::move(record)));
+  return record;
+}
+
+void SessionRecorder::writeSession(const OpenSession& session)
+{
+  const QString outcome = session.error.isEmpty() ? QStringLiteral("ok") : QStringLiteral("failed");
+  m_writes.push_back(std::async(std::launch::async, &writeSessionFolder, recordFor(session, outcome)));
   m_timer.start();
 }
 
@@ -190,7 +198,7 @@ void SessionRecorder::reportWrites(bool wait)
       ++write;
       continue;
     }
-    const QString error = write->get();
+    const QString error = write->get().error;
     if (!error.isEmpty()) qInfo().noquote() << "[ERROR] Records:" << error;
     write = m_writes.erase(write);
   }

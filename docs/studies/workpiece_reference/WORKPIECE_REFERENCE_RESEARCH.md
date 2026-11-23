@@ -321,7 +321,7 @@ The relationship between part placement, controller frame and RSI correction fra
 consistent; this is a consequence of the inspected contract, not a proposed controller edit.
 
 Saved paths own immutable geometry/model/tool/settings snapshots
-(`docs/code context/AGENT_CONTRACTS.md:326-334`). A part-frame correction must therefore be
+(`docs/code_context/AGENT_CONTRACTS.md:326-334`). A part-frame correction must therefore be
 distinguished from a new robot-motion calculation. The external CAM sources describe program
 update operations; they do not prove that an old exported controller job is automatically safe
 after a new measured placement. ([S08](WORKPIECE_REFERENCE_RESEARCH_SOURCES.md#s08), [S13](WORKPIECE_REFERENCE_RESEARCH_SOURCES.md#s13), [S16](WORKPIECE_REFERENCE_RESEARCH_SOURCES.md#s16))

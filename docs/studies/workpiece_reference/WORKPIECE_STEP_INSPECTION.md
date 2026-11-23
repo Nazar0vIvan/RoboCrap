@@ -1,4 +1,4 @@
-# Workpiece reference: inspection of Blank - holes.stp
+# Workpiece reference: inspection of BlankHoles.stp
 
 This is step 2 of the workpiece-reference study, following
 [the project baseline](WORKPIECE_REFERENCE_BASELINE.md). It records the supplied computer-aided
@@ -7,7 +7,7 @@ choose an industrial probing procedure or generate robot motion.
 
 ## Source and inspection method
 
-- Source: the user-provided `Blank - holes.stp`, 16076 bytes, inspected on 2026-11-17.
+- Source: the user-provided `BlankHoles.stp`, 16076 bytes, inspected on 2026-11-17.
 - SHA-256: `db49a01e83947ba21931dbbb60fa128383e5e9b755d7d07793de373b522edcd4`.
 - Format: STEP AP242, exported by C3D Converter / C3D Toolkit.
 - Length unit: millimetres, entity #9. Plane-angle unit: radians, entity #11.

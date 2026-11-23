@@ -228,7 +228,8 @@ Controller-side RSI items are listed in the RSI contracts.
   `FLANGE_ER` is hard-coded from CMM data (ER y-axis and origin; roll from projecting the flange
   z-axis), only a reference for entering the spindle TCP (user, 2026-10-24). Link BREPs have no STEP
   sources; OCCT compatibility is checked only by `BRepTools::Read`. End-effector STEP files must be in
-  the flange frame and the stand in {S}; models are only translated. `IkSolution::status` selects the
+  the flange frame and the stand in {S}. The stand is translated to the sphere centre. The GE-22 BREP
+  retains its native frame and the scene applies the fitted rotation and translation. `IkSolution::status` selects the
   next IK branch; the bit mapping's match with installed KUKA semantics is unverified.
 - **Retained interfaces.** `SceneModel` is registered as `SceneModel` and singleton `Scene` (not a
   documented Qt pattern). `FtsDevice::dataSampleHFReady`, `dataBatchReady`, `streamReset` and the

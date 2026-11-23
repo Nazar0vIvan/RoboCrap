@@ -15,12 +15,8 @@
 class DeviceRunner;
 class SessionRecorder;
 
-// RSI Sampling: turns a selected saved machining path into the controller correction stream and
-// C:/RoboCrapJobs/shared_data.txt, or the calibration path into one search stream per touch and
-// C:/RoboCrapJobs/calibration_data.txt. At most one stream table and its job file are held; they
-// belong to the sampled path, not the selection, and are dropped when that path is removed or
-// incompatible. With a calibration job held, Start Calibration runs program 1 through the PLC,
-// collects the touch detections and fits the ball centre when the program finishes.
+// Machining sampling installs the selected path's correction stream and controller job.
+// Combined calibration sampling archives the planned touches and controller text in records.
 class SceneMachiningPreparation final : public QObject
 {
   Q_OBJECT
@@ -30,6 +26,7 @@ class SceneMachiningPreparation final : public QObject
   Q_PROPERTY(QString calibrationUnavailableReason READ calibrationUnavailableReason NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool preparing READ preparing NOTIFY preparingChanged FINAL)
   Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
+  Q_PROPERTY(QString lastCalibrationRecord READ lastCalibrationRecord NOTIFY preparingChanged FINAL)
   Q_PROPERTY(QString summary READ summary NOTIFY preparedChanged FINAL)
   Q_PROPERTY(bool canStartCalibration READ canStartCalibration NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool canResumeCalibration READ canResumeCalibration NOTIFY availabilityChanged FINAL)
@@ -52,13 +49,13 @@ public:
   Q_INVOKABLE void prepare();
   // Samples the generated calibration path for RSI_Probe_Calibration.
   Q_INVOKABLE void prepareCalibration();
+  QString lastCalibrationRecord() const { return m_lastCalibrationRecord; }
   // Hard-coded RSI_Probe_Check stream: WORLD +X at 1 mm/s for 100 mm; replaces a held stream and file.
   Q_INVOKABLE void prepareTestLin();
   void shutdown();
   // The PLC runner (GUI thread); called once after DeviceHub exists.
   void attachPlc(DeviceRunner* plc);
-  // The session recorder (GUI thread), which a calibration Sampling arms and a calibration run
-  // opens and closes; called once after construction.
+  // The recorder for sampled plans and executed sessions, attached once after construction.
   void attachRecorder(SessionRecorder* recorder);
   // Held, current calibration job, no Sampling or run active, PLC ready to start a program.
   bool canStartCalibration() const;
@@ -142,7 +139,8 @@ private:
   PreparedRsiStream m_pending; // Input of the running worker; its stream is unused.
   std::optional<PreparedRsiStream> m_prepared;
   std::future<ProbeCalibrationRsiResult> m_calibrationFuture;
-  std::shared_ptr<const ProbeTouchMotion> m_pendingCalibration; // Input of the running calibration worker.
+  QString m_lastCalibrationRecord;
+  std::shared_ptr<const ProbeTouchMotion> m_pendingCalibration; // Owns the borrowed worker input until get() or shutdown wait().
   std::optional<PreparedCalibration> m_preparedCalibration;
   QString m_error;
   bool m_preparing = false;

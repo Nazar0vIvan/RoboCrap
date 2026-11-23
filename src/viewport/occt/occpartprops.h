@@ -1,11 +1,23 @@
 #pragma once
 
+#include "geometry/mathtypes.h"
+
 #include <gp_Trsf.hxx>
 #include <Quantity_Color.hxx>
 
 #include <algorithm>
 
 namespace RoboCrap3D {
+
+inline gp_Trsf toOccTransform(const M4d& transform)
+{
+  gp_Trsf result;
+  result.SetValues(
+      transform(0, 0), transform(0, 1), transform(0, 2), transform(0, 3),
+      transform(1, 0), transform(1, 1), transform(1, 2), transform(1, 3),
+      transform(2, 0), transform(2, 1), transform(2, 2), transform(2, 3));
+  return result;
+}
 
 inline Quantity_Color rgb(int r, int g, int b)
 {

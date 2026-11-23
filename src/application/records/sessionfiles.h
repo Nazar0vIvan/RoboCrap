@@ -35,7 +35,7 @@ struct SessionJob
 // Everything one folder needs, copied for the writing worker.
 struct SessionRecord
 {
-  QString folder; // Absolute path including the final name.
+  QString folder; // Absolute path with the requested base name.
   QList<QPair<QString, QJsonValue>> session; // session.json fields in document order, without "rsi".
   qint64 startNs = 0; // recordClockNs() of t_s = 0.
   QVector<RsiCapture> captures;
@@ -47,6 +47,10 @@ struct SessionRecord
 double recordNumber(double value);
 // count values, each rounded by recordNumber.
 QJsonArray recordArray(const double* values, qsizetype count);
-// Worker operation: creates the folder and writes every file (rsi.csv, rsi_timing.csv and plc.csv from
-// the captures and rows); returns an empty string or the first error.
-QString writeSessionFolder(SessionRecord record);
+struct RecordWriteResult
+{
+  QString folder;
+  QString error;
+};
+
+RecordWriteResult writeSessionFolder(SessionRecord record);

@@ -1,6 +1,7 @@
 #include "sessionfiles.h"
 
 #include <QDir>
+#include <QFileInfo>
 #include <QHash>
 #include <QJsonDocument>
 #include <QSaveFile>
@@ -186,9 +187,17 @@ QJsonArray recordArray(const double* values, qsizetype count)
   return array;
 }
 
-QString writeSessionFolder(SessionRecord record)
+RecordWriteResult writeSessionFolder(SessionRecord record)
 {
-  if (!QDir().mkpath(record.folder)) return QStringLiteral("cannot create %1").arg(record.folder);
+  const QFileInfo requested(record.folder);
+  const QDir parent = requested.dir();
+  if (!parent.mkpath(QStringLiteral("."))) return {{}, QStringLiteral("Cannot create %1.").arg(parent.path())};
+  QString name = requested.fileName();
+  for (int copy = 2; !parent.mkdir(name); ++copy) {
+    if (!parent.exists(name)) return {{}, QStringLiteral("Cannot create %1.").arg(parent.filePath(name))};
+    name = requested.fileName() + QStringLiteral("_%1").arg(copy);
+  }
+  const QDir folder(parent.filePath(name));
   if (!record.captures.isEmpty()) {
     const RsiTables tables = rsiTables(record.captures, record.startNs);
     record.files.append(RecordFile{QStringLiteral("rsi.csv"), tables.rsi});
@@ -198,12 +207,11 @@ QString writeSessionFolder(SessionRecord record)
   if (!record.plcRows.isEmpty())
     record.files.append(RecordFile{QStringLiteral("plc.csv"), plcCsv(record.plcRows, record.startNs)});
   record.files.append(RecordFile{QStringLiteral("session.json"), sessionJson(record.session)});
-  const QDir folder(record.folder);
   for (const RecordFile& file : std::as_const(record.files)) {
     if (file.contents.isEmpty()) continue;
     QSaveFile output(folder.filePath(file.name));
     if (!output.open(QIODevice::WriteOnly) || output.write(file.contents) != file.contents.size() || !output.commit())
-      return QStringLiteral("cannot write %1: %2").arg(output.fileName(), output.errorString());
+      return {{}, QStringLiteral("cannot write %1: %2").arg(output.fileName(), output.errorString())};
   }
-  return {};
+  return {folder.path(), {}};
 }

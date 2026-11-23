@@ -142,6 +142,8 @@ struct SceneSphere
   }
 };
 
+using SceneEndGauge = ProbeGaugeMount;
+
 // Generated probe calibration motion, shared with playback.
 struct SceneTouchPath
 {

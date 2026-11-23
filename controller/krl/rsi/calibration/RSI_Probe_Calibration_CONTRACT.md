@@ -1,7 +1,7 @@
 # RSI_Probe_Calibration run: controller/PC contract
 
 The probe sphere calibration session on the robot: HOME, then the steps of the calibration path
-generated in the Calibration submode (114 calibration and 44 verification touches, 485 steps),
+generated in the Calibration submode (114 sphere calibration, 44 sphere verification and 32 GE-22 touches, 591 reference steps),
 executed by KRL as PTP, LIN and CIRC moves, except that every approach to the sphere is a search
 under RSI that stops at the WP-500 touch (`$IN[8]`). The plan behind it is
 `plans/PROBE_SPHERE_RSI_CALIBRATION_EXECPLAN.md`.
@@ -30,11 +30,11 @@ Calibration submode. After a Passive STOP, acknowledge the message on the smartP
 *Resume*. The PLC sends PGNO 0 and `CELL.SRC` calls `RSI_Probe_Calibration ( )` in CASE 0 (`controller/krl/autext/cell.src`,
 `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`). A new start requires `$IN_HOME`, because the program
 begins with `PTP HOME` and in AUT EXT there is no BCO run; after a `StepLimit` end or a missed search
-the robot stands near the sphere (3 mm from it after a search), so jog it clear in T1, select CELL and
+the robot can stand near the sphere or gauge (at the search start after a missed touch), so jog it clear in T1, select CELL and
 make its BCO run to HOME before the next Run. CELL runs the program at override 100 %; the PTP velocity comes from
 `INIT_PTP_VEL` (5 % in AUT EXT) and the transfers from the job file. RSI Sampling must run in the same
 RoboCrap session before Run (the PC deletes the job file at start-up; without it the program returns
-after HOME). The full session (485 steps) took 16 min 41 s in AUT EXT and needs the PC power settings
+after HOME). The archived sphere-only session (485 steps) took 16 min 41 s in AUT EXT and needs the PC power settings
 of `docs/hardware context/HARDWARE_SETUP.md` "Power settings for RSI".
 
 ## Frames and motion
@@ -111,8 +111,7 @@ the advance run (KUKA Robot Programming 1, "Computer advance run"); the `$POS_AC
 
 `RsiDevice` follows "PC behavior" of `RSI_Chamfer_Hole_CONTRACT.md` with a table of streams instead
 of one stream:
-- The table has 159 entries for this program: index 0 is empty, index t holds the search stream of
-  touch t (1–158). The console reports "RSI correction streams installed: 159".
+- The reference combined table has 191 entries. Index 0 is empty. Indices 1–158 address sphere searches and 159–190 address gauge searches in the same run.
 - `TouchIndex` is read as a decimal index; a missing element or `not linked:<n>` (an unconnected
   input, as in the other two programs) reads as 0; any other text makes the packet invalid.
 - On the first Start = 1 packet after Idle the device plays `streams[TouchIndex]`; a missing or
@@ -128,19 +127,18 @@ of one stream:
 
 ## calibration_data.txt
 
-RSI Sampling in the Calibration submode writes `C:\RoboCrapJobs\calibration_data.txt`, read by KRL
-as `/RoboCrapJobs/calibration_data.txt` after `REMOUNT_SHARE()`. Version 1, CRLF rows, `;`
+The controller reads `/RoboCrapJobs/calibration_data.txt` after `REMOUNT_SHARE()`, from the PC share `C:/RoboCrapJobs/`. Combined calibration currently archives the serialized file under `records/`. The speedup ExecPlan tracks controller delivery in Milestone 2b. Version 1, CRLF rows, `;`
 separators, six-decimal floats and decimal integer S/T:
 
 1. `1`: format version.
 2. ToolFrame: flange-to-TCP XYZABC, without S/T.
 3. `$VEL.CP` in m/s: the Generate transfer feed (mm/s) / 1000.
 4. `$ACC.CP` in m/s²: the Generate transfer acceleration (mm/s²) / 1000.
-5. The step count M, 1–600 (485 for the current plan).
+5. The step count M, 1–600 (591 for the reference combined route).
 6. M steps, each a row `kind;touch` followed by:
    - kind 1 PTP and kind 2 LIN: one row `X;Y;Z;A;B;C;S;T`, the target;
    - kind 3 CIRC: the auxiliary point row, then the target row, both with the target's S/T;
-   - kind 4 SEARCH: no further row; touch is the global touch number 1–158;
+   - kind 4 SEARCH: no further row; touch is the global touch number 1–190 for this route;
    - kind 5 HOME: no further row.
 
    touch is 0 for every kind except 4.
@@ -153,7 +151,7 @@ along the arc, with the target's orientation.
 `READ_JOB()` requires version 1 and a step count 1–600; for every step a kind 1–5 and `#DATA_OK`,
 and S in 0–7 / T in 0–63 for every POS row (`READ_POS`). Kind and touch are reset to 0 before each
 row is read, so a value from the previous job cannot survive a partial conversion; a touch number
-without a stream (0 or above 158) makes the PC answer Stop, which ends that search as missed. Every
+without a stream (0 or outside the installed table) makes the PC answer Stop, which ends that search as missed. Every
 input failure returns after HOME and before `RSI_CREATE`. The file is closed before `READ_JOB`
 returns; the next run's `REMOUNT_SHARE` closes a file left open.
 
@@ -172,7 +170,7 @@ After HOME and `READ_JOB`, the program executes steps 1 to M, or 1 to `StepLimit
   depend on the job's next step.
 - When `StepLimit` ends the loop right after a search, the program executes the same LIN back to
   the search start and ends.
-- Neither end moves PTP near the sphere. The robot then stands about 3 mm from the sphere: jog it
+- Neither end commands a return HOME. After a missed touch the robot stands at the search start near the active fixture: jog it
   clear in T1 before the next start, because the program begins with `PTP HOME`.
 
 The archived `plan.csv` lists the search step of each touch in `search_step`. In the exported job,
@@ -183,7 +181,7 @@ searches at step 57).
 
 ## Plan, packet and touch files
 
-RSI Sampling prepares `plan.csv` in memory and exports `calibration_data.txt` for KRL.
+Calibration RSI Sampling saves `plan.csv`, `calibration_data.txt` and format-1 `session.json` with outcome `sampled` in its own timestamped calibration folder.
 **Start Calibration** opens a session before sending PLC program 1. A Passive STOP and Resume
 belong to that same session. Leaving AUT EXT ends it. Each new start gets its own record.
 

@@ -33,13 +33,12 @@ class SceneObject final : public QObject
   Q_PROPERTY(QVariantList properties READ properties CONSTANT FINAL)
 
 public:
-  enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath };
+  enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath, EndGauge };
   Q_ENUM(Kind)
   enum Classification { Unclassified, Rough, Precise };
   Q_ENUM(Classification)
-  // Fitted surface, intersection edge, calibration sphere or calibration path; empty for machining
-  // paths and metadata-only objects.
-  using Shape = std::variant<std::monostate, BoundedPlane, BoundedCylinder, SceneEdge, SceneSphere, SceneTouchPath>;
+  // Machining paths and metadata-only objects have an empty shape.
+  using Shape = std::variant<std::monostate, BoundedPlane, BoundedCylinder, SceneEdge, SceneSphere, SceneTouchPath, SceneEndGauge>;
 
   std::optional<RoboCrap3D::DrawingObject> drawing() const;
   RoboCrap3D::DrawingDiagnostics drawingDiagnostics() const;
@@ -55,6 +54,7 @@ public:
   const BoundedCylinder* cylinder() const { return std::get_if<BoundedCylinder>(&m_shape); }
   const SceneEdge* edge() const { return std::get_if<SceneEdge>(&m_shape); }
   const SceneSphere* sphere() const { return std::get_if<SceneSphere>(&m_shape); }
+  const SceneEndGauge* endGauge() const { return std::get_if<SceneEndGauge>(&m_shape); }
   const SceneTouchPath* touchPath() const { return std::get_if<SceneTouchPath>(&m_shape); }
   const ChamferMotion* machiningPath() const { return m_machiningPath ? &m_machiningPath->motion() : nullptr; }
   QVariantList properties() const;

@@ -32,8 +32,10 @@ point on the hole axis, outside the hole.
    (copied there by the build only when absent): the 25 mm sphere, the strut that holds it and ten
    ruby ball centres recorded by jogging onto the sphere. The fitted sphere is shown as the
    ball-centre sphere and the compensated sphere; a sphere centre made primary by *Reassign*
-   (below) replaces the fitted centre, and the table and stand move with it. Every other scene
-   object is hidden until the submode is left. *Generate Path* computes a fixed motion from HOME back to HOME: 114
+   (below) replaces the fitted centre, and the table and stand move with it. If `resources/json/end_gauge.json`
+   is present, its three measured planes place the GE-22 gauge and its workpiece axes independently in the scene.
+   Select **End gauge** to inspect the observation source, origin and axes in robot base coordinates.
+   Other scene groups are hidden until the submode is left. *Generate Path* computes a fixed motion from HOME back to HOME: 114
    calibration touches in six passes and then 44 verification touches in two passes. Each pass
    keeps one probe orientation: G1 stylus down, G2 stylus along +X (as at HOME), G3 stylus down
    with the flange turned 180°; calibration runs G1, G2, G3, G3, G2, G1 and verification G1, G2.

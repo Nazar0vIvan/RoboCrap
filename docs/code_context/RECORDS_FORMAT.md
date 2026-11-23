@@ -5,14 +5,16 @@ RoboCrap writes run records under `ROBOCRAP_RECORDS_DIR` (CMake cache path, defa
 ## Terms
 
 - A calibration session covers one **Start Calibration** request, including interruptions and resumes. For chamfer (`RSI_Chamfer_Hole`) and test LIN (`RSI_Probe_Check`), each recorded RSI capture forms a session.
-- **RSI Sampling** computes corrections and keeps the plan in memory. Calibration and chamfer export a KRL job to `C:/RoboCrapJobs/`. **RSI test LIN** installs fixed increments and has no job file or plan. Preparation alone creates no session folder.
-- `job_id` in `session.json` identifies the installed correction table (`diagnosticId`, based on UTC). Separate sessions can use the same table.
+- **Calibration RSI Sampling** computes the sphere and gauge search streams and saves the planned job in a timestamped calibration folder. Both synthetic and measured placements use this operation. The status bar shows the saved path. Chamfer sampling exports its KRL job to `C:/RoboCrapJobs/` and keeps the plan for the run. **RSI test LIN** installs fixed increments.
+- `job_id` in `session.json` identifies the sampled correction table (`diagnosticId`, based on UTC). Separate sessions can use the same table.
 - The controller sends an XML request every 4 ms while RSI is on. The PC answers the newest valid request it read. IPOC is the controller's millisecond counter, normally increasing by 4 per cycle.
 - The PC timestamps requests, replies and PLC observations with `recordClockNs()`, using `std::chrono::steady_clock`.
 
 ## Session start, end and writing
 
-**Calibration.** The session starts before the application sends PLC program 1. A Passive STOP and Resume share the original session. Program completion, a detected start failure, leaving AUT EXT, PLC disconnection, job invalidation or application shutdown ends the run. Closing requests the remaining capture. If the flush acknowledgement is still missing after the 2 s wait, the recorder writes the available data with an error. RSI traffic for an armed calibration outside an open session is reported and skipped.
+**Sampling record.** Calibration sampling writes `plan.csv`, `calibration_data.txt` (the serialized step table) and `session.json` with `outcome` set to `sampled`. The local start timestamp marks the save and `duration_s` is zero. Detections, PLC observations, RSI packets and fitted results belong to an executed session. Controller delivery for combined calibration is deferred.
+
+**Calibration run.** The session starts before the application sends PLC program 1. A Passive STOP and Resume share the original session. Program completion, a detected start failure, leaving AUT EXT, PLC disconnection, job invalidation or application shutdown ends the run. Closing requests the remaining capture. If the flush acknowledgement is still missing after the 2 s wait, the recorder writes the available data with an error. RSI traffic for an armed calibration outside an open session is reported and skipped.
 
 **Chamfer and test LIN.** The recorded interval runs from the first to the last stored request. `RsiDevice` flushes after at least 1 s since the last stored request (checked every 250 ms), on table replacement, disconnect or shutdown. The recorder writes a nonempty capture only if its job ID still matches the armed job when delivered. Another exchange using the same job can produce another folder. Approach and retreat outside RSI are outside the recorded interval.
 
@@ -28,7 +30,7 @@ RoboCrap writes run records under `ROBOCRAP_RECORDS_DIR` (CMake cache path, defa
 | --- | --- | --- |
 | `session.json` | all | what, when, outcome, inputs, result, RSI summary |
 | `plan.csv` | calibration, chamfer | One row per planned touch, or the initial pose and one row per chamfer motion increment |
-| `calibration_data.txt` / `shared_data.txt` | native calibration / chamfer | Copy of the job bytes exported by the application |
+| `calibration_data.txt` / `shared_data.txt` | native calibration / chamfer | Serialized job bytes for the sampled or executed job |
 | `rsi.csv` | with a capture | One row per stored request, with reply fields when a send was attempted |
 | `rsi_timing.csv` | with a capture | PC timing for the same requests in the same order |
 | `plc.csv` | with PLC rows | Available state at session start and observations through session end |
@@ -51,7 +53,7 @@ JSON indented by 4 spaces, top-level keys in this order, keys inside `inputs`, `
       "krl_program": "RSI_Probe_Calibration",
       "start": "2026-11-20T16:58:26.391+03:00",    // local time of t_s = 0 with UTC offset
       "duration_s": 1001.234,
-      "outcome": "ok",                             // ok or failed
+      "outcome": "ok",                             // sampled, ok or failed
       "error": "",                                 // the run error when failed
       "job_id": "calibration_20261120_135817_781",
       "inputs": { ... },
@@ -75,9 +77,11 @@ A converted session (made from records older than this format) adds `"converted_
 
 Calibration, one row per touch:
 
-    touch;search_step;purpose;group;repetition;pass_touch;tilt_deg;roll_deg;normal_x;normal_y;normal_z;start_x_mm;start_y_mm;start_z_mm;start_a_deg;start_b_deg;start_c_deg;contact_x_mm;contact_y_mm;contact_z_mm;contact_a_deg;contact_b_deg;contact_c_deg;start_s;start_t
+    touch;search_step;purpose;group;repetition;pass_touch;tilt_deg;roll_deg;normal_x;normal_y;normal_z;start_x_mm;start_y_mm;start_z_mm;start_a_deg;start_b_deg;start_c_deg;contact_x_mm;contact_y_mm;contact_z_mm;contact_a_deg;contact_b_deg;contact_c_deg;start_s;start_t;face;face_point
 
-`touch` is the global touch number (the RSI TouchIndex), `search_step` the 1-based step of the search in `calibration_data.txt`, `purpose` `calibration` or `verification`, `group` the probe orientation (1 stylus down, 2 stylus along +X, 3 stylus down turned 180°), `repetition` the pass of that group, `pass_touch` the touch within the pass, `tilt_deg`/`roll_deg` the touch direction, `normal_*` the outward sphere normal at the contact, `start_*` and `contact_*` the nominal ball-centre poses at the search start and at contact, `start_s`/`start_t` the KUKA Status/Turn at the search start.
+`touch` is the global touch number (the RSI TouchIndex), `search_step` the 1-based step of the search in `calibration_data.txt`, `purpose` `calibration`, `verification` or `gauge`, `group` the probe orientation (1 stylus down, 2 stylus along +X, 3 stylus down turned 180°), `repetition` the pass of that group, `pass_touch` the touch within the pass, `tilt_deg`/`roll_deg` the touch direction, `normal_*` the outward surface normal at the contact, `start_*` and `contact_*` the nominal ball-centre poses at the search start and at contact, `start_s`/`start_t` the KUKA Status/Turn at the search start. Combined sessions append `face` (A or B) and `face_point` (1–4) for gauge rows. Sphere rows leave both fields empty. Earlier sphere-only sessions omit these two columns.
+
+Combined sessions store `gauge_length_mm`, `gauge_reference` (nominal for the GE-22 preset), `gauge_source`, `gauge_observations_sha256` and `gauge_workpiece_in_base` (four matrix rows, translation in mm) in `session.json` inputs. Run `python python/calibration/calibration_analysis.py gauge <session folder>` for measured length and effective ball radius by probe orientation.
 
 Chamfer starts with the initial pose at `time_s` 0 and a zero increment. Motion increment `i` belongs to row `i + 1` when counting from row zero. The settling zeros are specified in `inputs.settle_zero_cycles` and have no plan rows.
 

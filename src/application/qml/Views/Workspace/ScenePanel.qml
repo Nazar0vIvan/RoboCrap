@@ -16,6 +16,7 @@ QxPanel {
   required property list<real> selectedObjectIds
   // Measuring/Calibration lists only the Calibration group; every other submode omits it.
   required property bool calibration
+  required property bool preciseScanning
 
   signal selectionRequested(double objectId, bool additive)
   signal visibilityRequested(Backend.SceneObject object, bool visible)
@@ -36,11 +37,13 @@ QxPanel {
     return root.sceneModel.objects.filter(object => {
       switch (kind) {
       case "rough": return object.kind !== Backend.SceneObject.Edge && object.classification === Backend.SceneObject.Rough
-      case "precise": return object.kind !== Backend.SceneObject.Edge && object.classification === Backend.SceneObject.Precise
+      case "precise": return (root.preciseScanning && object.kind === Backend.SceneObject.EndGauge)
+                             || (object.kind !== Backend.SceneObject.Edge && object.classification === Backend.SceneObject.Precise)
       case "edges": return object.kind === Backend.SceneObject.Edge
       case "scanPaths": return object.kind === Backend.SceneObject.ScanPath
       case "machiningPaths": return object.kind === Backend.SceneObject.MachiningPath
       case "calibration": return object.kind === Backend.SceneObject.Sphere
+                                 || object.kind === Backend.SceneObject.EndGauge
                                  || object.kind === Backend.SceneObject.CalibrationPath
       default: return false
       }
@@ -54,6 +57,7 @@ QxPanel {
     case Backend.SceneObject.Cone: return "qrc:/icons/cone.svg"
     case Backend.SceneObject.Edge: return "qrc:/icons/edge.svg"
     case Backend.SceneObject.Sphere: return "qrc:/icons/sphere.svg"
+    case Backend.SceneObject.EndGauge: return "qrc:/icons/measuring.svg"
     case Backend.SceneObject.ScanPath:
     case Backend.SceneObject.MachiningPath:
     case Backend.SceneObject.CalibrationPath: return "qrc:/icons/path.svg"

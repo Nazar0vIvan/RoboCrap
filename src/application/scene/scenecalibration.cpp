@@ -1,12 +1,14 @@
 #include "scenecalibration.h"
 
 #include "assetpaths.h"
+#include "geometry/endgaugefit.h"
 #include "geometry/spherefit.h"
 
 #include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
+#include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -265,17 +267,58 @@ SphereFileResult readSphereFile(const QString& path, double ballRadius)
                       *strutDiameter / 2.0, *strutRecess, *table}, {}};
 }
 
-bool calibrationObject(const SceneObject* object)
+// Missing optional fixture returns an empty diagnostic. Coordinates are observed ball centres in base mm.
+std::pair<std::optional<SceneEndGauge>, QString> readEndGaugeFile(const QString& path)
 {
-  return object->kind() == SceneObject::Sphere || object->kind() == SceneObject::CalibrationPath;
+  QFile file(path);
+  if (!file.exists()) return {};
+  if (!file.open(QIODevice::ReadOnly)) return {{}, file.errorString()};
+  const QByteArray bytes = file.readAll();
+  QJsonParseError parse;
+  const auto document = QJsonDocument::fromJson(bytes, &parse);
+  if (file.error() != QFileDevice::NoError) return {{}, file.errorString()};
+  if (parse.error != QJsonParseError::NoError) return {{}, parse.errorString()};
+  const auto root = document.object();
+  if (root.value(QStringLiteral("version")).toDouble() != 1.0
+      || root.value(QStringLiteral("model")).toString() != QStringLiteral("GE-22"))
+    return {{}, SceneCalibration::tr("Expected version 1 and model GE-22.")};
+  const auto source = root.value(QStringLiteral("source")).toString();
+  if (source != QStringLiteral("synthetic") && source != QStringLiteral("measured"))
+    return {{}, SceneCalibration::tr("Expected a synthetic or measured source.")};
+  const auto points = root.value(QStringLiteral("roughPoints"));
+  if (!points.isArray()) return {{}, SceneCalibration::tr("roughPoints must be an array.")};
+
+  EndGaugeObservations observations;
+  observations.ballRadius = root.value(QStringLiteral("ballRadiusMm")).toDouble();
+  const auto entries = points.toArray();
+  for (qsizetype i = 0; i < entries.size(); ++i) {
+    const auto entry = entries.at(i);
+    const auto label = entry.toObject().value(QStringLiteral("face")).toString();
+    const auto face = EndGaugeObservations::FaceNames.indexOf(label);
+    if (face < 0)
+      return {{}, SceneCalibration::tr("roughPoints[%1] needs a wide, end or top face label.").arg(i)};
+    const auto point = roughPoint(entry);
+    if (!point) return {{}, SceneCalibration::tr("roughPoints[%1] needs finite X, Y, Z.").arg(i)};
+    observations.ballCentres[face].append(*point);
+  }
+  const auto result = observations.fit();
+  if (!result.workpieceInBase) return {{}, result.diagnostic};
+  qInfo().noquote() << "GE-22 rough placement:" << source + QStringLiteral(": ") + result.diagnostic;
+  for (int row = 0; row < 3; ++row) {
+    QStringList values;
+    for (int col = 0; col < 4; ++col)
+      values.append(QString::number((*result.workpieceInBase)(row, col), 'f', 9));
+    qInfo().noquote() << "GE-22 [R | origin mm]:" << values.join(QLatin1Char(' '));
+  }
+  SceneEndGauge mount{*result.workpieceInBase, source,
+                      QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())};
+  return {std::move(mount), QString{}};
 }
 
-// Worker entry: the plan and motion from numerical copies only.
-ProbeTouchMotionResult calibrationMotion(const ProbeTouchPlanParameters& parameters, const ChamferRobotSetup& robot)
+bool calibrationObject(const SceneObject* object)
 {
-  const auto plan = createProbeTouchPlan(parameters);
-  if (!plan.plan) return {{}, plan.error};
-  return ProbeTouchMotion::create(*plan.plan, robot);
+  return object->kind() == SceneObject::Sphere || object->kind() == SceneObject::EndGauge
+      || object->kind() == SceneObject::CalibrationPath;
 }
 
 } // namespace
@@ -289,6 +332,7 @@ SceneCalibration::SceneCalibration(SceneModel* scene, SceneEndEffectors* effecto
   setSettingsError(loaded.error);
   // Applied before the save connection below, so the start load writes nothing.
   if (m_settings.primary.ballCentre) applyBallCentre(*m_settings.primary.ballCentre);
+  connect(scene, &SceneModel::objectRemoved, this, &SceneCalibration::onObjectRemoved);
   connect(scene, &SceneModel::objectAdded, this, &SceneCalibration::onObjectAdded);
   connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::invalidatePath);
   connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::onMeasuringTcpChanged);
@@ -306,13 +350,29 @@ void SceneCalibration::setActive(bool active)
   m_active = active;
   if (active) activate();
   else deactivate();
+  emit availabilityChanged();
+}
+
+void SceneCalibration::setPreciseActive(bool active)
+{
+  if (m_precise == active) return;
+  if (!active) deactivate();
+  m_precise = active;
+  if (active) activate();
+  emit availabilityChanged();
 }
 
 void SceneCalibration::activate()
 {
-  auto file = readSphereFile(QDir(QCoreApplication::applicationDirPath())
-                                 .filePath(QStringLiteral("resources/json/calibration_sphere.json")),
-                             m_effectors->rubyBallDiameter() / 2.0);
+  const QDir fixtures(QCoreApplication::applicationDirPath() + QStringLiteral("/resources/json"));
+  const QString sphereFile = fixtures.filePath(QStringLiteral("calibration_sphere.json"));
+  auto file = m_precise && !QFile::exists(sphereFile) ? SphereFileResult{}
+      : readSphereFile(sphereFile, m_effectors->rubyBallDiameter() / 2.0);
+  m_sphereError = file.error;
+  if (const QString error = reloadEndGauge(fixtures.filePath(QStringLiteral("end_gauge.json"))); !error.isEmpty()) {
+    if (!file.error.isEmpty()) file.error.append(QLatin1Char('\n'));
+    file.error += error;
+  }
   setError(file.error);
   if (file.sphere) {
     if (m_settings.primary.sphereCentre) file.sphere->center = *m_settings.primary.sphereCentre;
@@ -320,16 +380,20 @@ void SceneCalibration::activate()
     file.sphere->standModel = QDir(RoboCrap3D::ViewportAssets::applicationAssets().cadDirectory)
                                   .filePath(QStringLiteral("CALIBRATION_STAND.brep"));
     replaceSphere(*file.sphere);
+  } else if (m_scene->findObject(m_sphereId)) {
+    m_scene->removeObjects({m_sphereId});
   }
-  for (auto* object : m_scene->objectList()) hideOther(object);
-  for (quint32 id : {m_sphereId, m_pathId})
-    if (auto* object = m_scene->findObject(id)) m_scene->setObjectVisible(object, true);
+  if (m_active)
+    for (auto* object : m_scene->objectList()) hideOther(object);
+  if (auto* object = m_scene->findObject(m_sphereId)) m_scene->setObjectVisible(object, m_active);
+  if (auto* gauge = m_scene->findObject(m_endGaugeId)) m_scene->setObjectVisible(gauge, true);
+  if (auto* path = m_scene->findObject(m_pathId)) m_scene->setObjectVisible(path, m_active);
 }
 
 void SceneCalibration::deactivate()
 {
   if (ownsPlayback()) m_playback->stop();
-  for (quint32 id : {m_sphereId, m_pathId})
+  for (quint32 id : {m_sphereId, m_endGaugeId, m_pathId})
     if (auto* object = m_scene->findObject(id)) m_scene->setObjectVisible(object, false);
   for (quint32 id : std::exchange(m_hiddenIds, {}))
     if (auto* object = m_scene->findObject(id)) m_scene->setObjectVisible(object, true);
@@ -341,6 +405,24 @@ const SceneSphere* SceneCalibration::sphere() const
   return object ? object->sphere() : nullptr;
 }
 
+QString SceneCalibration::reloadEndGauge(const QString& path)
+{
+  const auto [gauge, error] = readEndGaugeFile(path);
+  if (!gauge) {
+    m_scene->removeObjects({m_endGaugeId});
+    return error.isEmpty() ? QString{} : tr("End gauge file %1: %2").arg(QDir::toNativeSeparators(path), error);
+  }
+  if (const auto* object = m_scene->findObject(m_endGaugeId)) {
+    const auto* existing = object->endGauge();
+    if (existing && existing->observationsSha256 == gauge->observationsSha256) return {};
+  }
+  auto* inserted = m_scene->addCalibrationObject(*gauge, tr("End gauge"));
+  m_scene->removeObjects({m_endGaugeId});
+  if (!inserted) return tr("Cannot insert the end gauge: scene IDs or drawing installation failed.");
+  m_endGaugeId = inserted->objectId();
+  return {};
+}
+
 const SceneTouchPath* SceneCalibration::path() const
 {
   const auto* object = m_scene->findObject(m_pathId);
@@ -349,7 +431,7 @@ const SceneTouchPath* SceneCalibration::path() const
 
 bool SceneCalibration::ownsPlayback() const
 {
-  return m_pathId != 0 && m_playback->active() && m_playback->ownerId() == m_pathId;
+  return m_playback->active() && m_playback->ownerId() == m_pathId;
 }
 
 void SceneCalibration::onPlaybackFailed(quint32 ownerId, const QString& error)
@@ -359,15 +441,15 @@ void SceneCalibration::onPlaybackFailed(quint32 ownerId, const QString& error)
 
 bool SceneCalibration::canPlay() const
 {
-  return !calculating() && m_playback->canPlay(ownsPlayback(), path() != nullptr);
+  return m_active && !calculating() && m_playback->canPlay(ownsPlayback(), path() != nullptr);
 }
 
 void SceneCalibration::dryRun()
 {
-  if (!canPlay()) { setError(tr("Generate the calibration path before Dry Run.")); return; }
+  if (!canPlay()) { setError(tr("Generate the probe path before Dry Run.")); return; }
   if (m_playback->active()) { m_playback->resume(); return; }
   setError({});
-  const auto& motion = path()->motion;
+  const auto& motion = m_scene->findObject(m_pathId)->touchPath()->motion;
   // Aliasing handle: points at the stored timed motion and keeps the path's motion alive.
   m_playback->start(std::shared_ptr<const TimedMotion>(motion, &motion->timed()), m_pathId);
 }
@@ -378,19 +460,33 @@ void SceneCalibration::replaceSphere(const SceneSphere& sphere)
   if (existing && *existing == sphere) return;
   auto* inserted = m_scene->addCalibrationObject(sphere, tr("Calibration sphere"));
   if (!inserted) {
-    setError(tr("Cannot insert the calibration sphere: scene IDs or drawing installation failed."));
+    m_sphereError = tr("Cannot insert the calibration sphere: scene IDs or drawing installation failed.");
+    m_scene->removeObjects({m_sphereId});
+    setError(m_sphereError);
     return;
   }
-  if (existing) m_scene->removeObjects({m_sphereId});
+  if (existing) m_scene->removeObjects({std::exchange(m_sphereId, 0)});
   m_sphereId = inserted->objectId();
+  if (m_precise) m_scene->setObjectVisible(inserted, false);
   invalidatePath();
 }
 
 void SceneCalibration::invalidatePath()
 {
   ++m_revision;
-  if (m_scene->findObject(m_pathId)) m_scene->removeObjects({m_pathId});
-  m_pathId = 0;
+  m_scene->removeObjects({m_pathId});
+  emit availabilityChanged();
+}
+
+void SceneCalibration::onObjectRemoved(quint32 id)
+{
+  if (id == m_endGaugeId || id == m_sphereId) {
+    if (id == m_endGaugeId) m_endGaugeId = 0;
+    else m_sphereId = 0;
+    invalidatePath();
+    return;
+  } else if (id == m_pathId) m_pathId = 0;
+  else return;
   emit availabilityChanged();
 }
 
@@ -400,6 +496,9 @@ QString SceneCalibration::unavailableReason() const
   if (m_playback->active()) return tr("Stop Dry Run before generating a trajectory.");
   if (!m_playback->robotModel() || !m_playback->robotAvailable()) return tr("Robot preview is not ready.");
   if (!m_effectors->measuringTcpFrame()) return tr("Apply the measuring TCP first.");
+  if (!m_active) return tr("Select Calibration to generate the combined path.");
+  if (!m_sphereError.isEmpty()) return m_sphereError;
+  if (!m_scene->findObject(m_endGaugeId)) return tr("Load the GE-22 end gauge first.");
   if (!sphere()) return tr("The calibration sphere is missing: check the sphere file.");
   return {};
 }
@@ -408,14 +507,20 @@ void SceneCalibration::generate()
 {
   const QString reason = unavailableReason();
   if (!reason.isEmpty()) { setError(reason); return; }
-  const SceneSphere& value = *sphere();
-  const ProbeTouchPlanParameters parameters{value.center, value.radius, m_effectors->rubyBallDiameter() / 2.0,
-                                            value.strutRadius, value.strutRecess};
+  const double ballRadius = m_effectors->rubyBallDiameter() / 2.0;
+  const auto& fixture = *sphere();
+  auto plan = createProbeTouchPlan({fixture.center, fixture.radius, ballRadius, fixture.strutRadius, fixture.strutRecess});
+  if (!plan.plan) { setError(plan.error); return; }
+  const auto& mount = *m_scene->findObject(m_endGaugeId)->endGauge();
+  auto gauge = createGaugeTouchPlan(mount.workpieceInBase, ballRadius);
+  if (!gauge.plan) { setError(gauge.error); return; }
+  plan.plan->passes.append(std::move(gauge.plan->passes));
+  plan.plan->gauge = mount;
   ChamferRobotSetup robot{*m_playback->robotModel(), *m_effectors->measuringTcpFrame(), {}};
   m_calculationRevision = m_revision;
   setError({});
   // The worker owns numerical copies only; its result returns through the future.
-  m_calculation = std::async(std::launch::async, &calibrationMotion, parameters, std::move(robot));
+  m_calculation = std::async(std::launch::async, &ProbeTouchMotion::create, std::move(*plan.plan), std::move(robot));
   m_calculationTimer.start();
   emit availabilityChanged();
 }
@@ -425,8 +530,13 @@ void SceneCalibration::finishCalculation()
   if (m_calculation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
   m_calculationTimer.stop();
   auto result = m_calculation.get();
+  if (m_revision != m_calculationRevision) {
+    if (m_active) setError(tr("Calibration inputs changed. Generate again."));
+    emit availabilityChanged();
+    return;
+  }
   if (result.motion)
-    qInfo().noquote() << QStringLiteral("Probe calibration preparation: %1 calibration and %2 verification touches, "
+    qInfo().noquote() << QStringLiteral("Probe calibration preparation: %1 calibration and %2 verification touches, %7 gauge touches, "
                                         "%3 points, %4 s movement, minimum transfer clearance %5 mm, "
                                         "minimum strut clearance %6 mm")
                              .arg(result.motion->plan().touchCount(ProbeTouchPurpose::Calibration))
@@ -434,18 +544,19 @@ void SceneCalibration::finishCalculation()
                              .arg(result.motion->points().size())
                              .arg(result.motion->duration(), 0, 'g', 12)
                              .arg(result.motion->minimumTransferClearance(), 0, 'f', 4)
-                             .arg(result.motion->minimumStrutClearance(), 0, 'f', 4);
+                             .arg(result.motion->minimumStrutClearance(), 0, 'f', 4)
+                             .arg(result.motion->plan().touchCount(ProbeTouchPurpose::Gauge));
   else
-    qInfo().noquote() << "Probe calibration preparation failed:" << result.error;
-  if (m_revision != m_calculationRevision) setError(tr("Sphere, probe TCP or robot changed. Generate again."));
-  else if (!result.motion) setError(result.error);
-  else if (auto* inserted = m_scene->addCalibrationObject(
+    qInfo().noquote() << "Probe path preparation failed:" << result.error;
+  if (!result.motion) {
+    if (m_active) setError(result.error);
+  } else if (auto* inserted = m_scene->addCalibrationObject(
                SceneTouchPath{std::make_shared<const ProbeTouchMotion>(std::move(*result.motion))},
                tr("Calibration path"))) {
     if (!m_active) m_scene->setObjectVisible(inserted, false);
-    if (m_scene->findObject(m_pathId)) m_scene->removeObjects({m_pathId});
+    m_scene->removeObjects({m_pathId});
     m_pathId = inserted->objectId();
-  } else setError(tr("Cannot insert the calibration path: scene IDs or drawing installation failed."));
+  } else setError(tr("Cannot insert the probe path: scene IDs or drawing installation failed."));
   emit availabilityChanged();
 }
 
@@ -531,8 +642,8 @@ bool SceneCalibration::reassignPrimaryCentres()
   m_settings.primary = {last.id, last.ballCentre, last.sphereCentre, last.contactVertical, last.contactHorizontal};
   applyBallCentre(last.ballCentre);
   setSettingsError(saveSettings());
-  // Outside the submode the next activate() applies the saved sphere centre.
-  if (const auto* current = sphere(); current && m_active) {
+  // Refresh the placed sphere and invalidate the combined calibration when its centre changes.
+  if (const auto* current = sphere(); current && (m_active || m_precise)) {
     SceneSphere moved = *current;
     moved.center = last.sphereCentre;
     replaceSphere(moved);

@@ -18,6 +18,11 @@ constexpr double TimeResolution = 1e-9; // s; shortest representable interval be
 constexpr double RateTolerance = 1e-6; // Relative excess allowed over a speed or acceleration limit.
 
 bool rigid(const M4d& transform);
+inline bool samePose(const M4d& first, const M4d& second)
+{
+  return (first.block<3, 1>(0, 3) - second.block<3, 1>(0, 3)).norm() <= RoboCrap3D::Kr10PosEps
+      && (first.block<3, 3>(0, 0) - second.block<3, 3>(0, 0)).cwiseAbs().maxCoeff() <= RoboCrap3D::Kr10RotEps;
+}
 // The one joint-position rule: empty for finite joints within [qMin, qMax], otherwise the error text.
 QString chamferJointPositionError(const V6d& joints, const RoboCrap3D::Kr10KinematicModel& model);
 bool withinLimits(const V6d& joints, const RoboCrap3D::Kr10KinematicModel& model);

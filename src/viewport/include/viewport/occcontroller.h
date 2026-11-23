@@ -1,5 +1,6 @@
 #pragma once
 
+
 #include "robotgraphics.h"
 
 #include <QObject>
@@ -43,10 +44,9 @@ struct DrawingSphere {
   double radius = 0.0;
 };
 
-// A CAD model file placed by translation; its axes stay parallel to {B}.
 struct DrawingModel {
   QString path; // Absolute BREP path.
-  V3d origin = V3d::Zero(); // Model coordinate origin in {B}, mm.
+  M4d modelInBase = M4d::Identity(); // Rigid placement of the native CAD frame in {B}, mm.
 };
 
 struct DrawingStyle {

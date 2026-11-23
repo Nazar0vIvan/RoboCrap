@@ -21,6 +21,7 @@ public:
   SessionRecorder();
   // The job of the stream table just installed.
   void arm(const SessionJob& job);
+  RecordWriteResult saveCalibrationPlan(const SessionJob& job) const;
   // The table was dropped; an open calibration session keeps its own copy of the job.
   void disarm();
   // Start Calibration: opens the calibration session of the armed job.
@@ -59,6 +60,7 @@ private:
   static OpenSession createSession(const SessionJob& job, qint64 startNs);
   // The PLC state at the session start (event "state") and every row until its end.
   QVector<PlcIoRecord> plcRows(const OpenSession& session) const;
+  SessionRecord recordFor(const OpenSession& session, const QString& outcome) const;
   void writeSession(const OpenSession& session);
   // Writes the calibration session; note (a missing capture) is added to its error.
   void writeCalibration(const QString& note);
@@ -69,6 +71,6 @@ private:
   std::optional<SessionJob> m_job;
   std::optional<OpenSession> m_session;
   QVector<PlcIoRecord> m_plcRows; // Since the last arm, starting with the latest row before it.
-  std::vector<std::future<QString>> m_writes;
+  std::vector<std::future<RecordWriteResult>> m_writes;
   QTimer m_timer; // Capture wait of a closing session and finished writes.
 };

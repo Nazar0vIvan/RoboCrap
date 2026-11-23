@@ -235,13 +235,14 @@ QVector<ProbeResidualSet> residualSets(const QVector<FitTouch>& calibration, con
 ProbeCalibrationFitResult fitProbeCalibration(const ProbeTouchMotion& motion,
                                               const QVector<ProbeTouchDetection>& detections)
 {
+  if (!motion.plan().sphere) return {{}, QStringLiteral("The calibration fit requires the sphere fixture.")};
   const FitTouchesResult touches = fitTouches(motion, detections);
   if (!touches.touches) return {{}, touches.error};
   const QVector<FitTouch> calibration = selectTouches(*touches.touches, ProbeTouchPurpose::Calibration);
   const QVector<FitTouch> verification = selectTouches(*touches.touches, ProbeTouchPurpose::Verification);
 
   // Start values of method section 5.2: the measuring TCP, the sphere of the manual touches, L.
-  const ProbeTouchPlanParameters& parameters = motion.plan().parameters;
+  const ProbeTouchPlanParameters& parameters = *motion.plan().sphere;
   const FitModel start{V3d(motion.robot().flangeToTcp.block<3, 1>(0, 3)), parameters.sphereCentre,
                        parameters.contactDistance(), parameters.contactDistance()};
   const SolveResult estimate = solve(calibration, start, ProbeTouchPurpose::Calibration);

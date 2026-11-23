@@ -15,7 +15,6 @@
 #include <gp_Elips.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Sphere.hxx>
-#include <gp_Vec.hxx>
 #include <TopLoc_Location.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
@@ -89,15 +88,13 @@ std::optional<TopoDS_Shape> makeShape(const DrawingPart& part)
   return std::nullopt;
 }
 
-// The loaded model moved to its origin; empty while its load is unfinished or after it failed.
+// Apply the base placement once to the loaded model, preserving its native locations.
 std::optional<TopoDS_Shape> modelShape(const QHash<QString, std::shared_ptr<const CadLoadResult>>& models,
                                        const DrawingModel& model)
 {
   const auto loaded = models.value(model.path);
   if (!loaded || loaded->shapes.isEmpty()) return std::nullopt;
-  gp_Trsf placement;
-  placement.SetTranslation(gp_Vec(model.origin.x(), model.origin.y(), model.origin.z()));
-  return loaded->shapes.first().Moved(TopLoc_Location(placement));
+  return loaded->shapes.first().Moved(TopLoc_Location(toOccTransform(model.modelInBase)));
 }
 
 std::optional<TopoDS_Shape> markerShape(const QList<V3d>& markers)

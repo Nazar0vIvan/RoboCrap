@@ -57,6 +57,7 @@ signals:
   void toolSelectedChanged(bool selected);
   // Measuring with the Calibration submode starts or stops; false precedes the tool change.
   void calibrationActiveChanged(bool active);
+  void preciseActiveChanged(bool active);
 
 private:
   void setSelection(QList<quint32> ids);
@@ -71,7 +72,7 @@ private:
   SceneEndEffectors* m_effectors;
   Mode m_mode = Measuring;
   Submode m_submode = Rough;
-  bool m_calibrationActive = false;
+  Submode m_activeMeasurement = Rough;
   QList<quint32> m_selectedIds;
   bool m_toolSelected = false;
   inline static QPointer<WorkspaceController> s_instance;

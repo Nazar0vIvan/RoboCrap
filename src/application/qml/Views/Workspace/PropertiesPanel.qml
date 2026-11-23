@@ -57,6 +57,7 @@ QxPanel {
       case Backend.SceneObject.ScanPath: return qsTr("Scan path")
       case Backend.SceneObject.MachiningPath: return qsTr("Machining path")
       case Backend.SceneObject.Sphere: return qsTr("Calibration sphere")
+      case Backend.SceneObject.EndGauge: return qsTr("End gauge")
       case Backend.SceneObject.CalibrationPath: return qsTr("Calibration path")
       default: return ""
     }

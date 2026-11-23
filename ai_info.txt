@@ -10,5 +10,19 @@
 https://github.com/TheQtCompanyRnD/agent-skills/blob/main/skills/qt-cpp-review/SKILL.md?utm_source=chatgpt.com
 2) performance-patterns
 https://www.skills.sh/intel/intel-performance-skills/performance-patterns?utm_source=chatgpt.com
+3) caveman
+https://github.com/juliusbrussee/caveman
+4) i have adhd
+https://github.com/ayghri/i-have-adhd
+5) ponytail
+https://github.com/dietrichgebert/ponytail
+6) rtk
+https://github.com/rtk-ai/rtk
+7) qmd
+https://github.com/tobi/qmd
 
 Architecture Review — flpbalada
+
+border - background.dp12
+
+codex.cmd plugin list

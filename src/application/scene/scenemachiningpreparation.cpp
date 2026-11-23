@@ -16,13 +16,13 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <utility>
 
 namespace {
 
 // Job files in the folder that KRL mounts as /RoboCrapJobs.
 const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt");
-const QString CalibrationDataPath = QStringLiteral("C:/RoboCrapJobs/calibration_data.txt");
 
 // RSI_Probe_Check (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
 constexpr double RsiCycleSeconds = 0.004; // #IPO_FAST
@@ -34,11 +34,6 @@ constexpr int TestLinSettleCycles = 50; // Zero corrections before Result = 1, a
 ChamferRsiStreamResult sampleSavedMotion(std::shared_ptr<const ChamferMotion> motion)
 {
   return sampleChamferRsiStream(*motion);
-}
-
-ProbeCalibrationRsiResult sampleSavedCalibration(std::shared_ptr<const ProbeTouchMotion> motion)
-{
-  return sampleProbeCalibrationRsi(*motion);
 }
 
 QString number(double value)
@@ -176,18 +171,23 @@ constexpr int X1InHome = 7;
 const QStringList StartResultNames{QStringLiteral("-"), QStringLiteral("STARTED"), QStringLiteral("RESUMED"),
                                    QStringLiteral("TIMEOUT"), QStringLiteral("ABORTED"), QStringLiteral("AUT EXT LOST")};
 
-// Both non-empty error texts, separated by a space.
-QString joinedError(const QString& first, const QString& second)
-{
-  return first.isEmpty() ? second : second.isEmpty() ? first : first + QLatin1Char(' ') + second;
-}
-
 // session.json "inputs" of a calibration session (docs/code context/RECORDS_FORMAT.md).
 QJsonObject calibrationInputs(const ProbeCalibrationRsi& job, const ProbeTouchMotion& motion)
 {
-  const ProbeTouchPlanParameters& plan = motion.plan().parameters;
+  const ProbeTouchPlanParameters& plan = *motion.plan().sphere;
   const ChamferTimingParameters& timing = motion.robot().timing;
-  return {{QStringLiteral("tool_xyzabc"), recordArray(job.toolCoordinates.data(), 6)},
+  const auto& mount = *motion.plan().gauge;
+  QJsonArray placement;
+  for (int row = 0; row < 4; ++row) {
+    const V4d values = mount.workpieceInBase.row(row).transpose();
+    placement.append(recordArray(values.data(), 4));
+  }
+  return {{QStringLiteral("gauge_length_mm"), 22.0},
+          {QStringLiteral("gauge_reference"), QStringLiteral("nominal")},
+          {QStringLiteral("gauge_source"), mount.source},
+          {QStringLiteral("gauge_observations_sha256"), mount.observationsSha256},
+          {QStringLiteral("gauge_workpiece_in_base"), placement},
+          {QStringLiteral("tool_xyzabc"), recordArray(job.toolCoordinates.data(), 6)},
           {QStringLiteral("sphere_centre_b_mm"), recordArray(plan.sphereCentre.data(), 3)},
           {QStringLiteral("sphere_radius_mm"), recordNumber(plan.sphereRadius)},
           {QStringLiteral("ball_radius_mm"), recordNumber(plan.ballRadius)},
@@ -286,6 +286,7 @@ QString SceneMachiningPreparation::busyReason() const
 QString SceneMachiningPreparation::calibrationUnavailableReason() const
 {
   if (const QString reason = busyReason(); !reason.isEmpty()) return reason;
+  if (!m_recorder) return tr("Calibration recorder unavailable.");
   if (m_calibration->calculating()) return tr("Calculating trajectory…");
   if (!m_calibration->path()) return tr("Generate the calibration path first.");
   return {};
@@ -355,12 +356,11 @@ void SceneMachiningPreparation::prepareCalibration()
   Q_ASSERT(QThread::currentThread() == thread());
   const QString reason = calibrationUnavailableReason();
   if (!reason.isEmpty()) { setError(reason); return; }
-  // A new request replaces the previous stream and job file, even if it fails; a file that remains stops it.
-  if (const QString removeError = clearPrepared(); !removeError.isEmpty()) { setError(removeError); return; }
+  m_lastCalibrationRecord.clear();
   m_pendingCalibration = m_calibration->path()->motion;
   setError({});
   m_preparing = true;
-  m_calibrationFuture = std::async(std::launch::async, &sampleSavedCalibration, m_pendingCalibration);
+  m_calibrationFuture = std::async(std::launch::async, &sampleProbeCalibrationRsi, std::cref(*m_pendingCalibration));
   m_timer.start();
   emit preparingChanged();
   emit availabilityChanged();
@@ -442,19 +442,14 @@ void SceneMachiningPreparation::finishCalibration()
   } else if (!result.job) {
     setError(result.error);
   } else {
-    const QByteArray jobFile = calibrationData(*result.job, m_pendingCalibration->robot().timing);
-    const QString writeError = saveFile(CalibrationDataPath, jobFile);
-    if (writeError.isEmpty()) {
-      m_preparedCalibration = PreparedCalibration{m_pendingCalibration, result.job->touchCount,
-                                                  result.job->steps.size()};
-      m_recorder->arm(SessionJob{SessionKind::Calibration, result.job->diagnosticId,
-                                 {{QStringLiteral("plan.csv"), result.job->plan},
-                                  {QStringLiteral("calibration_data.txt"), jobFile}},
-                                 calibrationInputs(*result.job, *m_pendingCalibration)});
-      emit correctionsReady(result.job->streams, result.job->diagnosticId);
-      emit preparedChanged();
-    }
-    setError(writeError);
+    const auto& job = *result.job;
+    const SessionJob record{SessionKind::Calibration, job.diagnosticId,
+                            {{QStringLiteral("plan.csv"), job.plan},
+                             {QStringLiteral("calibration_data.txt"), calibrationData(job, m_pendingCalibration->robot().timing)}},
+                            calibrationInputs(job, *m_pendingCalibration)};
+    const auto saved = m_recorder->saveCalibrationPlan(record);
+    m_lastCalibrationRecord = QDir::toNativeSeparators(saved.folder);
+    setError(saved.error);
   }
   m_pendingCalibration.reset();
   m_preparing = false;
@@ -468,11 +463,10 @@ QString SceneMachiningPreparation::clearPrepared()
   if (m_run != CalibrationRun::Idle) endRun(tr("The calibration job was replaced."));
   // Without a stream KRL must not find frames from another or older path.
   QString error;
-  for (const QString& path : {SharedDataPath, CalibrationDataPath})
-    if (QFile::exists(path) && !QFile::remove(path)) {
-      qInfo().noquote() << "[ERROR] RSI Sampling: cannot remove" << path;
-      error = joinedError(error, tr("Cannot remove %1.").arg(QDir::toNativeSeparators(path)));
-    }
+  if (QFile::exists(SharedDataPath) && !QFile::remove(SharedDataPath)) {
+    error = tr("Cannot remove %1.").arg(QDir::toNativeSeparators(SharedDataPath));
+    qInfo().noquote() << "[ERROR] RSI Sampling:" << error;
+  }
   const bool wasPrepared = m_prepared.has_value() || m_testLin || m_preparedCalibration.has_value();
   m_prepared.reset();
   m_testLin = false;

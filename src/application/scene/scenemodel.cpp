@@ -181,7 +181,14 @@ SceneObject* SceneModel::addBoundedCylinder(const QUrl& sourceUrl, const QString
 
 SceneObject* SceneModel::addCalibrationObject(SceneObject::Shape shape, const QString& name)
 {
-  const auto kind = std::holds_alternative<SceneSphere>(shape) ? SceneObject::Sphere : SceneObject::CalibrationPath;
+  SceneObject::Kind kind;
+  if (std::holds_alternative<SceneSphere>(shape)) kind = SceneObject::Sphere;
+  else if (const auto* path = std::get_if<SceneTouchPath>(&shape)) {
+    if (!path->motion) return nullptr;
+    kind = path->motion->plan().passes.front().purpose == ProbeTouchPurpose::Gauge
+        ? SceneObject::ScanPath : SceneObject::CalibrationPath;
+  } else if (std::holds_alternative<SceneEndGauge>(shape)) kind = SceneObject::EndGauge;
+  else return nullptr;
   auto* object = createObject({name, kind, SceneObject::Unclassified, {}});
   if (!object) return nullptr;
   object->setShape(std::move(shape));
