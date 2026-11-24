@@ -1,0 +1,6 @@
+Get acquainted with the following files to understand what the project is about in general:
+
+- `AGENTS.md
+- `\docs\code_context
+
+We're currently stuck with Milestone 3 `\plans\PLANAR_PROBE_SCANNING_EXECPLAN.md plan. Analyze it and study it thoroughly to understand what it's all about
