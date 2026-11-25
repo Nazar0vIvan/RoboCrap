@@ -80,8 +80,18 @@ void WorkspaceController::selectObject(quint32 id, bool additive)
   setSelection(std::move(ids));
 }
 
+void WorkspaceController::pickObject(quint32 id, bool additive)
+{
+  if (m_pickingWorkpiece) emit workpiecePicked(id, false);
+  else selectObject(id, additive);
+}
+
 void WorkspaceController::selectTool()
 {
+  if (m_pickingWorkpiece) {
+    emit workpiecePicked(0, true);
+    return;
+  }
   // Objects first, so QML closes their panels before the end-effector panel opens.
   setSelection({});
   setToolSelected(true);

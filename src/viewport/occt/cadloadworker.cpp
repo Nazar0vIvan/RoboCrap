@@ -1,11 +1,13 @@
 #include "cadloadworker.h"
 
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
 #include <BRep_Builder.hxx>
 #include <BRepTools.hxx>
+#include <TopExp.hxx>
 #include <Standard_Failure.hxx>
 
 #include <exception>
@@ -47,7 +49,11 @@ void CadLoadWorker::run()
         std::istringstream stream(std::string(bytes.constData(), static_cast<std::size_t>(bytes.size())));
         BRep_Builder builder;
         BRepTools::Read(shape, stream, builder);
-        if (stream.bad() || stream.fail()) shape.Nullify();
+        if (stream.fail() || file.error() != QFileDevice::NoError) shape.Nullify();
+        if (!shape.IsNull() && m_sourcePaths.size() == 1) {
+          m_result.modelSha256 = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256);
+          TopExp::MapShapes(shape, TopAbs_FACE, m_result.faces);
+        }
       }
       if (isInterruptionRequested()) return;
       if (shape.IsNull()) {

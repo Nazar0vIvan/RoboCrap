@@ -43,6 +43,7 @@ public:
   [[nodiscard]] bool setPartVisible(PartId id, bool visible);
   [[nodiscard]] bool removePart(PartId id);
   [[nodiscard]] Handle(AIS_Shape) partHandle(PartId id) const;
+  void setFacePicking(const Handle(AIS_Shape)& shape, bool picking);
   void selectParts(const std::vector<PartId>& ids);
 
   void updateCameraDependentObjects();

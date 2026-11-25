@@ -6,9 +6,14 @@
 #include <QObject>
 #include <QHash>
 #include <QMap>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <variant>
 #include <QPointer>
 #include <QList>
+#include <QSizeF>
+#include <QSet>
+#include <QVariantMap>
 #include <QWindow>
 
 #include <memory>
@@ -47,6 +52,7 @@ struct DrawingSphere {
 struct DrawingModel {
   QString path; // Absolute BREP path.
   M4d modelInBase = M4d::Identity(); // Rigid placement of the native CAD frame in {B}, mm.
+  QString mountingId = {}; // Empty for models that are not mounted workpieces.
 };
 
 struct DrawingStyle {
@@ -54,6 +60,7 @@ struct DrawingStyle {
   double lineWidth = 0.0;
   bool decoration = false;
   double transparency = 0.0; // 0 opaque, 1 invisible.
+  bool topmost = false;
 };
 
 struct DrawingPart {
@@ -66,6 +73,8 @@ struct DrawingPart {
 struct DrawingDiagnostics {
   QList<V3d> markers;
   QList<std::array<V3d, 2>> normalLines;
+  QList<V3d> redMarkers; // Outside the trim or explicitly skipped.
+  QList<V3d> highlightedMarkers;
 };
 
 struct DrawingObject {
@@ -83,7 +92,40 @@ struct DrawingAxis {
 
 struct CadLoadResult;
 
+struct DrawingGrid {
+  QList<V3d> points; // Local positions with U varying fastest.
+  int columns = 0;
+  bool fits = false;
+  QSet<int> invalid;
+  QSet<QPoint> skipped;
+  QPoint indexAt(int offset) const { return {1 + offset % columns, 1 + offset / columns}; }
+};
+
+struct DrawingGridPreview {
+  DrawingGrid grid;
+  QString status;
+  QSizeF spacing = {}; // Millimetres actually used for the points.
+};
+
+struct DrawingFaceSelection {
+  quint32 target = 0;
+  QString path;
+  std::shared_ptr<const CadLoadResult> source; // Immutable trimmed faces and BREP revision for all slots.
+  int index = 0; // 1-based source face, zero for whole-workpiece selection.
+  bool reversed = false;
+  bool picking = false;
+  QHash<int, DrawingGrid> grids; // Keyed by the assigned source face index.
+  bool showAllPoints = false;
+  QPoint highlighted;
+  bool pickingPoints = false;
+  QString revisionError() const;
+  DrawingDiagnostics markers() const;
+  DrawingGridPreview preview(QSize counts, QSizeF spacing, const QStringList& margins) const;
+};
+
 struct DrawingDocument {
+  const DrawingModel* workpieceModel(quint32 id) const;
+  DrawingFaceSelection face;
   QMap<quint32, DrawingObject> objects;
   QList<quint32> selected;
   bool toolSelected = false; // The displayed end-effector model is selected.
@@ -136,6 +178,13 @@ public:
   void setShowSpindleCollet(bool visible);
   void setActiveTool(RobotTool tool);
   void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
+  Q_INVOKABLE void setRefineTarget(quint32 objectId);
+  Q_INVOKABLE QString showRefineFace(int index, bool reversed, bool picking);
+  std::pair<QJsonObject, QString> refineJobDefinition(quint32 target, const QJsonArray& planes) const;
+  Q_INVOKABLE QVariantMap updateRefineGrid(QSize counts, QSizeF spacing, const QStringList& margins);
+  Q_INVOKABLE void setGridVisibility(bool showAll, const QList<int>& assignedFaces);
+  Q_INVOKABLE void setGridSelection(const QList<QPoint>& skipped, QPoint highlighted, bool picking);
+  Q_INVOKABLE QString workpieceModelRevision(quint32 objectId) const;
   Q_INVOKABLE void setSelectedObjects(const QList<quint32>& ids);
   void setToolSelected(bool selected);
 
@@ -155,6 +204,9 @@ signals:
   void applicationSelectionRequested(quint32 objectId, bool additive);
   void toolSelectionRequested(); // The displayed end-effector model was clicked.
   void deleteSelectionRequested();
+  void facePicked(int index, const QString& error);
+  void gridPointPicked(QPoint index);
+  void gridEditKeyPressed(int key);
 
 private:
   QString initializeOcct() const;

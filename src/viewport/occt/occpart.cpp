@@ -2,7 +2,6 @@
 
 #include <AIS_DisplayMode.hxx>
 #include <Aspect_TypeOfLine.hxx>
-#include <Aspect_TypeOfMarker.hxx>
 #include <Graphic3d_NameOfMaterial.hxx>
 #include <Prs3d_Drawer.hxx>
 #include <Prs3d_LineAspect.hxx>
@@ -26,7 +25,7 @@ OccPart::OccPart(const TopoDS_Shape& shape, const OccPartProps& props)
     m_handle->SetAttributes(drawer);
   }
   if (props.markerSize > 0.0)
-    drawer->SetPointAspect(new Prs3d_PointAspect(Aspect_TOM_BALL, props.color, props.markerSize));
+    drawer->SetPointAspect(new Prs3d_PointAspect(props.markerType, props.color, props.markerSize));
   if (props.lineWidth > 0.0)
     drawer->SetLineAspect(new Prs3d_LineAspect(props.color, Aspect_TOL_SOLID, props.lineWidth));
   m_handle->SetColor(props.color);

@@ -15,7 +15,6 @@
 #include <gp_Elips.hxx>
 #include <gp_Pln.hxx>
 #include <gp_Sphere.hxx>
-#include <TopLoc_Location.hxx>
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Edge.hxx>
@@ -88,13 +87,13 @@ std::optional<TopoDS_Shape> makeShape(const DrawingPart& part)
   return std::nullopt;
 }
 
-// Apply the base placement once to the loaded model, preserving its native locations.
+// The AIS transform places this source shape without changing the local subshape owners.
 std::optional<TopoDS_Shape> modelShape(const QHash<QString, std::shared_ptr<const CadLoadResult>>& models,
                                        const DrawingModel& model)
 {
   const auto loaded = models.value(model.path);
   if (!loaded || loaded->shapes.isEmpty()) return std::nullopt;
-  return loaded->shapes.first().Moved(TopLoc_Location(toOccTransform(model.modelInBase)));
+  return loaded->shapes.first();
 }
 
 std::optional<TopoDS_Shape> markerShape(const QList<V3d>& markers)
@@ -137,7 +136,7 @@ QString OccSceneAdapter::removeParts(const std::vector<OccScene::PartId>& ids)
 }
 
 std::pair<OccSceneAdapter::Presentation, QString> OccSceneAdapter::createPresentation(
-    const DrawingObject& object)
+    const DrawingObject& object, const M4d& markerPlacement)
 {
   Presentation result;
   result.visible = object.visible;
@@ -151,6 +150,8 @@ std::pair<OccSceneAdapter::Presentation, QString> OccSceneAdapter::createPresent
       if (!shape && model) continue; // The controller redraws the object when the model is loaded.
       if (!shape) return {{}, QStringLiteral("Cannot construct drawing geometry.")};
       OccPartProps props;
+      if (model) props.transform = toOccTransform(model->modelInBase);
+      props.topmost = part.style.topmost;
       props.color = rgb(part.style.color[0], part.style.color[1], part.style.color[2]);
       props.lineWidth = part.style.lineWidth;
       props.transparency = part.style.transparency;
@@ -163,13 +164,21 @@ std::pair<OccSceneAdapter::Presentation, QString> OccSceneAdapter::createPresent
       shapes.append({*shape, props});
     }
     const qsizetype diagnosticsStart = shapes.size();
-    const auto markers = markerShape(object.diagnostics.markers);
-    if (markers) {
+    for (const auto* group : {&object.diagnostics.markers, &object.diagnostics.redMarkers, &object.diagnostics.highlightedMarkers}) {
+      const auto markers = markerShape(*group);
+      if (!markers) continue;
       OccPartProps props;
-      props.color = Quantity_Color(1.0, 0.85, 0.15, Quantity_TOC_RGB);
+      props.transform = toOccTransform(markerPlacement);
+      props.color = group == &object.diagnostics.redMarkers ? rgb(255, 0, 0)
+                                                               : Quantity_Color(1.0, 0.85, 0.15, Quantity_TOC_RGB);
       props.topmost = true;
       props.fitExcluded = true;
       props.markerSize = 3.0;
+      if (group == &object.diagnostics.highlightedMarkers) {
+        props.markerType = Aspect_TOM_O;
+        props.markerSize *= 3;
+        props.color = kHoverColor;
+      }
       props.wireframe = true;
       shapes.append({*markers, props});
     }
@@ -258,9 +267,14 @@ ViewportOperationResult OccSceneAdapter::setObjectDiagnostics(
   return {true, error};
 }
 
-ViewportOperationResult OccSceneAdapter::setDraftAxis(const std::optional<DrawingAxis>& axis)
+ViewportOperationResult OccSceneAdapter::setDraftAxis(const std::optional<DrawingAxis>& axis,
+                                                      const DrawingDiagnostics* faceGrid, const M4d& markerPlacement)
 {
+  auto& parts = faceGrid ? m_faceAxisParts : m_axisParts;
+  if (!axis && parts.empty() && (!faceGrid || (faceGrid->markers.isEmpty() && faceGrid->redMarkers.isEmpty())))
+    return {true, {}};
   DrawingObject object;
+  if (faceGrid) object.diagnostics = *faceGrid;
   if (axis) {
     const V3d tip = axis->center + axis->length * axis->direction;
     const V3d side = axis->direction.unitOrthogonal();
@@ -268,12 +282,12 @@ ViewportOperationResult OccSceneAdapter::setDraftAxis(const std::optional<Drawin
         {axis->center, tip},
         {tip, tip - 0.25 * axis->length * axis->direction + 0.12 * axis->length * side},
         {tip, tip - 0.25 * axis->length * axis->direction - 0.12 * axis->length * side}};
-    object.parts.append({lines, {{180, 35, 125}, 3.0, true}});
+    object.parts.append({lines, {{180, 35, 125}, 3.0, true, 0.0, faceGrid != nullptr}});
   }
-  auto [replacement, error] = createPresentation(object);
+  auto [replacement, error] = createPresentation(object, markerPlacement);
   if (!error.isEmpty()) return {false, error};
-  error = removeParts(m_axisParts);
-  m_axisParts = std::move(replacement.decorations);
+  error = removeParts(parts);
+  parts = replacement.parts();
   return {true, error};
 }
 

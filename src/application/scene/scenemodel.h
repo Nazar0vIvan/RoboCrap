@@ -3,6 +3,7 @@
 #include "sceneobject.h"
 #include <QHash>
 #include <QList>
+#include <QJsonArray>
 #include <QQmlListProperty>
 #include <QPointer>
 
@@ -23,6 +24,7 @@ public:
   Q_INVOKABLE void removeObjects(const QList<quint32>& ids);
   Q_INVOKABLE bool canIntersect(const QList<quint32>& selectedIds) const;
   Q_INVOKABLE QList<quint32> intersect(const QList<quint32>& selectedIds);
+  Q_INVOKABLE QVariantMap createRefineJob(quint32 target, const QJsonArray& planes);
   SceneObject* addMachiningPath(SceneMachiningData data, const QString& name);
 	SceneObject* addBoundedPlane(const QUrl& sourceUrl, const QString& name, BoundedPlane plane);
 	SceneObject* addBoundedCylinder(const QUrl& sourceUrl, const QString& name, BoundedCylinder cylinder);

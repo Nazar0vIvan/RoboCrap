@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QObject>
+#include <QJsonObject>
 #include <QString>
 #include <QUrl>
 #include <QVariantList>
@@ -33,12 +34,12 @@ class SceneObject final : public QObject
   Q_PROPERTY(QVariantList properties READ properties CONSTANT FINAL)
 
 public:
-  enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath, EndGauge };
+  enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath, EndGauge, RefineJob };
   Q_ENUM(Kind)
   enum Classification { Unclassified, Rough, Precise };
   Q_ENUM(Classification)
-  // Machining paths and metadata-only objects have an empty shape.
-  using Shape = std::variant<std::monostate, BoundedPlane, BoundedCylinder, SceneEdge, SceneSphere, SceneTouchPath, SceneEndGauge>;
+  // Refine jobs own their saved definition without a drawing.
+  using Shape = std::variant<std::monostate, BoundedPlane, BoundedCylinder, SceneEdge, SceneSphere, SceneTouchPath, SceneEndGauge, QJsonObject>;
 
   std::optional<RoboCrap3D::DrawingObject> drawing() const;
   RoboCrap3D::DrawingDiagnostics drawingDiagnostics() const;

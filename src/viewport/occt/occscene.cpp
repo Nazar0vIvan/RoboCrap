@@ -136,10 +136,14 @@ void OccScene::displayPart(const OccPart& part)
   if (part.topmost()) m_context->SetZLayer(handle, Graphic3d_ZLayerId_Topmost);
 
   // Imported surfaces: faces, edges and vertices are pickable besides the whole shape.
-  if (part.selectionMode() == OccSelectionMode::All)
-    for (const TopAbs_ShapeEnum type : {TopAbs_FACE, TopAbs_EDGE, TopAbs_VERTEX})
-      m_context->SetSelectionModeActive(handle, AIS_Shape::SelectionMode(type), true,
-                                        AIS_SelectionModesConcurrency_Multiple);
+  if (part.selectionMode() == OccSelectionMode::All) setFacePicking(handle, false);
+}
+
+void OccScene::setFacePicking(const Handle(AIS_Shape)& shape, bool picking)
+{
+  m_context->SetSelectionModeActive(shape, AIS_Shape::SelectionMode(TopAbs_FACE), true);
+  for (const int mode : {0, AIS_Shape::SelectionMode(TopAbs_EDGE), AIS_Shape::SelectionMode(TopAbs_VERTEX)})
+    m_context->SetSelectionModeActive(shape, mode, !picking, AIS_SelectionModesConcurrency_Multiple);
 }
 
 double OccScene::currentWorldAxisLength() const

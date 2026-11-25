@@ -12,6 +12,8 @@
 
 #include <optional>
 
+class StdSelect_BRepOwner;
+
 namespace RoboCrap3D {
 
 // A left click: an application object (0 clears the selection) or the displayed end-effector model.
@@ -40,8 +42,9 @@ public:
   ViewportOperationResult removeObject(quint32 id);
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
-  // Highlights the listed application objects and, when toolSelected, the displayed end effector.
-  ViewportOperationResult setSelection(const QList<quint32>& objectIds, bool toolSelected);
+  ViewportOperationResult setSelection();
+  QPoint pickedGridPoint(QPoint pos) const;
+  std::pair<int, QString> pickedPlane(quint32 objectId) const;
   ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
   void setExposed(bool exposed);
   void resize();
@@ -52,16 +55,21 @@ public:
   void cancelGesture();
 
 private:
+  ViewportOperationResult displaySelection();
+  void setFacePickShape(const Handle(AIS_Shape)& shape);
   void applyInput(const OccInputResult& input);
   void fitInitialCamera();
   void requestRender();
   void flushRender();
 
+  const DrawingDocument& m_document;
   OccViewer m_viewer;
   OccScene m_scene;
   OccRobotAdapter m_robot;
   OccSceneAdapter m_application;
   OccInputController m_input;
+  Handle(AIS_Shape) m_facePickShape;
+  Handle(StdSelect_BRepOwner) m_selectedFace;
   QTimer m_timer;
   bool m_cameraAdjusted = false;
   bool m_exposed = false;

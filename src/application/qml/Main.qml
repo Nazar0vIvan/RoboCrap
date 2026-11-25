@@ -59,11 +59,18 @@ ApplicationWindow {
   readonly property list<real> selectedObjectIds: App.WorkspaceController.selectedObjectIds
   readonly property App.SceneObject selectedSceneObject: App.WorkspaceController.selectedObject
 
+  TapHandler {
+    parent: root.contentItem.Window.contentItem
+    enabled: !!(refineEditor.item as RefineFramePanel)?.pickingPoints
+    onPressedChanged: if (pressed) (refineEditor.item as RefineFramePanel).outsidePointField(point.scenePosition)
+  }
+
   Shortcut {
     sequence: "Del"
     context: Qt.WindowShortcut
     autoRepeat: false
-    enabled: !refineEditor.activeFocus && root.selectedObjectIds.length > 0
+    enabled: !refineEditor.activeFocus && !(refineEditor.item as RefineFramePanel)?.pickingPoints
+             && root.selectedObjectIds.length > 0
              && !(root.activeFocusItem instanceof TextInput)
              && !(root.activeFocusItem instanceof TextEdit)
     onActivated: App.WorkspaceController.deleteSelected()

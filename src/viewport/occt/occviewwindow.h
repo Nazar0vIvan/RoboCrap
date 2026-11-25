@@ -34,6 +34,9 @@ signals:
   void viewportReadyChanged();
   void errorOccurred(const QString& error);
   void applicationSelectionRequested(quint32 objectId, bool additive);
+  void facePicked(int index, const QString& error);
+  void gridPointPicked(QPoint index);
+  void gridEditKeyPressed(int key);
   void toolSelectionRequested(); // The displayed end-effector model was clicked.
   void deleteSelectionRequested();
 

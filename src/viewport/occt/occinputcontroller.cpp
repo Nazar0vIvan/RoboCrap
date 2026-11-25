@@ -97,13 +97,16 @@ OccInputResult OccInputController::wheel(const QPoint& pos, const int angleDelta
 OccInputResult OccInputController::handleLeftButtonPress(const QPoint& pos)
 {
   m_context->MoveTo(pos.x(), pos.y(), m_view, false);
-  if (!m_context->HasDetected()) return clearSelection();
-
-  const Handle(AIS_ViewCubeOwner) owner = Handle(AIS_ViewCubeOwner)::DownCast(m_context->DetectedOwner());
-
-  if (!owner.IsNull()) return handleCube(owner);
-
-  return handleDetectedSelectable();
+  if (m_context->HasDetected()) {
+    const auto owner = Handle(AIS_ViewCubeOwner)::DownCast(m_context->DetectedOwner());
+    if (!owner.IsNull()) return handleCube(owner);
+  }
+  // The workspace decides whether this hit or miss changes ordinary selection.
+  OccInputResult result;
+  result.accepted = true;
+  result.needsRedraw = true;
+  result.selectionChanged = true;
+  return result;
 }
 
 OccInputResult OccInputController::handleRightButtonPress(const QPoint& pos)
@@ -181,28 +184,6 @@ OccInputResult OccInputController::handleCube(const Handle(AIS_ViewCubeOwner)& o
   input.needsRedraw = true;
   input.cameraScaleChanged = true;
   return input;
-}
-
-OccInputResult OccInputController::handleDetectedSelectable()
-{
-  OccInputResult result;
-  result.accepted          = true;
-  result.needsRedraw       = true;
-  result.selectionChanged  = true;
-
-  return result;
-}
-
-OccInputResult OccInputController::clearSelection()
-{
-  m_context->ClearSelected(false);
-
-  OccInputResult result;
-  result.accepted = true;
-  result.needsRedraw = true;
-  result.selectionChanged = true;
-
-  return result;
 }
 
 } // namespace RoboCrap3D

@@ -130,7 +130,7 @@ int main(int argc, char* argv[])
   QObject::connect(&workspaceController, &WorkspaceController::selectionChanged,
                    &viewportController, &RoboCrap3D::OccController::setSelectedObjects);
   QObject::connect(&viewportController, &RoboCrap3D::OccController::applicationSelectionRequested,
-                   &workspaceController, &WorkspaceController::selectObject);
+                   &workspaceController, &WorkspaceController::pickObject);
   QObject::connect(&viewportController, &RoboCrap3D::OccController::toolSelectionRequested,
                    &workspaceController, &WorkspaceController::selectTool);
   QObject::connect(&workspaceController, &WorkspaceController::toolSelectedChanged,

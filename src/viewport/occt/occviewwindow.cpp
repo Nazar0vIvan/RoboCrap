@@ -141,8 +141,14 @@ void OccViewWindow::resizeEvent(QResizeEvent*)
 void OccViewWindow::mousePressEvent(QMouseEvent* event)
 {
   if (!isViewportReady()) return;
-  const auto picked = m_viewport->mousePress(nativePosition(event->position()), event->button());
-  if (picked && picked->tool) emit toolSelectionRequested();
+  const auto pos = nativePosition(event->position());
+  const auto picked = m_viewport->mousePress(pos, event->button());
+  if (m_document.face.pickingPoints && event->button() == Qt::LeftButton) {
+    emit gridPointPicked(picked ? m_viewport->pickedGridPoint(pos) : QPoint{});
+  } else if (picked && m_document.face.picking) {
+    const auto [index, error] = m_viewport->pickedPlane(picked->objectId);
+    emit facePicked(index, error);
+  } else if (picked && picked->tool) emit toolSelectionRequested();
   else if (picked) emit applicationSelectionRequested(picked->objectId,
                                                        (event->modifiers() & Qt::ControlModifier) != 0);
   event->accept();
@@ -166,6 +172,11 @@ void OccViewWindow::mouseReleaseEvent(QMouseEvent* event)
 
 void OccViewWindow::keyPressEvent(QKeyEvent* event)
 {
+  if (m_document.face.pickingPoints && (event->key() == Qt::Key_Escape || event->key() == Qt::Key_Delete)) {
+    if (!event->isAutoRepeat() && event->modifiers() == Qt::NoModifier) emit gridEditKeyPressed(event->key());
+    event->accept();
+    return;
+  }
   if (event->key() == Qt::Key_Delete && event->modifiers() == Qt::NoModifier) {
     if (!event->isAutoRepeat()) emit deleteSelectionRequested();
     event->accept();
@@ -196,8 +207,7 @@ void OccViewWindow::initializeViewport()
     if (!axis.accepted) emit errorOccurred(axis.error);
     if (const auto frames = m_viewport->setSpindleFrames(m_pose.tcp, m_pose.collet); !frames.accepted)
       emit errorOccurred(frames.error);
-    if (const auto selection = m_viewport->setSelection(m_document.selected, m_document.toolSelected);
-        !selection.accepted)
+    if (const auto selection = m_viewport->setSelection(); !selection.accepted)
       emit errorOccurred(selection.error);
     m_viewport->setExposed(true);
   } catch (const Standard_Failure& failure) {
@@ -220,8 +230,7 @@ void OccViewWindow::attachRobot()
     } else {
       attachActiveTool();
       // The end-effector part exists only now; a recreated surface restores its selection.
-      if (const auto selection = m_viewport->setSelection(m_document.selected, m_document.toolSelected);
-          !selection.accepted)
+      if (const auto selection = m_viewport->setSelection(); !selection.accepted)
         emit errorOccurred(selection.error);
     }
   } catch (const Standard_Failure& failure) {

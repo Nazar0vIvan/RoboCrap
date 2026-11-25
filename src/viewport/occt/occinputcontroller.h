@@ -42,9 +42,6 @@ private:
   OccInputResult handleHoverMove(const QPoint& pos);
   OccInputResult handleCube(const Handle(AIS_ViewCubeOwner)& owner);
 
-  OccInputResult handleDetectedSelectable();
-  OccInputResult clearSelection();
-
 private:
   Handle(AIS_InteractiveContext) m_context;
   Handle(V3d_View) m_view;

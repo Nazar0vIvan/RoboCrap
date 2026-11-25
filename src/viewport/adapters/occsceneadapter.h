@@ -18,7 +18,9 @@ public:
   ViewportOperationResult removeObject(quint32 id);
   ViewportOperationResult setObjectVisible(quint32 id, bool visible);
   ViewportOperationResult setObjectDiagnostics(quint32 id, const DrawingDiagnostics& diagnostics);
-  ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis);
+  ViewportOperationResult setDraftAxis(const std::optional<DrawingAxis>& axis, const DrawingDiagnostics* faceGrid = nullptr,
+                                       const M4d& markerPlacement = M4d::Identity());
+  bool hasFaceOverlay() const { return !m_faceAxisParts.empty(); }
   // Surface parts of the visible listed objects, without duplicates.
   std::vector<OccScene::PartId> selectedParts(const QList<quint32>& ids) const;
   quint32 objectIdFor(const Handle(AIS_InteractiveObject)& picked) const;
@@ -31,13 +33,15 @@ private:
     bool visible = true;
     std::vector<OccScene::PartId> parts() const;
   };
-  std::pair<Presentation, QString> createPresentation(const DrawingObject& object);
+  std::pair<Presentation, QString> createPresentation(const DrawingObject& object,
+                                                      const M4d& markerPlacement = M4d::Identity());
   QString removeParts(const std::vector<OccScene::PartId>& ids);
 
   OccScene& m_scene;
   const QHash<QString, std::shared_ptr<const CadLoadResult>>& m_models;
   QHash<quint32, Presentation> m_parts;
   std::vector<OccScene::PartId> m_axisParts;
+  std::vector<OccScene::PartId> m_faceAxisParts;
   // Parts whose OCCT removal failed; retried by every later removeParts call.
   std::vector<OccScene::PartId> m_unremovedParts;
 };

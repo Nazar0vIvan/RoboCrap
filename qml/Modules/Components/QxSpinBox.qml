@@ -16,7 +16,7 @@ SpinBox {
   palette.highlightedText: Colors.foreground.high
 
   contentItem: TextInput {
-    text: root.displayText
+    text: root.textFromValue(root.value, root.locale)
     font: root.font
     color: root.palette.text
     selectionColor: Colors.primary.highlight

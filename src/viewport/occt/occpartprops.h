@@ -3,6 +3,7 @@
 #include "geometry/mathtypes.h"
 
 #include <gp_Trsf.hxx>
+#include <Aspect_TypeOfMarker.hxx>
 #include <Quantity_Color.hxx>
 
 #include <algorithm>
@@ -54,6 +55,7 @@ struct OccPartProps
   // Face edges drawn in black, and as the selection outline; off for faces bounded only by seams.
   bool faceBoundary = true;
   double markerSize = 0.0;
+  Aspect_TypeOfMarker markerType = Aspect_TOM_BALL;
   double lineWidth = 0.0;
   double transparency = 0.0;
 };

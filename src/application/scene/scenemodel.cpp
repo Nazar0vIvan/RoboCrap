@@ -3,12 +3,56 @@
 
 #include <utility>
 
+#include <QDir>
+#include <QFile>
+#include <QJsonDocument>
 #include <QJSEngine>
+#include <QLockFile>
+#include <QSaveFile>
+#include <QUuid>
 
 #include <array>
 #include <algorithm>
 
 namespace {
+
+QString appendRefineJob(const QJsonObject& job)
+{
+  const QDir directory(QStringLiteral(ROBOCRAP_SETTINGS_DIR));
+  const QString path = directory.filePath(QStringLiteral("planar_probe_scans.json"));
+  if (!directory.mkpath(".")) return SceneModel::tr("Cannot create settings directory %1.").arg(directory.path());
+  QLockFile lock(path + QStringLiteral(".lock"));
+  if (!lock.tryLock(0)) return SceneModel::tr("Cannot lock %1 for writing.").arg(path);
+  QJsonObject store{{"version", 1}};
+  QJsonArray jobs;
+  QFile input(path);
+  if (input.exists()) {
+    if (!input.open(QIODevice::ReadOnly)) return SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString());
+    QJsonParseError error;
+    const auto document = QJsonDocument::fromJson(input.readAll(), &error);
+    if (input.error() != QFileDevice::NoError) return SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString());
+    input.close();
+    if (error.error != QJsonParseError::NoError)
+      return SceneModel::tr("Invalid JSON in %1: %2").arg(path, error.errorString());
+    store = document.object();
+    if (store.value("version").toInt() != 1 || !store.value("jobs").isArray())
+      return SceneModel::tr("Unsupported Refine Job store in %1.").arg(path);
+    jobs = store.value("jobs").toArray();
+    QSet<QUuid> ids{QUuid(job.value("id").toString())};
+    for (const auto& entry : jobs) {
+      const QUuid id(entry.toObject().value("id").toString());
+      if (id.isNull() || ids.contains(id)) return SceneModel::tr("Missing or duplicate Refine Job ID in %1.").arg(path);
+      ids.insert(id);
+    }
+  }
+  jobs.append(job);
+  store.insert("jobs", jobs);
+  const QByteArray bytes = QJsonDocument(store).toJson();
+  QSaveFile output(path);
+  if (!output.open(QIODevice::WriteOnly) || output.write(bytes) != bytes.size() || !output.commit())
+    return SceneModel::tr("Cannot save %1: %2").arg(path, output.errorString());
+  return {};
+}
 
 QString intersectionMessage(IntersectionStatus status)
 {
@@ -125,6 +169,26 @@ SceneObject* SceneModel::createObject(SceneObject::Description description)
   if (m_nextId == 0) return nullptr;
   description.name = description.name.trimmed();
   return new SceneObject(m_nextId++, description, this);
+}
+
+QVariantMap SceneModel::createRefineJob(quint32 target, const QJsonArray& planes)
+{
+  const auto* workpiece = findObject(target);
+  if (!workpiece || !m_viewport) return {{"error", tr("Select a placed workpiece.")}};
+  if (!m_nextId) return {{"error", tr("Scene object IDs are exhausted.")}};
+  auto [job, error] = m_viewport->refineJobDefinition(target, planes);
+  if (!error.isEmpty()) return {{"error", error}};
+  const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
+  const QString name = tr("Refine Job %1").arg(id.left(8));
+  job.insert("id", id);
+  job.insert("revision", 1);
+  job.insert("name", name);
+  job.insert("workpieceName", workpiece->name());
+  if (const QString failure = appendRefineJob(job); !failure.isEmpty()) return {{"error", failure}};
+  auto* object = createObject({name, SceneObject::RefineJob, SceneObject::Unclassified, {}});
+  object->setShape(std::move(job));
+  appendObject(object);
+  return {{"objectId", object->objectId()}};
 }
 
 SceneObject* SceneModel::addMachiningPath(SceneMachiningData data, const QString& name)

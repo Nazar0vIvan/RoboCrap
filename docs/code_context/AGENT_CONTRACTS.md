@@ -141,7 +141,10 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   separate worker, one path at a time; finished loads, failures included, stay in
   DrawingDocument::models. Insertion accepts an object whose model is loading or failed and skips that
   part; a successful load redraws its users. A failure is reported once, never retried and never
-  affects robot readiness.
+  affects robot readiness. Single-model loads retain the SHA-256 of the BREP bytes parsed by OCCT.
+  A workpiece solid supplies its mounting reference on DrawingModel, alongside its path and placement.
+  Parsed single-model loads index trimmed faces in the native BREP frame. Put the mounting transform
+  on the AIS object so detected face owners retain the source topology and its subshape locations.
 - RobotController owns the stable model/solver and accepted pose. Keep the checked initial HOME
   candidate unpublished until graphics acceptance; publish the model to ScenePlayback once; commit
   later poses only after transform acceptance. Surfaces/windows are restored from drawing values/CAD
@@ -484,6 +487,28 @@ registration, module names or resources.
   drawing notifications. Before applying new input settings notify QML so Cancel restores the old
   editor settings; a successful Generate closes its editor before requesting selection. Main creation
   resets Measuring/Rough/empty selection with the existing Stop-to-HOME behavior.
+- Refine Frame takes the single eligible scene selection once on opening. While its Object picker is
+  active, native hits and misses go to the draft before ordinary object or tool selection. A change of
+  configured target clears face bindings, side overrides and exclusions only after confirmation. The
+  draft uses the live scene instance ID to distinguish copies sharing one BREP and mounting data.
+  An accepted Object pick selects that instance in the Scene tree. In face-pick mode only faces of
+  the target solid are active on that solid. Keep its whole-object selection orange and face hover
+  blue. After acceptance, highlight only the active slot’s face and draw its signed approach arrow.
+  Slot indices share the target’s source path and loaded revision. Reject changed BREP bytes on a pick.
+  Compute the active grid in metric workpiece coordinates from the oriented source face, independently
+  of approach side and camera. Refit untouched pitches after count or margin changes using usable extent
+  divided by interval count, rounded down to 0.001 mm. Keep a manually entered pitch until edited.
+  When margins cannot fit that span, report the fit error and keep its ends within the physical bounds
+  whenever the span fits the full axis. Display the pitch used to draw the grid.
+  Classify against all trim wires. Apply the mounting transform once
+  when displaying the marker groups. Markers are nonselectable AIS decorations and excluded from camera fitting.
+  In point-pick mode, hit-test the active face’s displayed grid in native pixels and send its 1-based U/V index
+  to the editor. Each slot retains its skipped indices through grid edits, including out-of-range rows.
+  Use red dots for skipped or off-trim points and keep the geometry reason on skipped off-trim rows.
+  Delete restores the selected exclusion. Esc, a native left-click miss or a click outside the exclusion
+  field in the main window ends picking. The Show points eye toggles all assigned grids. The active
+  slot alone supplies the pickable indices, selected-row ring, selected face and approach arrow.
+  Releasing the editor restores ordinary picking and removes its face presentation.
 - In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
   Sampling (requires canPrepareCalibration and inactive playback for both placement sources), Start Calibration (startCalibration, enabled by
   canStartCalibration and the RSI DeviceRunner's isConnected) and Resume (resumeCalibration, enabled by

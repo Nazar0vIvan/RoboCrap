@@ -74,6 +74,12 @@ SceneObject::SceneObject(quint32 objectId, const Description& description, QObje
 
 QVariantList SceneObject::properties() const
 {
+  if (const auto* job = std::get_if<QJsonObject>(&m_shape))
+    return {propertyRow(tr("Object"), tr("#%1  %2").arg(job->value("workpieceSceneId").toInteger())
+                                                     .arg(job->value("workpieceName").toString())),
+            propertyRow(tr("Method"), tr("By 3 Planes")),
+            propertyRow(tr("Included contacts"), QString::number(job->value("includedCount").toInt())),
+            propertyRow(tr("Job ID"), job->value("id").toString())};
   if (const auto* value = plane()) {
     const auto& normal = value->coefficients();
     return {propertyRow(tr("Normal"), formatVector({normal[0], normal[1], normal[2]})),
@@ -189,7 +195,7 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
   } else if (const auto* gauge = endGauge()) {
     const auto& frame = gauge->workpieceInBase;
     const QString model = QDir(ViewportAssets::applicationAssets().cadDirectory).filePath(QStringLiteral("GE-22.brep"));
-    result.parts.append({DrawingModel{model, frame}, {{160, 165, 170}}});
+    result.parts.append({DrawingModel{model, frame, gauge->observationsSha256}, {{160, 165, 170}}});
     constexpr DrawingStyle axes[] = {{{255, 0, 0}, 2.0, true}, {{0, 180, 0}, 2.0, true}, {{0, 0, 255}, 2.0, true}};
     const V3d origin = frame.col(3).head<3>();
     for (int axis = 0; axis < 3; ++axis) {

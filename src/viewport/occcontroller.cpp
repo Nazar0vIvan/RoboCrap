@@ -4,6 +4,8 @@
 #include "occt/occviewport.h"
 #include "occt/occviewwindow.h"
 
+#include "geometry/plane.h"
+#include <Eigen/SVD>
 #include <QJSEngine>
 #include <QDir>
 #include <QThread>
@@ -75,9 +77,9 @@ ViewportOperationResult OccController::insertObject(const DrawingObject& object)
   if (!object.id || object.parts.isEmpty()) return {false, QStringLiteral("Empty object drawing.")};
   auto* drawing = viewport();
   const auto result = drawing ? drawing->insertObject(object) : ViewportOperationResult{true, {}};
-  if (result.accepted && drawing) applySelection(*drawing);
   if (result.accepted) {
     m_document.objects.insert(object.id, object);
+    if (drawing) applySelection(*drawing);
     // A model drawn before its load finishes is skipped; finishModelLoad redraws the object.
     for (const auto& part : object.parts)
       if (const auto* model = std::get_if<DrawingModel>(&part.geometry);
@@ -87,6 +89,173 @@ ViewportOperationResult OccController::insertObject(const DrawingObject& object)
   }
   if (!result.error.isEmpty()) emit message(result.error, true);
   return result;
+}
+
+const DrawingModel* DrawingDocument::workpieceModel(quint32 id) const
+{
+  const auto object = objects.constFind(id);
+  if (object != objects.cend())
+    for (const auto& part : object->parts) {
+      const auto* model = std::get_if<DrawingModel>(&part.geometry);
+      if (model && !model->mountingId.isEmpty() && !part.style.decoration && model->modelInBase.allFinite())
+        return model;
+    }
+  return nullptr;
+}
+
+QString OccController::workpieceModelRevision(quint32 objectId) const
+{
+  const auto* model = m_document.workpieceModel(objectId);
+  if (!model) return {};
+  const auto loaded = m_document.models.value(model->path);
+  return loaded && loaded->error.isEmpty() ? QString::fromLatin1(loaded->modelSha256.toHex()) : QString{};
+}
+
+void OccController::setRefineTarget(quint32 objectId)
+{
+  const auto* model = m_document.workpieceModel(objectId);
+  m_document.face = model ? DrawingFaceSelection{objectId, model->path, m_document.models.value(model->path)}
+                          : DrawingFaceSelection{};
+  if (auto* drawing = viewport()) applySelection(*drawing);
+}
+
+QString OccController::showRefineFace(int index, bool reversed, bool picking)
+{
+  auto& face = m_document.face;
+  const auto previous = face;
+  if (face.index != index) face.highlighted = {};
+  face.index = index;
+  face.reversed = reversed;
+  face.picking = picking;
+  if (auto* drawing = viewport()) {
+    const auto result = drawing->setSelection();
+    if (result.accepted && !result.error.isEmpty()) emit message(result.error, true);
+    if (!result.accepted) {
+      face = previous;
+      applySelection(*drawing);
+      return result.error;
+    }
+  }
+  return {};
+}
+
+std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 target, const QJsonArray& planes) const
+{
+  const auto* model = m_document.workpieceModel(target);
+  auto face = m_document.face;
+  if (!model || target != face.target || model->path != face.path || !face.source
+      || face.source != m_document.models.value(model->path))
+    return {{}, tr("Select the current placed workpiece again.")};
+  if (const QString error = face.revisionError(); !error.isEmpty()) return {{}, error};
+  if (planes.size() != 3) return {{}, tr("Assign XPlane, YPlane and ZPlane.")};
+
+  Eigen::Matrix3d normals;
+  QSet<int> faces;
+  QJsonArray savedPlanes;
+  int total = 0;
+  for (int role = 0; role < 3; ++role) {
+    const QString name = QStringLiteral("%1Plane").arg(QStringLiteral("XYZ").at(role));
+    const QString prefix = name + QStringLiteral(": ");
+    const auto draft = planes.at(role).toObject();
+    face.index = draft.value("faceIndex").toInt();
+    if (face.index <= 0) return {{}, prefix + tr("Assign a planar face.")};
+    if (faces.contains(face.index)) return {{}, prefix + tr("Choose a different face for each role.")};
+    faces.insert(face.index);
+    const QSize counts(draft.value("uCount").toInt(), draft.value("vCount").toInt());
+    const QSizeF requested(draft.value("uSpacing").toDouble(), draft.value("vSpacing").toDouble());
+    QStringList margins;
+    for (const auto& value : draft.value("margins").toArray()) margins.append(value.toString());
+    const auto preview = face.preview(counts, requested, margins);
+    if (!preview.grid.fits) return {{}, prefix + preview.status};
+
+    const auto skipped = draft.value("skipped");
+    if (!skipped.isArray() || !draft.value("reversed").isBool()) return {{}, prefix + tr("Invalid plane draft.")};
+    QSet<QPoint> excluded;
+    for (const auto& value : skipped.toArray()) {
+      const auto pair = value.toArray();
+      const QPoint index(pair.at(0).toInt(), pair.at(1).toInt());
+      if (pair.size() != 2 || index.x() < 1 || index.x() > counts.width()
+          || index.y() < 1 || index.y() > counts.height() || excluded.contains(index))
+        return {{}, prefix + tr("Each skipped index must occur once and lie inside the grid.")};
+      excluded.insert(index);
+    }
+    QList<V3d> included;
+    for (int i = 0; i < preview.grid.points.size(); ++i) {
+      const QPoint index = preview.grid.indexAt(i);
+      if (excluded.contains(index)) continue;
+      if (preview.grid.invalid.contains(i))
+        return {{}, prefix + tr("Point (%1,%2) is off the trimmed face. Skip it or change the grid.")
+                                 .arg(index.x()).arg(index.y())};
+      included.append(preview.grid.points.at(i));
+    }
+    if (included.size() < 3) return {{}, prefix + tr("At least three included points are required.")};
+    const auto plane = Plane::fromPoints(included);
+    if (!plane) return {{}, prefix + tr("Included points must be distinct and noncollinear.")};
+    normals.row(role) = plane->normal().transpose();
+    total += included.size();
+    QJsonArray marginsMm;
+    for (const auto& margin : margins) marginsMm.append(margin.toDouble());
+    savedPlanes.append(QJsonObject{{"role", name}, {"faceIndex", face.index}, {"reversed", draft.value("reversed")},
+        {"countsUV", QJsonArray{counts.width(), counts.height()}},
+        {"spacingMmUV", QJsonArray{preview.spacing.width(), preview.spacing.height()}},
+        {"autoSpacingUV", QJsonArray{requested.width() == -1, requested.height() == -1}},
+        {"marginsMmLeftTopBottomRight", marginsMm}, {"skippedUV", skipped}, {"includedCount", int(included.size())}});
+  }
+  const Eigen::JacobiSVD<Eigen::Matrix3d> svd(normals);
+  const double minimumRatio = std::sqrt(3.0) * 0.01 / 0.20;
+  if (svd.info() != Eigen::Success || svd.singularValues().minCoeff() < minimumRatio * svd.singularValues().maxCoeff())
+    return {{}, tr("The plane normals are dependent or ill-conditioned. Choose three independent directions.")};
+
+  QJsonArray placement;
+  for (int i = 0; i < 4; ++i)
+    placement.append(QJsonArray{model->modelInBase(i,0), model->modelInBase(i,1),
+                                model->modelInBase(i,2), model->modelInBase(i,3)});
+  return {QJsonObject{{"method", "byThreePlanes"}, {"coordinateConvention", "workpiece-metric-grid-v1"},
+                      {"workpieceSceneId", qint64(target)}, {"mountingId", model->mountingId},
+                      {"modelPath", model->path}, {"modelSha256", QString::fromLatin1(face.source->modelSha256.toHex())},
+                      {"modelInBase", placement}, {"planes", savedPlanes}, {"includedCount", total}}, {}};
+}
+
+QVariantMap OccController::updateRefineGrid(QSize counts, QSizeF spacing, const QStringList& margins)
+{
+  auto& face = m_document.face;
+  auto [grid, status, usedSpacing] = face.preview(counts, spacing, margins);
+  const auto invalid = grid.invalid.values();
+  if (face.index) {
+    auto& stored = face.grids[face.index];
+    grid.skipped = std::move(stored.skipped);
+    stored = std::move(grid);
+  }
+  if (auto* drawing = viewport()) {
+    const auto displayed = drawing->setSelection();
+    if (!displayed.error.isEmpty()) status = (status + " " + displayed.error).trimmed();
+  }
+  return {{QStringLiteral("message"), status}, {QStringLiteral("spacing"), usedSpacing},
+          {QStringLiteral("invalid"), QVariant::fromValue(invalid)}};
+}
+
+void OccController::setGridVisibility(bool showAll, const QList<int>& assignedFaces)
+{
+  auto& face = m_document.face;
+  for (auto it = face.grids.begin(); it != face.grids.end(); ) {
+    if (assignedFaces.contains(it.key())) ++it;
+    else it = face.grids.erase(it);
+  }
+  face.showAllPoints = showAll;
+  if (auto* drawing = viewport()) applySelection(*drawing);
+}
+
+void OccController::setGridSelection(const QList<QPoint>& skipped, QPoint highlighted, bool picking)
+{
+  auto& face = m_document.face;
+  face.pickingPoints = picking && face.index && !face.picking;
+  if (!face.index) return;
+  auto& grid = face.grids[face.index];
+  const QSet<QPoint> indices(skipped.begin(), skipped.end());
+  if (grid.skipped == indices && face.highlighted == highlighted) return;
+  grid.skipped = indices;
+  face.highlighted = highlighted;
+  if (auto* drawing = viewport()) applySelection(*drawing);
 }
 
 void OccController::removeObject(quint32 id)
@@ -104,8 +273,10 @@ void OccController::setObjectVisible(quint32 id, bool visible)
   if (it == m_document.objects.end() || it->visible == visible) return;
   auto* drawing = viewport();
   const auto result = drawing ? drawing->setObjectVisible(id, visible) : ViewportOperationResult{true, {}};
-  if (result.accepted && drawing) applySelection(*drawing);
-  if (result.accepted) it->visible = visible;
+  if (result.accepted) {
+    it->visible = visible;
+    if (drawing) applySelection(*drawing);
+  }
   if (!result.error.isEmpty()) emit message(result.error, true);
 }
 
@@ -174,8 +345,8 @@ void OccController::setToolSelected(bool selected)
 
 void OccController::applySelection(OccViewport& drawing)
 {
-  const auto result = drawing.setSelection(m_document.selected, m_document.toolSelected);
-  if (!result.accepted) emit message(result.error, true);
+  const auto result = drawing.setSelection();
+  if (!result.error.isEmpty()) emit message(result.error, true);
 }
 
 QString OccController::initializeOcct() const
@@ -216,6 +387,9 @@ void OccController::createWindow()
   QJSEngine::setObjectOwnership(m_window, QJSEngine::CppOwnership);
   QObject::connect(m_window, &OccViewWindow::readyChanged, this, &OccController::readyChanged);
   QObject::connect(m_window, &OccViewWindow::viewportReadyChanged, this, &OccController::viewportReadyChanged);
+  QObject::connect(m_window, &OccViewWindow::gridPointPicked, this, &OccController::gridPointPicked);
+  QObject::connect(m_window, &OccViewWindow::gridEditKeyPressed, this, &OccController::gridEditKeyPressed);
+  QObject::connect(m_window, &OccViewWindow::facePicked, this, &OccController::facePicked);
   QObject::connect(m_window, &OccViewWindow::applicationSelectionRequested,
                    this, &OccController::applicationSelectionRequested);
   QObject::connect(m_window, &OccViewWindow::toolSelectionRequested, this, &OccController::toolSelectionRequested);
