@@ -13,7 +13,10 @@ QxPanel {
 
   property App.SceneObject workpiece: null
   property App.SceneObject pendingWorkpiece: null
-  property bool editingJob: false
+  property App.SceneObject savedJob: null
+  readonly property bool editingJob: !!savedJob
+  property bool restoreSavedFaces: false
+  property string placementMessage: ""
   property string pickError: ""
   property string gridMessage: ""
   property bool restoreFaceOnGridEdit: false
@@ -24,7 +27,7 @@ QxPanel {
   readonly property string message: root.pickError || (root.picking ? qsTr("Click a placed workpiece in the viewport.")
                                        : root.pickingFace ? qsTr("Pick a planar face for %1Plane.").arg(root.activePlane.axis)
                                        : root.pickingPoints ? qsTr("Pick points to skip or restore · Esc to finish") + (root.gridMessage ? " · " + root.gridMessage : "")
-                                       : root.workpiece ? root.gridMessage : qsTr("Select a placed workpiece."))
+                                       : root.workpiece ? root.gridMessage || root.placementMessage : qsTr("Select a placed workpiece."))
   readonly property int pickSize: Metrics.sz24 + Metrics.w2
   readonly property int pickColumn: root.pickSize + Metrics.sp8
   signal cancelRequested()
@@ -72,6 +75,7 @@ QxPanel {
   function setTarget(object: App.SceneObject) {
     root.pickingPoints = false
     root.invalidOffsets = []
+    root.placementMessage = ""
     if (root.workpiece && root.workpiece !== object) {
       for (const plane of root.planeDrafts) {
         plane.faceIndex = 0
@@ -93,6 +97,7 @@ QxPanel {
     if (object) App.WorkspaceController.selectObject(object.objectId, false)
     root.pickError = ""
     App.WorkspaceController.pickingWorkpiece = !object
+    if (object && root.restoreSavedFaces) root.restoreFaces()
   }
 
   function refreshGrid() {
@@ -117,6 +122,55 @@ QxPanel {
 
   function syncGridVisibility() {
     Viewport3D.OccController.setGridVisibility(showPoints.checked, root.planeDrafts.map(slot => slot.faceIndex))
+  }
+
+  function draftPlanes(): var {
+    return root.planeDrafts.map(slot => ({
+      faceIndex: slot.faceIndex, reversed: slot.reversed,
+      uCount: slot.u.count, vCount: slot.v.count,
+      uSpacing: slot.u.editedSpacing || -1, vSpacing: slot.v.editedSpacing || -1,
+      margins: slot.margins.slice(), skipped: slot.skipped.map(point => [point.x, point.y])
+    }))
+  }
+
+  function restoreFaces() {
+    root.restoreSavedFaces = false
+    const job = root.savedJob.refineJob
+    for (let i = 0; i < root.planeDrafts.length; ++i) {
+      const slot = root.planeDrafts[i]
+      const plane = job.planes[i]
+      slot.faceIndex = plane.faceIndex
+      slot.reversed = plane.reversed
+      slot.skipped = plane.skippedUV.map(pair => Qt.point(pair[0], pair[1]))
+    }
+    const result = Viewport3D.OccController.restoreRefineGrids(job, root.draftPlanes())
+    if (result.staleFaces) {
+      for (const slot of root.planeDrafts) {
+        slot.faceIndex = 0
+        slot.reversed = false
+        slot.skipped = []
+      }
+      root.pickError = result.error
+      return
+    }
+    if (result.error) root.placementMessage = result.error
+    else if (result.placementChanged)
+      root.placementMessage = qsTr("Workpiece placement changed. Recheck fixture clearance before generation.")
+    root.syncGridVisibility()
+    if (root.showFace(root.activePlane.faceIndex, root.activePlane.reversed, false)) {
+      root.syncGridSelection()
+      Qt.callLater(root.refreshGrid)
+    }
+  }
+
+  function saveDraft() {
+    const result = App.Scene.saveRefineJob(root.savedJob?.objectId || 0, root.workpiece?.objectId || 0, root.draftPlanes())
+    if (result.error) {
+      root.pickError = result.error
+      return
+    }
+    App.WorkspaceController.selectObject(result.objectId, false)
+    root.cancelRequested()
   }
 
   function showFace(index: int, reversed: bool, picking: bool): bool {
@@ -200,6 +254,9 @@ QxPanel {
 
   Connections {
     target: Viewport3D.OccController
+    function onWorkpieceModelsChanged() {
+      if (root.restoreSavedFaces && !root.workpiece) root.bindSavedTarget()
+    }
     function onGridEditKeyPressed(key) {
       if (key === Qt.Key_Escape) root.finishPointPicking()
       else root.removeSkip(root.activePlane.selectedSkip)
@@ -247,7 +304,30 @@ QxPanel {
 
   Component.onCompleted: {
     const selected = App.WorkspaceController.selectedObject
-    root.setTarget(root.canTarget(selected) ? selected : null)
+    if (selected?.kind === App.SceneObject.RefineJob) {
+      root.savedJob = selected
+      const job = selected.refineJob
+      for (let i = 0; i < root.planeDrafts.length; ++i) {
+        const slot = root.planeDrafts[i]
+        const plane = job.planes[i]
+        slot.margins = plane.marginsMmLeftTopBottomRight.map(value => String(value))
+        const axes = [slot.u, slot.v]
+        for (let j = 0; j < axes.length; ++j) {
+          axes[j].count = plane.countsUV[j]
+          axes[j].fittedSpacing = plane.spacingMmUV[j]
+          axes[j].editedSpacing = plane.autoSpacingUV[j] ? 0 : plane.spacingMmUV[j]
+        }
+      }
+      root.restoreSavedFaces = true
+      root.bindSavedTarget()
+    } else root.setTarget(root.canTarget(selected) ? selected : null)
+  }
+
+  function bindSavedTarget() {
+    const target = App.Scene.findObject(App.Scene.resolveRefineTarget(root.savedJob.objectId))
+    root.setTarget(root.canTarget(target) ? target : null)
+    if (!root.workpiece)
+      root.pickError = qsTr("Pick the mounted workpiece for %1 when its model is visible.").arg(root.savedJob.name)
   }
   Component.onDestruction: {
     App.WorkspaceController.pickingWorkpiece = false
@@ -277,6 +357,10 @@ QxPanel {
   Connections {
     target: App.Scene
     function onObjectRemoved(id) {
+      if (root.savedJob?.objectId === id) {
+        root.cancelRequested()
+        return
+      }
       if (root.workpiece?.objectId === id || root.pendingWorkpiece?.objectId === id) {
         confirmSwitch.close()
         root.pendingWorkpiece = null
@@ -364,6 +448,15 @@ QxPanel {
       ToolTip.text: pick.pickName
       ToolTip.visible: hovered || visualFocus
     }
+  }
+
+  component PlaneTool: QxToolButton {
+    padding: Metrics.sp0
+    radius: 0
+    imageSize: Metrics.sz36 - 2 * Metrics.w1
+    Accessible.name: text
+    ToolTip.text: text
+    ToolTip.visible: hovered || visualFocus
   }
 
   component Divider: Rectangle {
@@ -494,60 +587,52 @@ QxPanel {
         ButtonGroup { id: planes }
         RowLayout {
           Layout.fillWidth: true
-          spacing: Metrics.sp4
+          Layout.rightMargin: root.pickColumn
+          spacing: Metrics.sp10
           Repeater {
             model: root.planeDrafts
-            delegate: QxToolButton {
+            delegate: PlaneTool {
               id: plane
               required property PlaneDraft modelData
-              padding: Metrics.sp0
-              radius: 0
               text: plane.modelData.axis + "Plane"
               imageSource: "qrc:/icons/" + plane.modelData.axis.toLowerCase() + "plane.svg"
-              imageSize: Metrics.sz36 - 2 * Metrics.w1
               checkable: true
               checked: root.activePlane === plane.modelData
               ButtonGroup.group: planes
               onClicked: {
                 plane.forceActiveFocus()
                 const slot = plane.modelData
-                if (root.workpiece) App.WorkspaceController.selectObject(root.workpiece.objectId, false)
-                if (root.showFace(slot.faceIndex, slot.reversed, false)) {
+                if (root.workpiece) {
+                  App.WorkspaceController.pickingWorkpiece = false
+                  App.WorkspaceController.selectObject(root.workpiece.objectId, false)
+                }
+                if (root.showFace(slot.faceIndex, slot.reversed, !!root.workpiece)) {
                   root.activePlane = slot
                   root.invalidOffsets = []
                   root.syncGridSelection()
                   Qt.callLater(root.refreshGrid)
                 }
               }
-              ToolTip.text: text
-              ToolTip.visible: hovered || visualFocus
             }
           }
           Item { Layout.fillWidth: true }
-          QxToolButton {
+          PlaneTool {
             id: showPoints
             text: qsTr("Show points")
-            imageSource: "qrc:/icons/eye.svg"
-            imageSize: root.pickSize
-            padding: Metrics.sp4
+            imageSource: "qrc:/icons/show_points.svg"
             checkable: true
             enabled: !!root.workpiece
             onToggled: root.syncGridVisibility()
-            Accessible.name: text
-            ToolTip.text: text
-            ToolTip.visible: hovered || visualFocus
           }
-          QxButton {
-            text: checked ? qsTr("Side reversed") : qsTr("Reverse side")
-            reservedText: checked ? qsTr("Reverse side") : qsTr("Side reversed")
+          PlaneTool {
+            text: qsTr("Reverse side")
+            imageSource: "qrc:/icons/reverse.svg"
             enabled: !!root.workpiece
             checked: root.activePlane.reversed
             onClicked: {
               const slot = root.activePlane
               if (root.showFace(slot.faceIndex, !slot.reversed, root.pickingFace)) slot.reversed = !slot.reversed
             }
-            topPadding: Metrics.sp4
-            bottomPadding: Metrics.sp4
           }
         }
         PickRow {
@@ -689,12 +774,19 @@ QxPanel {
     QxButton {
       Layout.fillWidth: true
       text: root.editingJob ? qsTr("Save Changes") : qsTr("Create Refine Job")
-      reservedText: qsTr("Create Refine Job")
-      enabled: false
+      reservedText: root.editingJob ? qsTr("Create Refine Job") : qsTr("Save Changes")
+      enabled: !!root.workpiece && uDirection.acceptsInput() && vDirection.acceptsInput()
+      onClicked: {
+        forceActiveFocus()
+        Qt.callLater(root.saveDraft)
+      }
     }
     QxButton {
       text: qsTr("Cancel")
-      onClicked: root.cancelRequested()
+      onClicked: {
+        if (root.savedJob) App.WorkspaceController.selectObject(root.savedJob.objectId, false)
+        root.cancelRequested()
+      }
     }
   }
 }

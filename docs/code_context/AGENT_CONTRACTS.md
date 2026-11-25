@@ -71,6 +71,9 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   contact distances, last calibration result) is in the root cache path ROBOCRAP_SETTINGS_DIR
   (default <repository>/settings, tracked by git so the values move between computers), passed to
   every target as a compile definition; only SceneCalibration reads and writes it.
+- SceneModel restores Refine Job definitions from version 1 of `planar_probe_scans.json` in the
+  same settings directory. Hold the file lock across read, comparison of the previous UUID record
+  and atomic replacement. A conflict, read, format, lock or write failure preserves the file and draft.
 
 ## Viewport and CAD
 
@@ -242,12 +245,21 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
 - SceneModel owns SceneObject; QML changes scene state through model methods. SceneObject holds a
   plane, cylinder, intersection edge (with its two source IDs), GE-22 placement, calibration sphere or generated probe path
   (the shared immutable ProbeTouchMotion) by value in a std::variant; only a machining path has a child
-  QObject (exposed as geometry). Its CONSTANT properties list supplies the {label, value} rows of the
+  QObject (exposed as geometry). Its properties list supplies the {label, value} rows of the
   Properties panel. Preserve stable scene-allocated IDs (0 = none), shared references and GUI-thread
   mutations. Numerical fitting/intersection belongs to Geometry; OCCT presentation to adapters.
   Decorative points/normals/axes take no part in picking or fit bounds. The calibration sphere's
   drawing adds the table top (sphere file `table`) and CALIBRATION_STAND as decorative parts that share
   its visibility; diagnostic overlay updates keep them.
+- A Refine Job owns the saved definition as scene metadata. Publish it after the file commit.
+  Creation checks the current BREP revision, three independent trimmed planes and each role's
+  included contacts. Skipping a point can resolve a trim error but cannot make an oversized span fit.
+  Creation leaves the placement and existing motion untouched.
+  An applied edit keeps the job UUID and scene object, advances its definition revision and removes
+  only Scan Paths carrying its UUID. Cancel and an unchanged save preserve the revision and paths.
+  Reopen resolves the live instance or a unique matching mounting and model. A saved scene ID alone
+  cannot identify a workpiece across restarts. Recheck the loaded and on-disk BREP before restoring
+  face indices. A moved mounting retains model-local points and needs fresh clearance checks at generation.
 - Before import/intersection changes read the geometry factories and SceneSurfaceImporter/SceneModel
   callers; preserve units and probe-compensation semantics. BoundedPlane/BoundedCylinder accept points
   or decoded ProbeSamples, without file factories; SceneSurfaceImporter reads/decodes plane and
@@ -509,6 +521,10 @@ registration, module names or resources.
   field in the main window ends picking. The Show points eye toggles all assigned grids. The active
   slot alone supplies the pickable indices, selected-row ring, selected face and approach arrow.
   Releasing the editor restores ordinary picking and removes its face presentation.
+  Create submits the three slot drafts together. On failure keep the fields and show the reason in
+  the existing message row. On success select the saved object under Precise / Refine Jobs and close the editor.
+  Opening Refine Frame on a selected job copies its three roles into the editor. Save Changes updates
+  the selected job only after the file commit. Cancel discards the copy and reselects the job.
 - In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
   Sampling (requires canPrepareCalibration and inactive playback for both placement sources), Start Calibration (startCalibration, enabled by
   canStartCalibration and the RSI DeviceRunner's isConnected) and Resume (resumeCalibration, enabled by

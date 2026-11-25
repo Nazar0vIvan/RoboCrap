@@ -1,0 +1,128 @@
+{
+    "jobs": [
+        {
+            "coordinateConvention": "workpiece-metric-grid-v1",
+            "id": "7017998b-f49b-4dac-9bb3-4e7ef83380ce",
+            "includedCount": 15,
+            "method": "byThreePlanes",
+            "modelInBase": [
+                [
+                    0.9961969180606295,
+                    -0.07153607274546131,
+                    -0.04974224304009239,
+                    1148.0000411698327
+                ],
+                [
+                    0.0696609180374148,
+                    0.9968289489315986,
+                    -0.03846300911407912,
+                    -321.99069472374606
+                ],
+                [
+                    0.05233600046514951,
+                    0.034851640823370486,
+                    0.998021195259515,
+                    471.88588471996917
+                ],
+                [
+                    0,
+                    0,
+                    0,
+                    1
+                ]
+            ],
+            "modelPath": "D:/Qt/QtProjects/RoboCrap/build/Felgo_SDK_Desktop_Qt_6_8_3_MinGW_64_bit-Debug/resources/cad/GE-22.brep",
+            "modelSha256": "79641b3d7e872f541faec374c214a54008db0667a305e145c513baa32e227271",
+            "mountingId": "4f48ab0b017b542c23dfced4e281bef0cb8548204b67fac0a8d397d629a4d22b",
+            "name": "Refine Job 7017998b",
+            "planes": [
+                {
+                    "autoSpacingUV": [
+                        true,
+                        true
+                    ],
+                    "countsUV": [
+                        4,
+                        2
+                    ],
+                    "faceIndex": 2,
+                    "includedCount": 8,
+                    "marginsMmLeftTopBottomRight": [
+                        0,
+                        0,
+                        0,
+                        0
+                    ],
+                    "reversed": false,
+                    "role": "XPlane",
+                    "skippedUV": [
+                    ],
+                    "spacingMmUV": [
+                        11.666,
+                        22
+                    ]
+                },
+                {
+                    "autoSpacingUV": [
+                        true,
+                        true
+                    ],
+                    "countsUV": [
+                        2,
+                        2
+                    ],
+                    "faceIndex": 1,
+                    "includedCount": 4,
+                    "marginsMmLeftTopBottomRight": [
+                        0,
+                        0,
+                        0,
+                        0
+                    ],
+                    "reversed": false,
+                    "role": "YPlane",
+                    "skippedUV": [
+                    ],
+                    "spacingMmUV": [
+                        35,
+                        9
+                    ]
+                },
+                {
+                    "autoSpacingUV": [
+                        true,
+                        true
+                    ],
+                    "countsUV": [
+                        2,
+                        2
+                    ],
+                    "faceIndex": 5,
+                    "includedCount": 3,
+                    "marginsMmLeftTopBottomRight": [
+                        0,
+                        0,
+                        0,
+                        0
+                    ],
+                    "reversed": false,
+                    "role": "ZPlane",
+                    "skippedUV": [
+                        [
+                            1,
+                            1
+                        ]
+                    ],
+                    "spacingMmUV": [
+                        9,
+                        22
+                    ]
+                }
+            ],
+            "revision": 1,
+            "workpieceName": "End gauge",
+            "workpieceSceneId": 1
+        }
+    ],
+    "version": 1
+}

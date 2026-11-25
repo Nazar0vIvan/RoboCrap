@@ -72,13 +72,26 @@ SceneObject::SceneObject(quint32 objectId, const Description& description, QObje
     m_classification(description.classification), m_sourceUrl(description.sourceUrl)
 {}
 
+QJsonObject SceneObject::refineJob() const
+{
+  const auto* job = std::get_if<QJsonObject>(&m_shape);
+  return job ? *job : QJsonObject{};
+}
+
+void SceneObject::setRefineJob(const QJsonObject& job, quint32 target)
+{
+  m_shape = job;
+  m_refineTarget = target;
+  emit refineJobChanged();
+}
+
 QVariantList SceneObject::properties() const
 {
   if (const auto* job = std::get_if<QJsonObject>(&m_shape))
-    return {propertyRow(tr("Object"), tr("#%1  %2").arg(job->value("workpieceSceneId").toInteger())
-                                                     .arg(job->value("workpieceName").toString())),
+    return {propertyRow(tr("Object"), job->value("workpieceName").toString()),
             propertyRow(tr("Method"), tr("By 3 Planes")),
             propertyRow(tr("Included contacts"), QString::number(job->value("includedCount").toInt())),
+            propertyRow(tr("Revision"), QString::number(job->value("revision").toInt())),
             propertyRow(tr("Job ID"), job->value("id").toString())};
   if (const auto* value = plane()) {
     const auto& normal = value->coefficients();

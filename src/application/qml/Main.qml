@@ -90,6 +90,7 @@ ApplicationWindow {
   }
   Component.onCompleted: {
     App.WorkspaceController.reset()
+    App.Scene.loadRefineJobs()
     // The settings file is read before this window exists.
     if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
   }
@@ -179,14 +180,20 @@ ApplicationWindow {
   Connections {
     target: root.sceneModel
     function onIntersectionFailed(message) {
-      intersectionError.text = message
-      intersectionError.open()
+      sceneError.showMessage(qsTr("Surface intersection failed"), message)
+    }
+    function onRefineJobError(message) {
+      sceneError.showMessage(qsTr("Refine Jobs"), message)
     }
   }
 
   Dialogs.MessageDialog {
-    id: intersectionError
-    title: qsTr("Surface intersection failed")
+    id: sceneError
+    function showMessage(caption: string, message: string) {
+      title = caption
+      text = message
+      open()
+    }
     buttons: Dialogs.MessageDialog.Ok
   }
 

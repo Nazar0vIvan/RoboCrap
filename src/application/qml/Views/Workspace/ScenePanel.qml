@@ -28,6 +28,7 @@ QxPanel {
     ListElement { name: qsTr("Rough Geometry"); kind: "rough"; badge: "R"; expanded: true }
     ListElement { name: qsTr("Precise Geometry"); kind: "precise"; badge: "P"; expanded: true }
     ListElement { name: qsTr("Edges"); kind: "edges"; badge: ""; expanded: true }
+    ListElement { name: qsTr("Refine Jobs"); kind: "refineJobs"; badge: ""; expanded: true }
     ListElement { name: qsTr("Scan Paths"); kind: "scanPaths"; badge: ""; expanded: true }
     ListElement { name: qsTr("Machining Paths"); kind: "machiningPaths"; badge: ""; expanded: true }
     ListElement { name: qsTr("Calibration"); kind: "calibration"; badge: ""; expanded: true }
@@ -40,6 +41,7 @@ QxPanel {
       case "precise": return (root.preciseScanning && object.kind === Backend.SceneObject.EndGauge)
                              || (object.kind !== Backend.SceneObject.Edge && object.classification === Backend.SceneObject.Precise)
       case "edges": return object.kind === Backend.SceneObject.Edge
+      case "refineJobs": return object.kind === Backend.SceneObject.RefineJob
       case "scanPaths": return object.kind === Backend.SceneObject.ScanPath
       case "machiningPaths": return object.kind === Backend.SceneObject.MachiningPath
       case "calibration": return object.kind === Backend.SceneObject.Sphere
@@ -58,6 +60,7 @@ QxPanel {
     case Backend.SceneObject.Edge: return "qrc:/icons/edge.svg"
     case Backend.SceneObject.Sphere: return "qrc:/icons/sphere.svg"
     case Backend.SceneObject.EndGauge: return "qrc:/icons/measuring.svg"
+    case Backend.SceneObject.RefineJob: return "qrc:/icons/refine_frame.svg"
     case Backend.SceneObject.ScanPath:
     case Backend.SceneObject.MachiningPath:
     case Backend.SceneObject.CalibrationPath: return "qrc:/icons/path.svg"
@@ -105,6 +108,7 @@ QxPanel {
 
           width: scroll.availableWidth
           visible: (group.kind === "calibration") === root.calibration
+                   && (group.kind !== "refineJobs" || root.preciseScanning)
 
           ItemDelegate {
             id: groupButton
@@ -286,6 +290,7 @@ QxPanel {
                   ToolButton {
                     id: visibilityButton
                     objectName: "sceneVisibilityButton"
+                    visible: objectRow.modelData.kind !== Backend.SceneObject.RefineJob
 
                     Layout.preferredWidth: Metrics.sz24
                     Layout.fillHeight: true

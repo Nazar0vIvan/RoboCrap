@@ -26,6 +26,8 @@
         <file>icons/xplane.svg</file>
         <file>icons/yplane.svg</file>
         <file>icons/zplane.svg</file>
+        <file>icons/show_points.svg</file>
+        <file>icons/reverse.svg</file>
         <file>icons/distance.svg</file>
         <file>icons/amount.svg</file>
         <file>icons/margin-left.svg</file>

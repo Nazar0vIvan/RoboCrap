@@ -148,4 +148,5 @@ using SceneEndGauge = ProbeGaugeMount;
 struct SceneTouchPath
 {
   std::shared_ptr<const ProbeTouchMotion> motion;
+  QString refineJobId; // Empty for calibration and standalone preset paths.
 };

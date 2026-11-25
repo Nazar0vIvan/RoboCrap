@@ -25,6 +25,9 @@ public:
   Q_INVOKABLE bool canIntersect(const QList<quint32>& selectedIds) const;
   Q_INVOKABLE QList<quint32> intersect(const QList<quint32>& selectedIds);
   Q_INVOKABLE QVariantMap createRefineJob(quint32 target, const QJsonArray& planes);
+  Q_INVOKABLE void loadRefineJobs();
+  Q_INVOKABLE quint32 resolveRefineTarget(quint32 jobId);
+  Q_INVOKABLE QVariantMap saveRefineJob(quint32 jobId, quint32 target, const QJsonArray& planes);
   SceneObject* addMachiningPath(SceneMachiningData data, const QString& name);
 	SceneObject* addBoundedPlane(const QUrl& sourceUrl, const QString& name, BoundedPlane plane);
 	SceneObject* addBoundedCylinder(const QUrl& sourceUrl, const QString& name, BoundedCylinder cylinder);
@@ -37,6 +40,7 @@ public:
   Q_INVOKABLE bool setSphereDisplay(SceneObject* object, bool ballCenter, bool compensated);
 
 signals:
+  void refineJobError(const QString& error);
   void intersectionFailed(const QString& message);
   void objectsChanged();
   void objectAdded(SceneObject* object);
@@ -48,6 +52,8 @@ private:
   std::optional<std::array<const SceneObject*, 2>> intersectionPair(const QList<quint32>& ids) const;
   static qsizetype objectCount(QQmlListProperty<SceneObject>* list);
   static SceneObject* objectAt(QQmlListProperty<SceneObject>* list, qsizetype index);
+  void removeRefinePaths(const QString& jobId);
+  SceneObject* appendRefineObject(const QJsonObject& job, quint32 target);
   SceneObject* appendObject(SceneObject* object);
   SceneObject* createObject(SceneObject::Description description);
   void onObjectVisibilityChanged();

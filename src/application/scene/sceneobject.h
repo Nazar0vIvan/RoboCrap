@@ -28,10 +28,11 @@ class SceneObject final : public QObject
   Q_PROPERTY(bool showBallCenterSphere READ showBallCenterSphere NOTIFY sphereDisplayChanged FINAL)
   Q_PROPERTY(bool showCompensatedSphere READ showCompensatedSphere NOTIFY sphereDisplayChanged FINAL)
   Q_PROPERTY(QUrl sourceUrl READ sourceUrl CONSTANT FINAL)
+  Q_PROPERTY(QJsonObject refineJob READ refineJob NOTIFY refineJobChanged FINAL)
   // The saved machining path's QObject; null for every other kind.
   Q_PROPERTY(QObject* geometry READ geometry CONSTANT FINAL)
   // Formatted {label, value} rows for the Properties panel.
-  Q_PROPERTY(QVariantList properties READ properties CONSTANT FINAL)
+  Q_PROPERTY(QVariantList properties READ properties NOTIFY refineJobChanged FINAL)
 
 public:
   enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath, EndGauge, RefineJob };
@@ -59,6 +60,8 @@ public:
   const SceneTouchPath* touchPath() const { return std::get_if<SceneTouchPath>(&m_shape); }
   const ChamferMotion* machiningPath() const { return m_machiningPath ? &m_machiningPath->motion() : nullptr; }
   QVariantList properties() const;
+  QJsonObject refineJob() const;
+  quint32 refineTarget() const { return m_refineTarget; }
   QString name() const { return m_name; }
   Kind kind() const { return m_kind; }
   Classification classification() const { return m_classification; }
@@ -71,6 +74,7 @@ public:
   QObject* geometry() const { return m_machiningPath; }
 
 signals:
+  void refineJobChanged();
   void nameChanged();
   void visibleChanged();
   void diagnosticOverlaysChanged();
@@ -79,6 +83,8 @@ signals:
 private:
   friend class SceneModel;
   SceneObject(quint32 objectId, const Description& description, QObject* parent);
+  void setRefineJob(const QJsonObject& job, quint32 target);
+  void setRefineTarget(quint32 target) { m_refineTarget = target; }
   void setShape(Shape shape) { m_shape = std::move(shape); }
   void setMachiningPath(SceneMachiningData data);
   void setName(const QString& name);
@@ -97,5 +103,6 @@ private:
   bool m_showCompensatedSphere = true;
   const QUrl m_sourceUrl;
   Shape m_shape;
+  quint32 m_refineTarget = 0; // Matched scene instance in this process only.
   SceneMachiningPath* m_machiningPath = nullptr;
 };

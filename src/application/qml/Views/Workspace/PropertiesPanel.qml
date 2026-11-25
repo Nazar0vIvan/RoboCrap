@@ -55,6 +55,7 @@ QxPanel {
       case Backend.SceneObject.Cone: return qsTr("Cone")
       case Backend.SceneObject.Edge: return qsTr("Edge")
       case Backend.SceneObject.ScanPath: return qsTr("Scan path")
+      case Backend.SceneObject.RefineJob: return qsTr("Refine Job")
       case Backend.SceneObject.MachiningPath: return qsTr("Machining path")
       case Backend.SceneObject.Sphere: return qsTr("Calibration sphere")
       case Backend.SceneObject.EndGauge: return qsTr("End gauge")
@@ -300,6 +301,7 @@ QxPanel {
         labelWidth: root.labelColumnWidth
         fixedLabelWidth: true
         labelText: qsTr("Visible")
+        visible: root.selectedObject?.kind !== Backend.SceneObject.RefineJob
 
         QxCheckBox {
           objectName: "objectVisibilityCheckBox"

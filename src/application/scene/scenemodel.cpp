@@ -2,6 +2,7 @@
 #include "viewport/occcontroller.h"
 
 #include <utility>
+#include <limits>
 
 #include <QDir>
 #include <QFile>
@@ -16,36 +17,91 @@
 
 namespace {
 
-QString appendRefineJob(const QJsonObject& job)
+QString refineStorePath()
+{
+  return QDir(QStringLiteral(ROBOCRAP_SETTINGS_DIR)).filePath(QStringLiteral("planar_probe_scans.json"));
+}
+
+bool validStoredPlane(const QJsonObject& plane, int role)
+{
+  const auto counts = plane.value("countsUV").toArray();
+  const auto spacing = plane.value("spacingMmUV").toArray();
+  const auto automatic = plane.value("autoSpacingUV").toArray();
+  const auto margins = plane.value("marginsMmLeftTopBottomRight").toArray();
+  if (plane.value("role").toString() != QStringLiteral("%1Plane").arg(QStringLiteral("XYZ").at(role))
+      || plane.value("faceIndex").toInt() < 1 || !plane.value("reversed").isBool()
+      || counts.size() != 2 || spacing.size() != 2 || automatic.size() != 2 || margins.size() != 4
+      || !plane.value("skippedUV").isArray()) return false;
+  for (int i = 0; i < 2; ++i)
+    if (counts.at(i).toInt() < 2 || spacing.at(i).toDouble() <= 0 || !automatic.at(i).isBool()) return false;
+  for (const auto& margin : margins)
+    if (margin.toDouble(-1) < 0) return false;
+  for (const auto& value : plane.value("skippedUV").toArray()) {
+    const auto pair = value.toArray();
+    if (pair.size() != 2 || pair.at(0).toInt() < 1 || pair.at(1).toInt() < 1) return false;
+  }
+  return true;
+}
+
+std::pair<QJsonObject, QString> readRefineStore(const QString& path)
+{
+  QFile input(path);
+  if (!input.exists()) return {QJsonObject{{"version", 1}, {"jobs", QJsonArray{}}}, {}};
+  if (!input.open(QIODevice::ReadOnly)) return {{}, SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString())};
+  QJsonParseError error;
+  const auto store = QJsonDocument::fromJson(input.readAll(), &error).object();
+  if (input.error() != QFileDevice::NoError) return {{}, SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString())};
+  if (error.error != QJsonParseError::NoError)
+    return {{}, SceneModel::tr("Invalid JSON in %1: %2").arg(path, error.errorString())};
+  if (store.value("version").toInt() != 1 || !store.value("jobs").isArray())
+    return {{}, SceneModel::tr("Unsupported Refine Job store in %1.").arg(path)};
+  QSet<QUuid> ids;
+  for (const auto& value : store.value("jobs").toArray()) {
+    const auto job = value.toObject();
+    const QUuid id(job.value("id").toString());
+    if (id.isNull() || ids.contains(id)) return {{}, SceneModel::tr("Missing or duplicate Refine Job ID in %1.").arg(path)};
+    ids.insert(id);
+    const auto planes = job.value("planes").toArray();
+    const auto placement = job.value("modelInBase").toArray();
+    if (job.value("revision").toInt() < 1 || job.value("method") != "byThreePlanes"
+        || job.value("coordinateConvention") != "workpiece-metric-grid-v1" || planes.size() != 3 || placement.size() != 4
+        || job.value("name").toString().trimmed().isEmpty() || job.value("mountingId").toString().isEmpty()
+        || job.value("modelSha256").toString().size() != 64 || job.value("modelPath").toString().isEmpty())
+      return {{}, SceneModel::tr("Invalid or unsupported Refine Job %1 in %2.").arg(id.toString(), path)};
+    for (const auto& row : placement) {
+      const auto entries = row.toArray();
+      int numericEntries = 0;
+      for (const auto& value : entries) if (value.isDouble()) ++numericEntries;
+      if (entries.size() != 4 || numericEntries != 4)
+        return {{}, SceneModel::tr("Invalid placement in Refine Job %1 in %2.").arg(id.toString(), path)};
+    }
+    for (int role = 0; role < planes.size(); ++role)
+      if (!validStoredPlane(planes.at(role).toObject(), role))
+        return {{}, SceneModel::tr("Invalid plane %1 in Refine Job %2 in %3.").arg(role + 1).arg(id.toString(), path)};
+  }
+  return {store, {}};
+}
+
+QString writeRefineJob(const QJsonObject& previous, const QJsonObject& next)
 {
   const QDir directory(QStringLiteral(ROBOCRAP_SETTINGS_DIR));
-  const QString path = directory.filePath(QStringLiteral("planar_probe_scans.json"));
+  const QString path = refineStorePath();
   if (!directory.mkpath(".")) return SceneModel::tr("Cannot create settings directory %1.").arg(directory.path());
   QLockFile lock(path + QStringLiteral(".lock"));
   if (!lock.tryLock(0)) return SceneModel::tr("Cannot lock %1 for writing.").arg(path);
-  QJsonObject store{{"version", 1}};
-  QJsonArray jobs;
-  QFile input(path);
-  if (input.exists()) {
-    if (!input.open(QIODevice::ReadOnly)) return SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString());
-    QJsonParseError error;
-    const auto document = QJsonDocument::fromJson(input.readAll(), &error);
-    if (input.error() != QFileDevice::NoError) return SceneModel::tr("Cannot read %1: %2").arg(path, input.errorString());
-    input.close();
-    if (error.error != QJsonParseError::NoError)
-      return SceneModel::tr("Invalid JSON in %1: %2").arg(path, error.errorString());
-    store = document.object();
-    if (store.value("version").toInt() != 1 || !store.value("jobs").isArray())
-      return SceneModel::tr("Unsupported Refine Job store in %1.").arg(path);
-    jobs = store.value("jobs").toArray();
-    QSet<QUuid> ids{QUuid(job.value("id").toString())};
-    for (const auto& entry : jobs) {
-      const QUuid id(entry.toObject().value("id").toString());
-      if (id.isNull() || ids.contains(id)) return SceneModel::tr("Missing or duplicate Refine Job ID in %1.").arg(path);
-      ids.insert(id);
-    }
-  }
-  jobs.append(job);
+  auto [store, error] = readRefineStore(path);
+  if (!error.isEmpty()) return error;
+  auto jobs = store.value("jobs").toArray();
+  const QUuid id((previous.isEmpty() ? next : previous).value("id").toString());
+  qsizetype row = 0;
+  while (row < jobs.size() && QUuid(jobs.at(row).toObject().value("id").toString()) != id) ++row;
+  const auto stored = row < jobs.size() ? jobs.at(row).toObject() : QJsonObject{};
+  if (stored != previous)
+    return SceneModel::tr("Refine Job %1 changed on disk. Restart to load the current store.").arg(id.toString());
+  if (next == previous) return {};
+  if (next.isEmpty()) jobs.removeAt(row);
+  else if (row == jobs.size()) jobs.append(next);
+  else jobs.replace(row, next);
   store.insert("jobs", jobs);
   const QByteArray bytes = QJsonDocument(store).toJson();
   QSaveFile output(path);
@@ -115,8 +171,17 @@ void SceneModel::removeObjects(const QList<quint32>& ids)
 {
   bool changed = false;
   for (quint32 id : ids) {
-    SceneObject* object = m_objectsById.take(id);
+    SceneObject* object = findObject(id);
     if (!object) continue;
+    if (object->kind() == SceneObject::RefineJob) {
+      const auto job = object->refineJob();
+      if (const QString error = writeRefineJob(job, {}); !error.isEmpty()) {
+        emit refineJobError(error);
+        continue;
+      }
+      removeRefinePaths(job.value("id").toString());
+    }
+    m_objectsById.remove(id);
     m_objects.removeOne(object);
     disconnect(object, nullptr, this, nullptr);
     if (m_viewport) m_viewport->removeObject(id);
@@ -171,24 +236,85 @@ SceneObject* SceneModel::createObject(SceneObject::Description description)
   return new SceneObject(m_nextId++, description, this);
 }
 
+void SceneModel::loadRefineJobs()
+{
+  const auto [store, error] = readRefineStore(refineStorePath());
+  if (!error.isEmpty()) { emit refineJobError(error); return; }
+  QSet<QString> loaded;
+  for (const auto* object : m_objects)
+    if (object->kind() == SceneObject::RefineJob) loaded.insert(object->refineJob().value("id").toString());
+  const auto jobs = store.value("jobs").toArray();
+  for (const auto& entry : jobs) {
+    const auto job = entry.toObject();
+    if (loaded.contains(job.value("id").toString())) continue;
+    if (!m_nextId) { emit refineJobError(tr("Scene object IDs are exhausted.")); return; }
+    appendRefineObject(job, 0);
+  }
+}
+
+SceneObject* SceneModel::appendRefineObject(const QJsonObject& job, quint32 target)
+{
+  auto* object = createObject({job.value("name").toString(), SceneObject::RefineJob, SceneObject::Unclassified, {}});
+  object->setRefineJob(job, target);
+  return appendObject(object);
+}
+
+void SceneModel::removeRefinePaths(const QString& jobId)
+{
+  QList<quint32> ids;
+  for (const auto* object : m_objects) {
+    const auto* path = object->touchPath();
+    if (object->kind() == SceneObject::ScanPath && path && path->refineJobId == jobId) ids.append(object->objectId());
+  }
+  removeObjects(ids);
+}
+
 QVariantMap SceneModel::createRefineJob(quint32 target, const QJsonArray& planes)
+{
+  return saveRefineJob(0, target, planes);
+}
+
+QVariantMap SceneModel::saveRefineJob(quint32 jobId, quint32 target, const QJsonArray& planes)
 {
   const auto* workpiece = findObject(target);
   if (!workpiece || !m_viewport) return {{"error", tr("Select a placed workpiece.")}};
-  if (!m_nextId) return {{"error", tr("Scene object IDs are exhausted.")}};
+  auto* object = findObject(jobId);
+  if (jobId && (!object || object->kind() != SceneObject::RefineJob)) return {{"error", tr("The Refine Job was removed.")}};
+  if (!jobId && !m_nextId) return {{"error", tr("Scene object IDs are exhausted.")}};
   auto [job, error] = m_viewport->refineJobDefinition(target, planes);
   if (!error.isEmpty()) return {{"error", error}};
-  const QString id = QUuid::createUuid().toString(QUuid::WithoutBraces);
-  const QString name = tr("Refine Job %1").arg(id.left(8));
+  const auto previous = object ? object->refineJob() : QJsonObject{};
+  const QString id = object ? previous.value("id").toString() : QUuid::createUuid().toString(QUuid::WithoutBraces);
   job.insert("id", id);
-  job.insert("revision", 1);
-  job.insert("name", name);
+  job.insert("revision", previous.value("revision").toInt(1));
+  job.insert("name", object ? object->name() : tr("Refine Job %1").arg(id.left(8)));
   job.insert("workpieceName", workpiece->name());
-  if (const QString failure = appendRefineJob(job); !failure.isEmpty()) return {{"error", failure}};
-  auto* object = createObject({name, SceneObject::RefineJob, SceneObject::Unclassified, {}});
-  object->setShape(std::move(job));
-  appendObject(object);
+  if (object) {
+    // Scene IDs are process-local. Reopening the same mounted object alone is not an edit.
+    if (object->refineTarget() == target) job.insert("workpieceSceneId", previous.value("workpieceSceneId"));
+    if (job != previous) {
+      if (previous.value("revision").toInt() == std::numeric_limits<int>::max())
+        return {{"error", tr("Refine Job revisions are exhausted.")}};
+      job.insert("revision", previous.value("revision").toInt() + 1);
+      job.insert("workpieceSceneId", qint64(target));
+    }
+  }
+  if (const QString failure = writeRefineJob(previous, job); !failure.isEmpty()) return {{"error", failure}};
+  if (!object) object = appendRefineObject(job, target);
+  else if (job != previous) {
+    removeRefinePaths(id);
+    object->setRefineJob(job, target);
+  }
   return {{"objectId", object->objectId()}};
+}
+
+quint32 SceneModel::resolveRefineTarget(quint32 jobId)
+{
+  auto* object = findObject(jobId);
+  if (!object || object->kind() != SceneObject::RefineJob || !m_viewport) return 0;
+  const auto target = m_viewport->resolveRefineTarget(object->refineJob(), object->refineTarget());
+  object->setRefineTarget(target);
+  return target;
 }
 
 SceneObject* SceneModel::addMachiningPath(SceneMachiningData data, const QString& name)
@@ -299,6 +425,16 @@ bool SceneModel::renameObject(SceneObject* object, const QString& name)
 {
   const QString trimmedName = name.trimmed();
   if (!object || m_objectsById.value(object->objectId()) != object || trimmedName.isEmpty()) return false;
+  if (object->kind() == SceneObject::RefineJob) {
+    const auto previous = object->refineJob();
+    auto next = previous;
+    next.insert("name", trimmedName);
+    if (const QString error = writeRefineJob(previous, next); !error.isEmpty()) {
+      emit refineJobError(error);
+      return false;
+    }
+    object->setRefineJob(next, object->refineTarget());
+  }
   object->setName(trimmedName);
   return true;
 }

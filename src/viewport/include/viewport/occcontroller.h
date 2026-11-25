@@ -180,6 +180,8 @@ public:
   void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
   Q_INVOKABLE void setRefineTarget(quint32 objectId);
   Q_INVOKABLE QString showRefineFace(int index, bool reversed, bool picking);
+  quint32 resolveRefineTarget(const QJsonObject& job, quint32 liveTarget) const;
+  Q_INVOKABLE QVariantMap restoreRefineGrids(const QJsonObject& job, const QJsonArray& planes);
   std::pair<QJsonObject, QString> refineJobDefinition(quint32 target, const QJsonArray& planes) const;
   Q_INVOKABLE QVariantMap updateRefineGrid(QSize counts, QSizeF spacing, const QStringList& margins);
   Q_INVOKABLE void setGridVisibility(bool showAll, const QList<int>& assignedFaces);
@@ -193,6 +195,7 @@ public:
   Q_INVOKABLE void detachViewWindow(QWindow* window);
 
 signals:
+  void workpieceModelsChanged();
   void showSpindleTcpChanged();
   void showSpindleColletChanged();
   void viewWindowChanged();
@@ -209,6 +212,12 @@ signals:
   void gridEditKeyPressed(int key);
 
 private:
+  struct CheckedRefineJob {
+    QJsonObject definition;
+    QString error;
+    QHash<int, DrawingGrid> grids;
+  };
+  CheckedRefineJob checkRefineJob(quint32 target, const QJsonArray& planes) const;
   QString initializeOcct() const;
   void createWindow();
   void onViewWindowDestroyed();

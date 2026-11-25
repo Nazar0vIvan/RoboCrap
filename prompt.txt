@@ -2,6 +2,23 @@
 
 Use Serena MCP for C++ symbol navigation, code structure analysis, and tracing declarations, implementations, references, and dependencies. Prefer targeted symbol queries over reading entire files. Use ordinary file/text search for documentation and QML when Serena's language-server operations are unsupported. 
 
+# QMD
+
+Use QMD MCP to search and retrieve relevant project files, including C++, QML, KRL, resources, documentation, and other indexed content. Prefer QMD for project-wide discovery and context retrieval before making changes.
+
+## Powershell:
+
+cd "$env:USERPROFILE\Downloads"
+qmd.cmd update
+qmd.cmd embed
+
+# OpenTab
+
+1) Open web UI
+```
+Set-Location "$env:USERPROFILE\Downloads"; & "$env:APPDATA\Python\Python314\Scripts\opentab.exe" web` 
+```
+
 --------
 
 # 4c

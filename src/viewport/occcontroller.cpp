@@ -139,7 +139,44 @@ QString OccController::showRefineFace(int index, bool reversed, bool picking)
   return {};
 }
 
+quint32 OccController::resolveRefineTarget(const QJsonObject& job, quint32 liveTarget) const
+{
+  if (m_document.workpieceModel(liveTarget)) return liveTarget;
+  quint32 match = 0;
+  for (const auto& object : m_document.objects) {
+    const auto* model = m_document.workpieceModel(object.id);
+    if (!model || model->mountingId != job.value("mountingId").toString()) continue;
+    if (model->path != job.value("modelPath").toString()
+        && workpieceModelRevision(object.id) != job.value("modelSha256").toString()) continue;
+    if (match) return 0;
+    match = object.id;
+  }
+  return match;
+}
+
+QVariantMap OccController::restoreRefineGrids(const QJsonObject& job, const QJsonArray& planes)
+{
+  const auto target = m_document.face.target;
+  if (workpieceModelRevision(target) != job.value("modelSha256").toString())
+    return {{"error", tr("The workpiece model has changed. Reassign the three faces.")}, {"staleFaces", true}};
+  auto [current, error, grids] = checkRefineJob(target, planes);
+  if (!error.isEmpty()) {
+    if (!m_document.face.revisionError().isEmpty())
+      return {{"error", tr("%1 Reload the workpiece model before assigning faces.").arg(error)}, {"staleFaces", true}};
+    return {{"error", error}};
+  }
+  m_document.face.grids = std::move(grids);
+  return {{"placementChanged", current.value("modelInBase") != job.value("modelInBase")
+                            || current.value("mountingId") != job.value("mountingId")}};
+}
+
 std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 target, const QJsonArray& planes) const
+{
+  auto result = checkRefineJob(target, planes);
+  return {std::move(result.definition), std::move(result.error)};
+}
+
+OccController::CheckedRefineJob OccController::checkRefineJob(quint32 target, const QJsonArray& planes) const
 {
   const auto* model = m_document.workpieceModel(target);
   auto face = m_document.face;
@@ -151,6 +188,7 @@ std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 targe
 
   Eigen::Matrix3d normals;
   QSet<int> faces;
+  QHash<int, DrawingGrid> grids;
   QJsonArray savedPlanes;
   int total = 0;
   for (int role = 0; role < 3; ++role) {
@@ -165,7 +203,7 @@ std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 targe
     const QSizeF requested(draft.value("uSpacing").toDouble(), draft.value("vSpacing").toDouble());
     QStringList margins;
     for (const auto& value : draft.value("margins").toArray()) margins.append(value.toString());
-    const auto preview = face.preview(counts, requested, margins);
+    auto preview = face.preview(counts, requested, margins);
     if (!preview.grid.fits) return {{}, prefix + preview.status};
 
     const auto skipped = draft.value("skipped");
@@ -193,6 +231,8 @@ std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 targe
     if (!plane) return {{}, prefix + tr("Included points must be distinct and noncollinear.")};
     normals.row(role) = plane->normal().transpose();
     total += included.size();
+    preview.grid.skipped = std::move(excluded);
+    grids.insert(face.index, std::move(preview.grid));
     QJsonArray marginsMm;
     for (const auto& margin : margins) marginsMm.append(margin.toDouble());
     savedPlanes.append(QJsonObject{{"role", name}, {"faceIndex", face.index}, {"reversed", draft.value("reversed")},
@@ -213,7 +253,7 @@ std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 targe
   return {QJsonObject{{"method", "byThreePlanes"}, {"coordinateConvention", "workpiece-metric-grid-v1"},
                       {"workpieceSceneId", qint64(target)}, {"mountingId", model->mountingId},
                       {"modelPath", model->path}, {"modelSha256", QString::fromLatin1(face.source->modelSha256.toHex())},
-                      {"modelInBase", placement}, {"planes", savedPlanes}, {"includedCount", total}}, {}};
+                      {"modelInBase", placement}, {"planes", savedPlanes}, {"includedCount", total}}, {}, std::move(grids)};
 }
 
 QVariantMap OccController::updateRefineGrid(QSize counts, QSizeF spacing, const QStringList& margins)
@@ -501,6 +541,7 @@ void OccController::finishModelLoad()
     }
     applySelection(*drawing);
   }
+  emit workpieceModelsChanged();
   startModelLoad();
 }
 
