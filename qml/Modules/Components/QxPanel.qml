@@ -9,6 +9,8 @@ Control {
   id: root
 
   property string title: ""
+  property color panelColor: "transparent"
+  property color headerColor: Colors.background.dp01
   default property alias panelContent: body.data
 
   spacing: Metrics.sp12
@@ -26,7 +28,7 @@ Control {
 
   background: Rectangle {
     implicitWidth: header.implicitWidth
-    color: "transparent"
+    color: root.panelColor
     border {
       width: Metrics.w1
       color: Colors.background.dp12
@@ -54,7 +56,7 @@ Control {
     font: Fonts.body
 
     background: Rectangle {
-      color: Colors.background.dp01
+      color: root.headerColor
       border {
         width: Metrics.w1
         color: Colors.background.dp12

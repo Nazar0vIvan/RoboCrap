@@ -3,4 +3,24 @@ Get acquainted with the following files to understand what the project is about 
 - `AGENTS.md
 - `\docs\code_context
 
-We're currently stuck with Milestone 3 `\plans\PLANAR_PROBE_SCANNING_EXECPLAN.md plan. Analyze it and study it thoroughly to understand what it's all about
+We're currently stuck with Milestones 3-4 of the `\plans\PLANAR_PROBE_SCANNING_EXECPLAN.md plan. Read and analyze it to understand what it's all about. No need to read all the code. Last time, there was an attempt to implement Milestone Stage 3-4 without specifying what the UI should look like. It turned out to be a complete mess. So, I'd like to step away from the plan and develop an execplan for the UI. My proposal in the prompt `Refine_Frame_prompt.md and in attached screenshots. Analyze the prompt and screenshots to understand how best to adjust the plan PLANAR_PROBE_SCANNING_EXECPLAN.md. 
+
+What's the best way to proceed? Create a new execplan for the changes I'm proposing and then return to PLANAR_PROBE_SCANNING_EXECPLAN.md or adjust it.
+
+There's no need to make giant fat milestons when it comes to planning. It's better to break the plan down into small steps that can be quickly and clearly verified than to have to deal with the consequences of huge changes after huge milestone implementation. Well, for example, it is better to first make a QML layout without binding to logic - , and then gradually implement the logic with binding to this layout.
+
+
+--------
+
+Implement milestone 3c, “Bind the Object field,” in plans/PLANAR_PROBE_SCANNING_EXECPLAN.md. The workspace is D:\Qt\QtProjects\RoboCrap. Stop after 3c.
+
+Read AGENTS.md and the plan’s Progress and 3c sections. Use QMD MCP to locate the relevant contracts in docs/code_context, then trace the current RefineFramePanel, scene selection, and viewport picker in source. The working tree contains uncommitted and untracked implementation files. Preserve that work.
+
+3a and 3b are implemented. Their operator checks are still pending and do not block 3c. The panel currently shows a sample “GE-22” name and holds a separate draft for each plane. Replace the sample Object binding with the actual placed workpiece’s identity. Two placed instances of the same model must be distinguishable.
+
+On opening Refine Frame, use the single valid selected workpiece or show an empty Object field with picking enabled. With a configured draft, declining a target change must preserve the entire draft. Confirming must switch the workpiece and clear its model-dependent face bindings, exclusions, and any preview. An unsuitable pick must explain the rejection and preserve the current target. Keep camera gestures working during picking.
+
+Reuse the existing QML Components, Styles, and supplied icons. Add a color or metric only if it has at least three uses. Leave Felgo setup and later milestones out of scope.
+
+Perform source and diff checks. I handle CMake configure/build, QML lint, and runtime checks. Update the ExecPlan with implementation status and leave operator acceptance pending. Finish with exact clicks and expected results for preselection, empty selection, an unsuitable pick, and declining or confirming a switch between two placed workpieces.
+

@@ -10,6 +10,7 @@ RowLayout {
   property int labelWidth: 0
   property bool fixedLabelWidth: false
   property alias labelText: label.text
+  property alias labelFont: label.font
   property alias color: label.color
 
   spacing: Metrics.sp8

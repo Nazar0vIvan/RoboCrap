@@ -7,6 +7,7 @@ import Styles 1.0
 
 ComboBox {
   id: root
+  font: Fonts.body
 
   leftPadding: Metrics.sp12
   rightPadding: Metrics.sp32
@@ -15,7 +16,7 @@ ComboBox {
 
   contentItem: Text {
     text: root.displayText
-    font: Fonts.body
+    font: root.font
     color: Colors.foreground.high
     verticalAlignment: Text.AlignVCenter
   }
@@ -63,7 +64,7 @@ ComboBox {
 
     contentItem: Text {
       text: delegate.text
-      font: Fonts.body
+      font: root.font
       color: Colors.foreground.high
       verticalAlignment: Text.AlignVCenter
     }

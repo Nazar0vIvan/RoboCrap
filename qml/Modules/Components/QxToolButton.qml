@@ -24,11 +24,12 @@ ToolButton {
     smooth: true
   }
   background: Rectangle {
-    color: Colors.background.dp04
+    color: root.checked ? Qt.tint(Colors.background.dp01, Qt.alpha(Colors.secondary.base, Colors.overlays.pressed))
+                        : Colors.background.dp04
     radius: root.radius
     border {
       width: Metrics.w1
-      color: Colors.background.dp12
+      color: root.visualFocus ? Colors.primary.light : root.checked ? Colors.secondary.base : Colors.background.dp12
     }
   }
 }

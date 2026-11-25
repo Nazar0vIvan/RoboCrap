@@ -1,130 +1,66 @@
-## Требования к интерфейсу Refine Frame
+# Refine Frame — UI Requirements
 
-Используй приложенные скриншоты как визуальный референс. Скорректируй описание Milestone 3–4 в `PLANAR_PROBE_SCANNING_EXECPLAN.md` с учётом требований ниже. Сохрани существующие архитектурные ограничения плана. Не реализуй код на этом этапе.
+Update Milestones 3–4 of `PLANAR_PROBE_SCANNING_EXECPLAN.md` using the attached Figma screenshots and requirements below. Preserve existing architecture and safety constraints. Do not implement code.
 
-### 1. Открытие редактора
+## 1. Editor
 
-В `Measuring / Precise` кнопка **Refine Frame** открывает редактор в существующей правой панели `Properties`, как это принято в CAD-системах.
+**Refine Frame** in **Measuring / Precise** opens an editor in the existing right-side **Properties** panel, with fields in this order:
 
-Панель содержит поля в следующем порядке:
+- **Object**: read-only selected workpiece name plus a button to pick a placed workpiece in the 3D scene. Prepopulate from a valid Scene-tree selection. Support multiple workpieces. Confirm before switching an already configured target; clear its model-dependent face assignments.
+- **Method**: dropdown; initially **By 3 Planes**. Future methods may have different settings.
 
-**Workpiece**
-- Первое поле — выбор детали, для которой создаётся задание.
-- Read-only поле показывает имя выбранного объекта.
-- Кнопка выбора активирует picking детали в 3D-сцене.
-- Поддерживается наличие нескольких деталей в сцене.
-- Все последующие операции относятся исключительно к выбранной детали.
+## 2. Planes
 
-**Method**
-- Выпадающий список методов уточнения положения.
-- Первоначально реализуется `By 3 Planes`.
-- Архитектура должна позволять добавлять другие методы с собственными параметрами.
+- Three cube buttons select the configuration slot **XPlane**, **YPlane**, or **ZPlane**. Exactly one is active. These are measurement roles, **not** requirements to align CAD faces with world axes.
+- Show the active slot label, a read-only **source BREP face ID** (not a transient viewer ID or editable name), and a face-pick button.
+- The pick button enables planar-face picking on the selected workpiece in OCCT. Reject wrong-object, nonplanar, duplicate, or stale faces with a visible reason; preserve the current assignment on failure.
+- Highlight the face, show the probe approach side, and provide a visible control to reverse it.
+- Switching slots restores each slot's own face, approach side, grid, and exclusions.
 
-### 2. Секция Planes
+## 3. Scan grid
 
-Три кнопки с изображениями кубов соответствуют `XPlane`, `YPlane`, `ZPlane`.
+Each slot defines a live-previewed **2D rectangular linear point pattern** on its selected CAD face:
 
-- Нажатие кнопки делает соответствующую плоскость активной для настройки.
-- Для каждой плоскости отображается её название (`XPlane`, `YPlane`, `ZPlane`), read-only поле идентификатора выбранной CAD-грани и кнопка picking.
-- Нажатие picking активирует выбор плоской грани на выбранной детали непосредственно в OCCT viewport.
-- После выбора поле отображает идентификатор грани из исходной BREP-топологии. Не использовать временные ID визуализатора и не требовать ручного ввода имени.
-- Выбранная грань подсвечивается в сцене.
-- Отображается направление доступного подхода щупа. Предусмотреть действие для разворота стороны.
-- Переключение между тремя кнопками восстанавливает индивидуальные настройки соответствующей грани.
+- **U-direction**: `Spacing` (mm, > 0) and `#` (integer ≥ 2, number of U points).
+- **V-direction**: `Spacing` (mm, > 0) and `#` (integer ≥ 2, number of V points).
+- **Margins**: four inward offsets `−U`, `+U`, `−V`, `+V` (mm, ≥ 0).
 
-### 3. Секция Scan grid
+Use the face's metric local U/V bounds, reduced by the four margins, as the grid's available region. Center the specified Count × Spacing pattern within that region; asymmetric margins shift its center. Validate every point against the **actual trimmed CAD face, including holes**. Flag invalid points; never silently discard them or change the requested counts/spacing. Show an error when the pattern does not fit. Update the viewport preview immediately after each edit, without **Generate Path**.
 
-Для каждой выбранной грани создаётся **двумерный линейный массив точек**, аналогичный Linear Pattern в CAD-системах.
+The mockup's `# = 1`, 5 mm margins, and skipped indices `(4,2)` / `(3,1)` are **illustrative, not valid defaults or a mutually consistent configuration**.
 
-Сетка автоматически отображается в 3D-сцене на поверхности выбранной CAD-грани.
+## 4. Instances to Skip
 
-**U-direction**
-- `Spacing (mm)` — расстояние между соседними точками вдоль U.
-- `Count` — количество точек вдоль U.
+- Clicking the **Instances to Skip** list enables instance-picking mode. Clicking a preview point toggles its inclusion; skipped points remain visible and visually distinct.
+- List exclusions as `(U_index, V_index)` with **1-based** indices. Selecting a row highlights its point; **Delete** restores it; **Esc** ends picking mode. Indicate the active mode.
+- Store exclusions per plane **by grid index**, not world coordinates. Recalculate the preview when Count/Spacing changes. Flag out-of-range exclusions rather than silently moving them to other indices.
+- Skipped points produce no contacts. Before job creation, require **≥ 3 distinct, noncollinear included points per plane**. For a 2 × 2 grid, at most one point may be skipped.
 
-**V-direction**
-- `Spacing (mm)` — расстояние между соседними точками вдоль V.
-- `Count` — количество точек вдоль V.
+## 5. Viewport
 
-**Margins**
-- Четыре числовых поля в миллиметрах: `-U`, `+U`, `-V`, `+V`.
-- Задают отступы от соответствующих границ выбранной грани.
-- Исходная область сетки ограничивается реальной CAD-гранью, а Margins сужают доступную область.
-- При заданных Count и Spacing массив размещается по центру доступной UV-области. Асимметричные Margins позволяют смещать его.
-- Точки не должны выходить за допустимую область. Если массив не помещается, показывать ошибку, не менять введённые значения автоматически.
+- Live-highlight the active face and distinguish **included**, **skipped**, and **invalid** points.
+- Keep workpiece picking, face picking, and point picking as separate modes; preserve camera controls and normal selection outside those modes.
+- Store face bindings and point geometry in the workpiece-local frame `{W}`; changes in its scene placement must not alter these coordinates.
+- Do **not** add polygon/rectangle drawing, manual point placement, or waypoint controls to this panel. Route construction and safety validation remain downstream responsibilities under the existing ExecPlan.
 
-Любое изменение параметров немедленно обновляет предварительное отображение точек в viewport без Generate Path.
+## 6. Job actions
 
-### 4. Секция Instances to Skip
+Place these buttons at the **bottom of Properties** (not shown in the mockup):
 
-Позволяет исключать отдельные экземпляры массива без изменения его геометрии.
+- **Create Refine Job**: validate the target, three suitable independent planar faces, pattern bounds, and ≥ 3 noncollinear included points on each face. Create a separate **Refine Job** in the Scene tree containing model/mounting identity, method, face references, approach sides, grid parameters, and exclusions. **Do not generate motion.**
+- **Cancel**: discard draft changes and temporary preview; close the editor without creating or modifying a job.
+- Reopening a job loads its settings. In edit mode, replace the creation button with **Save Changes**; update the same job and invalidate dependent generated paths.
 
-- Клик по полю `Instances to Skip` активирует режим выбора точек.
-- Оператор нажимает непосредственно на отображаемые точки в 3D-сцене.
-- Выбранная точка исключается из измерения и визуально обозначается как пропущенная.
-- Повторный клик возвращает точку в измерение.
-- Список отображает индексы исключённых экземпляров в формате `(U_index, V_index)`, начиная с 1.
-- Исключения хранятся отдельно для каждой плоскости.
-- Изменение Count или Spacing обновляет массив и соответствующую визуализацию исключений. Исключения привязаны к индексам экземпляров, а не к мировым координатам.
-- Исключённые точки не участвуют в последующей генерации траектории.
+Show errors during editing, but prevent commit only when the final definition is invalid.
 
-### 5. Поведение 3D-сцены
+## 7. Path workflow
 
-Во время редактирования:
+**Refine Frame** opens the editor → **Refine Job** stores the definition → **Generate Path** acts on the selected job and creates a separate linked **Scan Path** → **Dry Run** plays that path using existing playback. Preserve support for future refinement methods.
 
-- Активная грань подсвечивается.
-- На ней отображается предварительный массив точек.
-- Активные и исключённые точки визуально различаются.
-- Изменения в Properties сразу отражаются в сцене.
-- Picking грани, picking детали и исключение экземпляров — отдельные режимы выбора.
-- Обычное управление камерой остаётся доступным.
-- Все геометрические данные сохраняются в локальной системе координат выбранной детали `{W}`.
+## 8. Appearance and constraints
 
-Для базового сценария **не нужны инструменты рисования произвольных прямоугольников, полигонов, ручного добавления и перемещения отдельных точек**. Основной инструмент размещения — параметрический двумерный массив.
+- Follow Figma for layout, ordering, and compactness. Use the existing QML **`Styles`** module for colors, fonts, sizes, spacing, borders, radii, and hover/focus/disabled/selected states. Reuse shared QML controls; no hardcoded styling or separate theme. **Figma defines layout; `Styles` defines appearance.**
+- No modal grid dialogs, viewport resizing during edits, or required robot connection.
+- Retain existing geometry/model-revision validation, persistence, stale-result invalidation, and fixture/motion-safety rules. Job creation must neither change the active workpiece placement nor arm robot motion.
 
-### 6. Создание Refine Job
-
-В нижней части Properties Panel находятся две кнопки:
-
-**Create Refine Job**
-- Проверяет заполненность и корректность параметров.
-- Проверяет выбор трёх подходящих независимых CAD-плоскостей и достаточность оставшихся точек для измерения.
-- Создаёт отдельный объект `Refine Job` в дереве сцены.
-- Объект хранит выбранную деталь, метод, ссылки на грани, параметры сеток, исключённые экземпляры и остальные необходимые настройки измерения.
-- Не генерирует траекторию автоматически.
-
-**Cancel**
-- Закрывает редактор.
-- Отменяет несохранённые изменения.
-- Удаляет временную визуализацию черновика.
-- Не создаёт `Refine Job`.
-
-Созданный `Refine Job` должен поддерживать повторное открытие для редактирования с сохранением изменений.
-
-### 7. Generate Path
-
-**Refine Frame** и **Generate Path** остаются отдельными командами.
-
-- `Refine Frame` — создание параметрического задания на уточнение положения детали.
-- `Refine Job` — сохранённый объект задания в дереве сцены.
-- `Generate Path` — построение траектории по выбранному `Refine Job`.
-- Результат генерации создаётся как отдельный `Scan Path`, связанный с исходным заданием.
-- `Dry Run` воспроизводит сгенерированную траекторию существующим механизмом анимации.
-
-Архитектура должна поддерживать разные типы `Refine Job` для будущих методов уточнения положения детали.
-
-### 8. Общие требования
-
-- Сохранять расположение элементов и компактность панели согласно изображениям из Figma.
-- **Визуальное оформление должно строго соответствовать существующему QML-модулю `Styles` проекта:** использовать его цвета, шрифты, размеры текста, отступы, радиусы, границы, состояния элементов (hover/focus/disabled/selected) и прочие общие параметры оформления. По возможности переиспользовать существующие QML-компоненты и стили. Не вводить локальные hardcoded цвета, шрифты или параллельную тему. Figma задаёт компоновку и поведение, а `Styles` — визуальную тему приложения.
-- Не использовать отдельные модальные окна для настройки массива.
-- Не изменять размер viewport при изменении количества точек или переключении настроек.
-- Не смешивать объект задания с результатом генерации траектории.
-- Не требовать подключения робота для редактирования.
-- Сохранять существующие проверки геометрии, привязку к модели, контроль устаревших данных и ограничения безопасности из ExecPlan.
-
-**Целевой пользовательский сценарий:**
-
-`Refine Frame → Workpiece → Method → XPlane/YPlane/ZPlane → Scan grid → Instances to Skip → Create Refine Job → выбор Refine Job → Generate Path → Dry Run`.
-
-Основной принцип: оператор настраивает измерение через числовые параметры в Properties и непосредственно взаимодействует с геометрией и точками в 3D-сцене, как в параметрических CAD-системах.
+**Workflow:** `Refine Frame → Object → Method → XPlane/YPlane/ZPlane → Scan grid → Instances to Skip → Create Refine Job → select Refine Job → Generate Path → Dry Run`.

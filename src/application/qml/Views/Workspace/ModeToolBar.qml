@@ -31,6 +31,7 @@ ToolBar {
   signal calibrationStartRequested()
   signal calibrationResumeRequested()
   signal toolSetupRequested()
+  signal refineFrameRequested()
 
   readonly property bool measuring: root.mode === WorkflowPanel.Measuring
   readonly property bool rough: root.measuring && root.submode === WorkflowPanel.Rough
@@ -158,6 +159,14 @@ ToolBar {
         iconSource: "qrc:/icons/intersec.svg"
         available: root.intersectionAvailable
         onTriggered: root.intersectionRequested()
+      }
+
+      Tool {
+        visible: root.precise
+        text: qsTr("Refine Frame")
+        iconSource: "qrc:/icons/refine_frame.svg"
+        available: true
+        onTriggered: root.refineFrameRequested()
       }
 
       Tool {

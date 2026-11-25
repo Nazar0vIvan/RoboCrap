@@ -84,6 +84,8 @@ else()
       "qml/Views/Workspace/ModeToolBar.qml"
       "qml/Views/Workspace/ScenePanel.qml"
       "qml/Views/Workspace/PropertiesPanel.qml"
+      "qml/Views/Workspace/RefineFramePanel.qml"
+      "qml/Views/Workspace/RefineFrameIconRow.qml"
       "qml/Views/Workspace/EndEffectorPanel.qml"
       "qml/Views/Workspace/MachiningPanel.qml"
       "qml/Views/Workspace/CalibrationResultWindow.qml"

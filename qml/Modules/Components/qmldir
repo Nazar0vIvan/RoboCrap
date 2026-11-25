@@ -3,12 +3,14 @@ QxBusyIndicator 1.0 QxBusyIndicator.qml
 QxButton      1.0 QxButton.qml
 QxCheckBox    1.0 QxCheckBox.qml
 QxComboBox    1.0 QxComboBox.qml
+QxCollapsibleSection 1.0 QxCollapsibleSection.qml
 QxGroupBox    1.0 QxGroupBox.qml
 QxHField      1.0 QxHField.qml
 QxLed         1.0 QxLed.qml
 QxPanel       1.0 QxPanel.qml
 QxProgressBar 1.0 QxProgressBar.qml
 QxScrollView  1.0 QxScrollView.qml
+QxSpinBox     1.0 QxSpinBox.qml
 QxSwitch      1.0 QxSwitch.qml
 QxTextInput   1.0 QxTextInput.qml
 QxToolButton  1.0 QxToolButton.qml

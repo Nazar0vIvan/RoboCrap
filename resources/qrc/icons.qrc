@@ -21,6 +21,18 @@
         <file>icons/generate_path.svg</file>
         <file>icons/intersec.svg</file>
         <file>icons/scan.svg</file>
+        <file>icons/refine_frame.svg</file>
+        <file>icons/pick.svg</file>
+        <file>icons/xplane.svg</file>
+        <file>icons/yplane.svg</file>
+        <file>icons/zplane.svg</file>
+        <file>icons/distance.svg</file>
+        <file>icons/amount.svg</file>
+        <file>icons/margin-left.svg</file>
+        <file>icons/margin-top.svg</file>
+        <file>icons/margin-bottom.svg</file>
+        <file>icons/margin-right.svg</file>
+        <file>icons/exclude.svg</file>
         <file>icons/dry.svg</file>
         <file>icons/pause.svg</file>
         <file>icons/rsi_sampling.svg</file>

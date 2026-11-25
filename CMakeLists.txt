@@ -24,7 +24,7 @@ option(
 option(
   USE_HOT_RELOAD
   "Enable Felgo Hot Reload"
-  OFF
+  ON
 )
 
 if(USE_HOT_RELOAD)

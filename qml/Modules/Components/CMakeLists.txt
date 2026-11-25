@@ -13,12 +13,14 @@ qt_add_qml_module(Components
     QxButton.qml
     QxCheckBox.qml
     QxComboBox.qml
+    QxCollapsibleSection.qml
     QxGroupBox.qml
     QxHField.qml
     QxLed.qml
     QxPanel.qml
     QxProgressBar.qml
     QxScrollView.qml
+    QxSpinBox.qml
     QxSwitch.qml
     QxTextInput.qml
     QxToolButton.qml

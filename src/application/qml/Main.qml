@@ -26,12 +26,14 @@ ApplicationWindow {
 
   readonly property bool preciseActive: root.workflowMode === WorkflowPanel.Measuring
                                         && root.measurementSubmode === WorkflowPanel.Precise
+  onPreciseActiveChanged: if (!root.preciseActive) refineEditor.active = false
   onWorkflowModeChanged: {
     root.toolSetupOpen = false
     if (root.chamferEditorOpen) machiningPanel.cancelEditing()
   }
 
   function openToolSetup() {
+    refineEditor.active = false
     if (root.chamferEditorOpen) machiningPanel.cancelEditing()
     root.toolSetupOpen = true
   }
@@ -61,7 +63,7 @@ ApplicationWindow {
     sequence: "Del"
     context: Qt.WindowShortcut
     autoRepeat: false
-    enabled: root.selectedObjectIds.length > 0
+    enabled: !refineEditor.activeFocus && root.selectedObjectIds.length > 0
              && !(root.activeFocusItem instanceof TextInput)
              && !(root.activeFocusItem instanceof TextEdit)
     onActivated: App.WorkspaceController.deleteSelected()
@@ -490,6 +492,7 @@ ApplicationWindow {
                                && (root.selectedSceneObject.kind === App.SceneObject.Edge
                                    || root.selectedSceneObject.kind === App.SceneObject.MachiningPath)
         onToolSetupRequested: root.openToolSetup()
+        onRefineFrameRequested: refineEditor.active = true
         onGenerationRequested: {
           if (root.calibrationActive) {
             App.Calibration.generate()
@@ -521,9 +524,19 @@ ApplicationWindow {
       SplitView.preferredWidth: 350
       SplitView.minimumWidth: 280
       SplitView.maximumWidth: 350
+      Loader {
+        id: refineEditor
+        anchors.fill: parent
+        active: false
+        visible: active
+        focus: active
+        sourceComponent: RefineFramePanel {
+          onCancelRequested: refineEditor.active = false
+        }
+      }
       PropertiesPanel {
         anchors.fill: parent
-        visible: !root.chamferEditorOpen && !root.toolSetupOpen
+        visible: !root.chamferEditorOpen && !root.toolSetupOpen && !refineEditor.active
         selectionCount: root.selectedObjectIds.length
         selectedObject: root.selectedSceneObject
         showPoints: root.selectedSceneObject ? root.selectedSceneObject.showPoints : false
@@ -544,30 +557,17 @@ ApplicationWindow {
       }
       EndEffectorPanel {
         anchors.fill: parent
-        visible: root.toolSetupOpen && root.workflowMode === WorkflowPanel.Measuring
+        visible: root.toolSetupOpen && !refineEditor.active
         onCloseRequested: root.closeToolSetup()
-        measuring: true
+        measuring: root.workflowMode === WorkflowPanel.Measuring
         measuringName: App.EndEffectors.measuringName
         ballDiameter: App.EndEffectors.rubyBallDiameter
         stylusLength: App.EndEffectors.stylusLength
         colletPose: App.EndEffectors.spindleColletPose
-        tcp: App.EndEffectors.measuringTcp
-        tcpVisible: false
-        colletVisible: false
+        tcp: measuring ? App.EndEffectors.measuringTcp : App.EndEffectors.spindleTcpInCollet
+        tcpVisible: !measuring && Viewport3D.OccController.showSpindleTcp
+        colletVisible: !measuring && Viewport3D.OccController.showSpindleCollet
         onMeasuringTcpRequested: values => App.EndEffectors.applyMeasuringTcp(values)
-      }
-      EndEffectorPanel {
-        anchors.fill: parent
-        visible: root.toolSetupOpen && root.workflowMode === WorkflowPanel.Machining
-        onCloseRequested: root.closeToolSetup()
-        measuring: false
-        measuringName: App.EndEffectors.measuringName
-        ballDiameter: App.EndEffectors.rubyBallDiameter
-        stylusLength: App.EndEffectors.stylusLength
-        colletPose: App.EndEffectors.spindleColletPose
-        tcp: App.EndEffectors.spindleTcpInCollet
-        tcpVisible: Viewport3D.OccController.showSpindleTcp
-        colletVisible: Viewport3D.OccController.showSpindleCollet
         onTcpVisibilityRequested: visible => Viewport3D.OccController.showSpindleTcp = visible
         onColletVisibilityRequested: visible => Viewport3D.OccController.showSpindleCollet = visible
         onPosesRequested: (colletValues, tcpValues) => {
