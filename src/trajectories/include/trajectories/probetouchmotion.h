@@ -2,6 +2,7 @@
 
 #include "trajectories/probetouchplan.h"
 #include "trajectories/timedmotion.h"
+#include "geometry/refinecontacts.h"
 
 #include <QString>
 #include <optional>
@@ -72,4 +73,15 @@ struct ProbeTouchMotionResult
 {
   std::optional<ProbeTouchMotion> motion;
   QString error;
+};
+
+// Numerical input owned by the worker during a standalone three-plane solve.
+struct RefineScan
+{
+  std::array<RoboCrap3D::RefinePlaneContacts, 3> planes;
+  ProbeGaugeMount mounting;
+  double ballRadius = 0.0;
+  std::optional<ProbeTouchPlanParameters> sphere;
+  std::optional<Eigen::AlignedBox3d> tableTop;
+  ProbeTouchMotionResult solve(const ChamferRobotSetup& robot) const;
 };

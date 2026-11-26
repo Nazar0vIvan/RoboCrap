@@ -17,6 +17,7 @@ class SceneMachining : public QObject
   Q_PROPERTY(QString error READ error NOTIFY errorChanged FINAL)
   Q_PROPERTY(bool calculating READ calculating NOTIFY calculatingChanged FINAL)
   Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool ownsPlayback READ ownsPlayback NOTIFY availabilityChanged FINAL)
 public:
   SceneMachining(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
   SceneMachiningSettings settings() const { return m_settings; }

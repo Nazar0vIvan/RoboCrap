@@ -33,7 +33,7 @@
             ],
             "modelPath": "D:/Qt/QtProjects/RoboCrap/build/Felgo_SDK_Desktop_Qt_6_8_3_MinGW_64_bit-Debug/resources/cad/GE-22.brep",
             "modelSha256": "79641b3d7e872f541faec374c214a54008db0667a305e145c513baa32e227271",
-            "mountingId": "4f48ab0b017b542c23dfced4e281bef0cb8548204b67fac0a8d397d629a4d22b",
+            "mountingId": "066faac94c2cfed6a401c2b3079ba370e353bc40f4583a8a2179b222be247f0d",
             "name": "Refine Job 7017998b",
             "planes": [
                 {
@@ -120,6 +120,7 @@
                 }
             ],
             "revision": 1,
+            "workpieceId": "fixture:end-gauge",
             "workpieceName": "End gauge",
             "workpieceSceneId": 1
         }

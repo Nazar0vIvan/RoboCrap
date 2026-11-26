@@ -12,6 +12,7 @@ qt_add_library(RoboCrapGeometry STATIC
   include/geometry/endgaugefit.h
   endgaugefit.cpp
   include/geometry/mathtypes.h
+  include/geometry/refinecontacts.h
   include/geometry/utils.h
   utils.cpp
 )

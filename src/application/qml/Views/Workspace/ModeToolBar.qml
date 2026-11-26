@@ -212,8 +212,8 @@ ToolBar {
       }
 
       Tool {
-        visible: !root.measuring || root.calibration
-        text: root.preparing ? qsTr("Sampling…") : qsTr("RSI Sampling")
+        visible: !root.rough
+        text: root.precise ? qsTr("Offline Sampling") : root.preparing ? qsTr("Sampling…") : qsTr("RSI Sampling")
         iconSource: "qrc:/icons/rsi_sampling.svg"
         available: root.preparationAvailable
         onTriggered: root.preparationRequested()

@@ -303,15 +303,16 @@ std::pair<std::optional<SceneEndGauge>, QString> readEndGaugeFile(const QString&
   }
   const auto result = observations.fit();
   if (!result.workpieceInBase) return {{}, result.diagnostic};
-  qInfo().noquote() << "GE-22 rough placement:" << source + QStringLiteral(": ") + result.diagnostic;
-  for (int row = 0; row < 3; ++row) {
-    QStringList values;
-    for (int col = 0; col < 4; ++col)
-      values.append(QString::number((*result.workpieceInBase)(row, col), 'f', 9));
-    qInfo().noquote() << "GE-22 [R | origin mm]:" << values.join(QLatin1Char(' '));
-  }
-  SceneEndGauge mount{*result.workpieceInBase, source,
-                      QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())};
+  // Older fixture files describe the single built-in end gauge.
+  const auto workpieceId = root.contains("workpieceId") ? root.value("workpieceId").toString()
+                                                        : QStringLiteral("fixture:end-gauge");
+  if (workpieceId.trimmed().isEmpty()) return {{}, SceneCalibration::tr("The end gauge needs a workpieceId.")};
+  QByteArray alternate = bytes;
+  if (alternate.contains("\r\n")) alternate.replace("\r\n", "\n");
+  else alternate.replace("\n", "\r\n");
+  SceneEndGauge mount{{*result.workpieceInBase, source,
+                       QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())},
+                      workpieceId, QString::fromLatin1(QCryptographicHash::hash(alternate, QCryptographicHash::Sha256).toHex())};
   return {std::move(mount), QString{}};
 }
 
@@ -334,9 +335,10 @@ SceneCalibration::SceneCalibration(SceneModel* scene, SceneEndEffectors* effecto
   if (m_settings.primary.ballCentre) applyBallCentre(*m_settings.primary.ballCentre);
   connect(scene, &SceneModel::objectRemoved, this, &SceneCalibration::onObjectRemoved);
   connect(scene, &SceneModel::objectAdded, this, &SceneCalibration::onObjectAdded);
-  connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::invalidatePath);
+  connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::invalidateProbeMotions);
+  connect(effectors, &SceneEndEffectors::activeToolChanged, this, &SceneCalibration::invalidatePendingScan);
   connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::onMeasuringTcpChanged);
-  connect(playback, &ScenePlayback::robotModelChanged, this, &SceneCalibration::invalidatePath);
+  connect(playback, &ScenePlayback::robotModelChanged, this, &SceneCalibration::invalidateProbeMotions);
   connect(playback, &ScenePlayback::robotAvailabilityChanged, this, &SceneCalibration::availabilityChanged);
   connect(playback, &ScenePlayback::stateChanged, this, &SceneCalibration::availabilityChanged);
   connect(playback, &ScenePlayback::failed, this, &SceneCalibration::onPlaybackFailed);
@@ -356,7 +358,10 @@ void SceneCalibration::setActive(bool active)
 void SceneCalibration::setPreciseActive(bool active)
 {
   if (m_precise == active) return;
-  if (!active) deactivate();
+  if (!active) {
+    invalidatePendingScan();
+    deactivate();
+  }
   m_precise = active;
   if (active) activate();
   emit availabilityChanged();
@@ -431,27 +436,81 @@ const SceneTouchPath* SceneCalibration::path() const
 
 bool SceneCalibration::ownsPlayback() const
 {
-  return m_playback->active() && m_playback->ownerId() == m_pathId;
+  if (!m_playback->active()) return false;
+  if (!m_precise) return m_playback->ownerId() == m_pathId;
+  const auto* owner = m_scene->findObject(m_playback->ownerId());
+  return owner && owner->isRefineScan();
 }
 
 void SceneCalibration::onPlaybackFailed(quint32 ownerId, const QString& error)
 {
-  if (ownerId != 0 && ownerId == m_pathId) setError(error);
+  const auto* owner = m_scene->findObject(ownerId);
+  if (owner && (ownerId == m_pathId || (m_precise && owner->isRefineScan()))) setError(error);
+}
+
+void SceneCalibration::selectScanPath(const QList<quint32>& ids)
+{
+  const auto* object = ids.size() == 1 ? m_scene->findObject(ids.front()) : nullptr;
+  const quint32 id = object && object->isRefineScan() ? object->objectId() : 0;
+  if (m_selectedScanId == id) return;
+  m_selectedScanId = id;
+  emit availabilityChanged();
 }
 
 bool SceneCalibration::canPlay() const
 {
-  return m_active && !calculating() && m_playback->canPlay(ownsPlayback(), path() != nullptr);
+  const quint32 id = m_precise ? m_selectedScanId : m_pathId;
+  return (m_precise || m_active) && !calculating() && id
+      && m_playback->canPlay(m_playback->ownerId() == id, m_scene->findObject(id) != nullptr);
 }
 
 void SceneCalibration::dryRun()
 {
-  if (!canPlay()) { setError(tr("Generate the probe path before Dry Run.")); return; }
-  if (m_playback->active()) { m_playback->resume(); return; }
+  playProbePath(m_pathId);
+}
+
+void SceneCalibration::playProbePath(quint32 pathId)
+{
   setError({});
-  const auto& motion = m_scene->findObject(m_pathId)->touchPath()->motion;
+  if (pathId != (m_precise ? m_selectedScanId : m_pathId) || !canPlay()) {
+    setError(m_precise ? tr("Select the generated Scan Path to play or resume it.") : tr("Generate the probe path before Dry Run."));
+    return;
+  }
+  if (m_playback->active()) { m_playback->resume(); return; }
+  const auto& motion = m_scene->findObject(pathId)->touchPath()->motion;
   // Aliasing handle: points at the stored timed motion and keeps the path's motion alive.
-  m_playback->start(std::shared_ptr<const TimedMotion>(motion, &motion->timed()), m_pathId);
+  m_playback->start(std::shared_ptr<const TimedMotion>(motion, &motion->timed()), pathId);
+}
+
+bool SceneCalibration::canPrepareScan() const
+{
+  return m_precise && m_selectedScanId && m_scene->findObject(m_selectedScanId)
+      && !calculating() && !m_playback->active();
+}
+
+void SceneCalibration::prepareScan()
+{
+  if (!canPrepareScan()) return;
+  auto* object = m_scene->findObject(m_selectedScanId);
+  const auto& path = *object->touchPath();
+  if (!path.samplingInput.isEmpty()) return;
+  const auto& plan = path.motion->plan();
+  const M3d baseToWorkpiece = plan.gauge->workpieceInBase.topLeftCorner<3, 3>().transpose();
+  QJsonArray searches;
+  for (qsizetype i = 0; i < plan.passes.size(); ++i) {
+    const auto& pass = plan.passes[i];
+    for (const auto& touch : pass.touches) {
+      searches.append(QJsonObject{
+          {"touch", searches.size() + 1}, {"role", pass.role}, {"sourceFace", pass.sourceFace},
+          {"u", touch.cell.x()}, {"v", touch.cell.y()}, {"localMaterialPointMm", vectorArray(touch.localMaterialPoint)},
+          {"approachSideNormalLocal", vectorArray(baseToWorkpiece * touch.normal)},
+          {"searchDirectionBase", vectorArray(-touch.normal)}, {"purpose", "scan"},
+          {"group", pass.group}, {"pass", i + 1}, {"repetition", pass.repetition},
+          {"startBaseMm", vectorArray(touch.start.topRightCorner<3, 1>())}, {"searchDistanceMm", touch.searchDistance()}});
+    }
+  }
+  object->setScanSamplingInput({{"refineJobId", path.refineJobId}, {"refineJobRevision", path.refineJobRevision},
+                                {"searchFeedMmPerSecond", plan.searchFeed()}, {"searches", searches}});
 }
 
 void SceneCalibration::replaceSphere(const SceneSphere& sphere)
@@ -468,6 +527,12 @@ void SceneCalibration::replaceSphere(const SceneSphere& sphere)
   if (existing) m_scene->removeObjects({std::exchange(m_sphereId, 0)});
   m_sphereId = inserted->objectId();
   if (m_precise) m_scene->setObjectVisible(inserted, false);
+  invalidateProbeMotions();
+}
+
+void SceneCalibration::invalidateProbeMotions()
+{
+  m_scene->removeObjects(m_scene->refinePathIds());
   invalidatePath();
 }
 
@@ -480,22 +545,36 @@ void SceneCalibration::invalidatePath()
 
 void SceneCalibration::onObjectRemoved(quint32 id)
 {
-  if (id == m_endGaugeId || id == m_sphereId) {
-    if (id == m_endGaugeId) m_endGaugeId = 0;
-    else m_sphereId = 0;
+  if (id == m_endGaugeId) {
+    m_endGaugeId = 0;
     invalidatePath();
+    return;
+  } else if (id == m_sphereId) {
+    m_sphereId = 0;
+    invalidateProbeMotions();
     return;
   } else if (id == m_pathId) m_pathId = 0;
   else return;
   emit availabilityChanged();
 }
 
-QString SceneCalibration::unavailableReason() const
+void SceneCalibration::invalidatePendingScan()
+{
+  if (m_scanSource) ++m_revision;
+}
+
+QString SceneCalibration::probeSetupError() const
 {
   if (calculating()) return tr("Calculating trajectory…");
   if (m_playback->active()) return tr("Stop Dry Run before generating a trajectory.");
   if (!m_playback->robotModel() || !m_playback->robotAvailable()) return tr("Robot preview is not ready.");
   if (!m_effectors->measuringTcpFrame()) return tr("Apply the measuring TCP first.");
+  return {};
+}
+
+QString SceneCalibration::unavailableReason() const
+{
+  if (const auto reason = probeSetupError(); !reason.isEmpty()) return reason;
   if (!m_active) return tr("Select Calibration to generate the combined path.");
   if (!m_sphereError.isEmpty()) return m_sphereError;
   if (!m_scene->findObject(m_endGaugeId)) return tr("Load the GE-22 end gauge first.");
@@ -517,10 +596,39 @@ void SceneCalibration::generate()
   plan.plan->passes.append(std::move(gauge.plan->passes));
   plan.plan->gauge = mount;
   ChamferRobotSetup robot{*m_playback->robotModel(), *m_effectors->measuringTcpFrame(), {}};
+  trackCalculation(std::async(std::launch::async, &ProbeTouchMotion::create, std::move(*plan.plan), std::move(robot)));
+}
+
+void SceneCalibration::generateScan(quint32 jobId)
+{
+  if (!m_precise) { setError(tr("Select Measuring / Precise to generate a Scan Path.")); return; }
+  if (m_effectors->activeTool() != SceneEndEffectors::Measuring) { setError(tr("Select the measuring tool.")); return; }
+  if (const auto reason = probeSetupError(); !reason.isEmpty()) { setError(reason); return; }
+  if (!m_sphereError.isEmpty()) { setError(m_sphereError); return; }
+  const auto targetId = m_scene->resolveRefineTarget(jobId);
+  auto contacts = m_scene->refineContacts(jobId);
+  if (const auto* error = std::get_if<QString>(&contacts)) { setError(*error); return; }
+  const auto* target = m_scene->findObject(targetId);
+  if (!target || !target->endGauge()) { setError(tr("The selected workpiece has no supported mounting.")); return; }
+  const auto job = m_scene->findObject(jobId)->refineJob();
+  RefineScan scan{std::get<0>(std::move(contacts)), *target->endGauge(), m_effectors->rubyBallDiameter() / 2.0};
+  if (const auto* fixture = sphere()) {
+    scan.sphere = ProbeTouchPlanParameters{fixture->center, fixture->radius, scan.ballRadius,
+                                          fixture->strutRadius, fixture->strutRecess};
+    const auto& table = fixture->table;
+    const V3d low = fixture->center - V3d(table.sphereFromMinusX, table.sphereFromMinusY, table.sphereAboveTop);
+    scan.tableTop.emplace(low, low + V3d(table.lengthX, table.widthY, 0));
+  }
+  ChamferRobotSetup robot{*m_playback->robotModel(), *m_effectors->measuringTcpFrame(), {}};
+  m_scanSource = RefineScanSource{jobId, targetId, job.value("id").toString(), job.value("revision").toInt()};
+  trackCalculation(std::async(std::launch::async, &RefineScan::solve, std::move(scan), std::move(robot)));
+}
+
+void SceneCalibration::trackCalculation(std::future<ProbeTouchMotionResult> calculation)
+{
   m_calculationRevision = m_revision;
+  m_calculation = std::move(calculation);
   setError({});
-  // The worker owns numerical copies only; its result returns through the future.
-  m_calculation = std::async(std::launch::async, &ProbeTouchMotion::create, std::move(*plan.plan), std::move(robot));
   m_calculationTimer.start();
   emit availabilityChanged();
 }
@@ -530,8 +638,20 @@ void SceneCalibration::finishCalculation()
   if (m_calculation.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
   m_calculationTimer.stop();
   auto result = m_calculation.get();
+  const auto scan = std::exchange(m_scanSource, std::nullopt);
   if (m_revision != m_calculationRevision) {
-    if (m_active) setError(tr("Calibration inputs changed. Generate again."));
+    if (scan && m_precise) setError(tr("Scan inputs changed. Generate again."));
+    else if (!scan && m_active) setError(tr("Calibration inputs changed. Generate again."));
+    emit availabilityChanged();
+    return;
+  }
+  if (scan) {
+    if (!result.motion) setError(result.error);
+    else {
+      const auto [id, error] = m_scene->publishRefineScan(*scan, std::move(*result.motion));
+      setError(error);
+      if (id) emit scanGenerated(id);
+    }
     emit availabilityChanged();
     return;
   }

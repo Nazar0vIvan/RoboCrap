@@ -2,6 +2,7 @@
 
 
 #include "robotgraphics.h"
+#include "refinecontacts.h"
 
 #include <QObject>
 #include <QHash>
@@ -53,6 +54,8 @@ struct DrawingModel {
   QString path; // Absolute BREP path.
   M4d modelInBase = M4d::Identity(); // Rigid placement of the native CAD frame in {B}, mm.
   QString mountingId = {}; // Empty for models that are not mounted workpieces.
+  QString workpieceId = {};
+  QString alternateLineEndingSha256 = {}; // Recognize legacy mounting IDs across LF/CRLF deployments.
 };
 
 struct DrawingStyle {
@@ -98,6 +101,7 @@ struct DrawingGrid {
   bool fits = false;
   QSet<int> invalid;
   QSet<QPoint> skipped;
+  V3d normal = V3d::Zero(); // Oriented CAD face normal, before approach-side reversal.
   QPoint indexAt(int offset) const { return {1 + offset % columns, 1 + offset / columns}; }
 };
 
@@ -125,9 +129,11 @@ struct DrawingFaceSelection {
 
 struct DrawingDocument {
   const DrawingModel* workpieceModel(quint32 id) const;
+  DrawingFaceSelection workpieceFaces(quint32 id) const;
   DrawingFaceSelection face;
   QMap<quint32, DrawingObject> objects;
   QList<quint32> selected;
+  std::optional<DrawingDiagnostics> selectedContacts; // Present while displaying a saved job, including a missing target.
   bool toolSelected = false; // The displayed end-effector model is selected.
   std::optional<DrawingAxis> axis;
   QHash<QString, std::shared_ptr<const CadLoadResult>> models; // Finished DrawingModel loads, failures included.
@@ -180,13 +186,16 @@ public:
   void setSpindleFrames(const std::optional<M4d>& tcp, const std::optional<M4d>& collet);
   Q_INVOKABLE void setRefineTarget(quint32 objectId);
   Q_INVOKABLE QString showRefineFace(int index, bool reversed, bool picking);
-  quint32 resolveRefineTarget(const QJsonObject& job, quint32 liveTarget) const;
+  std::pair<quint32, QString> resolveRefineTarget(const QJsonObject& job) const;
+  QString showRefineContacts(const QJsonObject& job, quint32 target);
+  RefineContacts refineContacts(const QJsonObject& job, quint32 liveTarget) const;
   Q_INVOKABLE QVariantMap restoreRefineGrids(const QJsonObject& job, const QJsonArray& planes);
   std::pair<QJsonObject, QString> refineJobDefinition(quint32 target, const QJsonArray& planes) const;
   Q_INVOKABLE QVariantMap updateRefineGrid(QSize counts, QSizeF spacing, const QStringList& margins);
   Q_INVOKABLE void setGridVisibility(bool showAll, const QList<int>& assignedFaces);
   Q_INVOKABLE void setGridSelection(const QList<QPoint>& skipped, QPoint highlighted, bool picking);
   Q_INVOKABLE QString workpieceModelRevision(quint32 objectId) const;
+  QString workpieceRevisionError(quint32 id) const { return m_document.workpieceFaces(id).revisionError(); }
   Q_INVOKABLE void setSelectedObjects(const QList<quint32>& ids);
   void setToolSelected(bool selected);
 
@@ -217,7 +226,7 @@ private:
     QString error;
     QHash<int, DrawingGrid> grids;
   };
-  CheckedRefineJob checkRefineJob(quint32 target, const QJsonArray& planes) const;
+  CheckedRefineJob checkRefineJob(quint32 target, const QJsonArray& planes, DrawingFaceSelection face) const;
   QString initializeOcct() const;
   void createWindow();
   void onViewWindowDestroyed();

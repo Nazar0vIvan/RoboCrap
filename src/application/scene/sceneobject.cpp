@@ -4,6 +4,7 @@
 #include "viewport/occcontroller.h"
 
 #include <QDir>
+#include <QJsonArray>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -83,10 +84,34 @@ void SceneObject::setRefineJob(const QJsonObject& job, quint32 target)
   m_shape = job;
   m_refineTarget = target;
   emit refineJobChanged();
+  emit propertiesChanged();
+}
+
+void SceneObject::setScanSamplingInput(const QJsonObject& input)
+{
+  if (!isRefineScan()) return;
+  std::get<SceneTouchPath>(m_shape).samplingInput = input;
+  emit propertiesChanged();
 }
 
 QVariantList SceneObject::properties() const
 {
+  if (const auto* path = touchPath(); path && !path->refineJobId.isEmpty()) {
+    const auto& plan = path->motion->plan();
+    QVariantList rows{propertyRow(tr("Included contacts"), QString::number(plan.touchCount(ProbeTouchPurpose::Scan))),
+            propertyRow(tr("Probe orientation"), QStringLiteral("G%1").arg(plan.passes.front().group)),
+            propertyRow(tr("Job ID"), path->refineJobId),
+            propertyRow(tr("Job revision"), QString::number(path->refineJobRevision)),
+            propertyRow(tr("Clearance"), tr("Tool and mounting clearance unverified."))};
+    const auto searches = path->samplingInput.value("searches").toArray();
+    for (const auto& entry : searches) {
+      const auto search = entry.toObject();
+      rows.append(propertyRow(tr("Search %1").arg(search.value("touch").toInt()),
+                              tr("%1 (%2,%3)").arg(search.value("role").toString())
+                                  .arg(search.value("u").toInt()).arg(search.value("v").toInt())));
+    }
+    return rows;
+  }
   if (const auto* job = std::get_if<QJsonObject>(&m_shape))
     return {propertyRow(tr("Object"), job->value("workpieceName").toString()),
             propertyRow(tr("Method"), tr("By 3 Planes")),
@@ -208,7 +233,8 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
   } else if (const auto* gauge = endGauge()) {
     const auto& frame = gauge->workpieceInBase;
     const QString model = QDir(ViewportAssets::applicationAssets().cadDirectory).filePath(QStringLiteral("GE-22.brep"));
-    result.parts.append({DrawingModel{model, frame, gauge->observationsSha256}, {{160, 165, 170}}});
+    result.parts.append({DrawingModel{model, frame, gauge->observationsSha256, gauge->workpieceId,
+                                     gauge->alternateLineEndingSha256}, {{160, 165, 170}}});
     constexpr DrawingStyle axes[] = {{{255, 0, 0}, 2.0, true}, {{0, 180, 0}, 2.0, true}, {{0, 0, 255}, 2.0, true}};
     const V3d origin = frame.col(3).head<3>();
     for (int axis = 0; axis < 3; ++axis) {

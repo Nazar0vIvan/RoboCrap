@@ -257,9 +257,21 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   Creation leaves the placement and existing motion untouched.
   An applied edit keeps the job UUID and scene object, advances its definition revision and removes
   only Scan Paths carrying its UUID. Cancel and an unchanged save preserve the revision and paths.
-  Reopen resolves the live instance or a unique matching mounting and model. A saved scene ID alone
-  cannot identify a workpiece across restarts. Recheck the loaded and on-disk BREP before restoring
+  Resolve the saved workpieceId across restarts. The built-in end gauge uses fixture:end-gauge
+  unless the fixture definition supplies its own workpieceId. For a legacy job, match the mounting
+  observations (LF and CRLF are equivalent) and CAD revision to exactly one workpiece. Save the
+  resulting key under the existing file lock, keeping the job revision. Recheck the loaded and on-disk BREP before restoring
   face indices. A moved mounting retains model-local points and needs fresh clearance checks at generation.
+- In Precise, Generate Path uses the selected saved Refine Job. One orientation group covers the
+  three passes. Try G2 first and retry the whole route in G1 on failure. Each point keeps its saved
+  face and grid cell. Check the placed sphere, strut and finite table top at the stored motion points
+  when present. Tool-body and mounting clearance need visual review.
+  Publish and select the new Scan Path only after rechecking the job revision, target, placement,
+  model digest and on-disk BREP. Replace the previous linked path only after scene insertion succeeds.
+  Selecting a job keeps its tree row selected, reveals and highlights its workpiece, and draws its
+  included material contacts on all three faces. A missing or ambiguous target clears the preview,
+  displays the reason in red in the Status Bar and disables Generate Path. Refresh after CAD loading
+  or workpiece insertion/removal. Selecting another row clears the saved-job markers.
 - Before import/intersection changes read the geometry factories and SceneSurfaceImporter/SceneModel
   callers; preserve units and probe-compensation semantics. BoundedPlane/BoundedCylinder accept points
   or decoded ProbeSamples, without file factories; SceneSurfaceImporter reads/decodes plane and

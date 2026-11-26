@@ -43,6 +43,7 @@ QxPanel {
     id: draft
     required property string axis
     property int faceIndex: 0
+    property bool firstPickPending: true
     readonly property int defaultUCount: axis === "X" ? 4 : 2
     readonly property bool configured: faceIndex > 0 || reversed || skipped.length > 0
                                        || u.editedSpacing > 0 || v.editedSpacing > 0
@@ -79,6 +80,7 @@ QxPanel {
     if (root.workpiece && root.workpiece !== object) {
       for (const plane of root.planeDrafts) {
         plane.faceIndex = 0
+        plane.firstPickPending = true
         plane.u.fittedSpacing = 1
         plane.v.fittedSpacing = 1
         plane.reversed = false
@@ -98,6 +100,17 @@ QxPanel {
     root.pickError = ""
     App.WorkspaceController.pickingWorkpiece = !object
     if (object && root.restoreSavedFaces) root.restoreFaces()
+    else if (object && !root.editingJob && !root.activePlane.faceIndex) root.activatePlane(root.activePlane)
+  }
+
+  function activatePlane(slot: PlaneDraft) {
+    const startPicking = !!root.workpiece && slot.faceIndex === 0 && slot.firstPickPending
+    if (!root.showFace(slot.faceIndex, slot.reversed, startPicking)) return
+    if (startPicking) slot.firstPickPending = false
+    root.activePlane = slot
+    root.invalidOffsets = []
+    root.syncGridSelection()
+    Qt.callLater(root.refreshGrid)
   }
 
   function refreshGrid() {
@@ -601,17 +614,11 @@ QxPanel {
               ButtonGroup.group: planes
               onClicked: {
                 plane.forceActiveFocus()
-                const slot = plane.modelData
                 if (root.workpiece) {
                   App.WorkspaceController.pickingWorkpiece = false
                   App.WorkspaceController.selectObject(root.workpiece.objectId, false)
                 }
-                if (root.showFace(slot.faceIndex, slot.reversed, !!root.workpiece)) {
-                  root.activePlane = slot
-                  root.invalidOffsets = []
-                  root.syncGridSelection()
-                  Qt.callLater(root.refreshGrid)
-                }
+                root.activatePlane(plane.modelData)
               }
             }
           }

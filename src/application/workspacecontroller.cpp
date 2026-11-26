@@ -72,11 +72,16 @@ bool WorkspaceController::intersectionAvailable() const
 
 void WorkspaceController::selectObject(quint32 id, bool additive)
 {
-  if (id && !m_scene->findObject(id)) return;
+  const auto* object = m_scene->findObject(id);
+  if (id && !object) return;
   setToolSelected(false);
   auto ids = additive ? m_selectedIds : QList<quint32>{};
   if (!id) ids.clear();
   else if (!ids.removeOne(id)) ids.append(id);
+  if (object && object->kind() == SceneObject::RefineJob && ids == m_selectedIds) {
+    m_scene->showSelection(ids);
+    return;
+  }
   setSelection(std::move(ids));
 }
 

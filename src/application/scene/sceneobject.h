@@ -32,7 +32,7 @@ class SceneObject final : public QObject
   // The saved machining path's QObject; null for every other kind.
   Q_PROPERTY(QObject* geometry READ geometry CONSTANT FINAL)
   // Formatted {label, value} rows for the Properties panel.
-  Q_PROPERTY(QVariantList properties READ properties NOTIFY refineJobChanged FINAL)
+  Q_PROPERTY(QVariantList properties READ properties NOTIFY propertiesChanged FINAL)
 
 public:
   enum Kind { Plane, Cylinder, Cone, Edge, ScanPath, MachiningPath, Sphere, CalibrationPath, EndGauge, RefineJob };
@@ -58,6 +58,8 @@ public:
   const SceneSphere* sphere() const { return std::get_if<SceneSphere>(&m_shape); }
   const SceneEndGauge* endGauge() const { return std::get_if<SceneEndGauge>(&m_shape); }
   const SceneTouchPath* touchPath() const { return std::get_if<SceneTouchPath>(&m_shape); }
+  bool isRefineScan() const { return touchPath() && !touchPath()->refineJobId.isEmpty(); }
+  void setScanSamplingInput(const QJsonObject& input);
   const ChamferMotion* machiningPath() const { return m_machiningPath ? &m_machiningPath->motion() : nullptr; }
   QVariantList properties() const;
   QJsonObject refineJob() const;
@@ -74,6 +76,7 @@ public:
   QObject* geometry() const { return m_machiningPath; }
 
 signals:
+  void propertiesChanged();
   void refineJobChanged();
   void nameChanged();
   void visibleChanged();

@@ -34,6 +34,7 @@ qt_add_qml_module(RoboCrap3D
   SOURCES
     include/viewport/viewportqmltypes.h
     include/viewport/occcontroller.h
+    include/viewport/refinecontacts.h
     occcontroller.cpp
     adapters/occsceneadapter.h
     adapters/occsceneadapter.cpp

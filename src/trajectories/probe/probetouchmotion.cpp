@@ -104,20 +104,27 @@ private:
   QString clearanceError(const ProbeMotionPhase& phase, qsizetype first)
   {
     const auto& pass = phase.pass < 0 ? m_plan.passes.back() : m_plan.passes[phase.pass];
-    if (pass.face != ProbeFace::Sphere) return {};
+    const bool scan = pass.purpose == ProbeTouchPurpose::Scan;
+    if (!m_plan.sphere || (!scan && pass.face != ProbeFace::Sphere)) return {};
     const auto& parameters = *m_plan.sphere;
     const auto& points = m_motion.points();
     const double contact = parameters.contactDistance();
     const double required = ProbeApproachGap - ClearanceTolerance;
-    for (qsizetype i = first + 1; i < points.size(); ++i) {
+    for (qsizetype i = first + (scan ? 0 : 1); i < points.size(); ++i) {
       const auto& point = points[i];
       const V3d ball = point.tcp.block<3, 1>(0, 3);
+      if (scan && m_plan.tableTop) {
+        const double gap = m_plan.tableTop->exteriorDistance(ball) - parameters.ballRadius;
+        if (gap < required)
+          return QStringLiteral("ball clearance to the table top %1 mm is below %2 mm at %3 s.")
+              .arg(gap, 0, 'f', 4).arg(required).arg(point.time);
+      }
       const double strut = parameters.strutClearance(ball);
       if (strut < required)
         return QStringLiteral("strut clearance %1 mm is below %2 mm at %3 s.")
             .arg(strut, 0, 'f', 4).arg(required, 0, 'f', 4).arg(point.time, 0, 'g', 12);
       m_clearances.strut = std::min(m_clearances.strut, strut);
-      if (touchSegment(phase.segment)) continue;
+      if (!scan && touchSegment(phase.segment)) continue;
       const double gap = (ball - parameters.sphereCentre).norm() - contact;
       if (gap < required)
         return QStringLiteral("ball clearance to the sphere %1 mm is below %2 mm at %3 s.")
@@ -142,11 +149,14 @@ QVector<ProbeMotionStep> probeMotionSteps(const ProbeTouchPlan& plan)
     const ProbeTouchPass& pass = plan.passes[index];
     const M4d& first = pass.touches.front().start;
     const auto transfer = pass.face == ProbeFace::Sphere ? ProbeRsiStepKind::Circ : ProbeRsiStepKind::Lin;
-    if (index == 0 || pass.group != plan.passes[index - 1].group || pass.face != plan.passes[index - 1].face) {
+    if (index == 0 || pass.group != plan.passes[index - 1].group || pass.face != plan.passes[index - 1].face
+        || pass.sourceFace != plan.passes[index - 1].sourceFace) {
       if (index > 0)
         steps.append(ProbeMotionStep{{index - 1, 0, ProbeSegment::Retreat}, ProbeRsiStepKind::Lin,
                                      plan.passes[index - 1].exit});
-      steps.append(ProbeMotionStep{{index, 0, ProbeSegment::ToEntry}, ProbeRsiStepKind::Ptp, pass.entry});
+      const auto toEntry = index > 0 && pass.purpose == ProbeTouchPurpose::Scan
+          ? ProbeRsiStepKind::Lin : ProbeRsiStepKind::Ptp;
+      steps.append(ProbeMotionStep{{index, 0, ProbeSegment::ToEntry}, toEntry, pass.entry});
       steps.append(ProbeMotionStep{{index, 0, ProbeSegment::Descend}, ProbeRsiStepKind::Lin, first});
     } else if (first != plan.passes[index - 1].touches.back().start) {
       steps.append(ProbeMotionStep{{index, 1, ProbeSegment::Transfer}, transfer, first});
@@ -170,8 +180,14 @@ QString ProbeMotionPhase::text(const ProbeTouchPlan& plan) const
   static const std::array<const char*, 7> names{"to entry", "descend", "transfer", "approach", "retract",
                                                 "retreat", "return HOME"};
   const QString name = QString::fromLatin1(names[static_cast<std::size_t>(segment)]);
-  if (pass < 0) return QStringLiteral("Exit: ") + name;
-  const ProbeTouchPass& owner = plan.passes[pass];
+  if (pass < 0 && (plan.passes.isEmpty() || plan.passes.back().purpose != ProbeTouchPurpose::Scan))
+    return QStringLiteral("Exit: ") + name;
+  const ProbeTouchPass& owner = pass < 0 ? plan.passes.back() : plan.passes[pass];
+  if (owner.purpose == ProbeTouchPurpose::Scan) {
+    const bool leaving = segment == ProbeSegment::Retreat || segment == ProbeSegment::ReturnHome;
+    const auto cell = touch > 0 ? owner.touches[touch - 1].cell : (leaving ? owner.touches.back() : owner.touches.front()).cell;
+    return QStringLiteral("%1 (%2,%3): %4").arg(owner.label()).arg(cell.x()).arg(cell.y()).arg(name);
+  }
   if (touch > 0 && owner.purpose == ProbeTouchPurpose::Gauge)
     return QStringLiteral("%1, point %2: %3").arg(owner.label()).arg(owner.touches[touch - 1].facePoint).arg(name);
   if (touch > 0)

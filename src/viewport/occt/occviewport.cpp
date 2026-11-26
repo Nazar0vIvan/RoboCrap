@@ -220,6 +220,7 @@ DrawingGridPreview DrawingFaceSelection::preview(
                     surface.FirstVParameter(), surface.LastVParameter(), Precision::Confusion());
     BRepClass_FaceExplorer trim(TopoDS::Face(face.Oriented(TopAbs_FORWARD)));
     DrawingGrid grid;
+    grid.normal = normal;
     grid.columns = counts.width();
     grid.fits = messages.isEmpty();
     grid.points.reserve(counts.width() * counts.height());
@@ -338,7 +339,8 @@ void OccViewport::setFacePickShape(const Handle(AIS_Shape)& shape)
 
 ViewportOperationResult OccViewport::displaySelection()
 {
-  const auto& face = m_document.face;
+  const DrawingFaceSelection noFace;
+  const auto& face = m_document.selectedContacts ? noFace : m_document.face;
   const bool active = face.target && (face.picking || m_document.selected == QList<quint32>{face.target});
   const auto* model = active ? m_document.workpieceModel(face.target) : nullptr;
   const auto load = model ? m_document.models.value(model->path) : nullptr;
@@ -382,6 +384,10 @@ ViewportOperationResult OccViewport::displaySelection()
   }
   const bool drawGrid = !shape.IsNull() && load == face.source && model->path == face.path
                         && (axis || face.showAllPoints);
+  if (!parts.empty() && m_document.selectedContacts && !m_document.selectedContacts->markers.isEmpty()) {
+    const auto* workpiece = m_document.workpieceModel(m_document.selected.front());
+    if (workpiece) return m_application.setDraftAxis({}, &*m_document.selectedContacts, workpiece->modelInBase);
+  }
   const auto markers = drawGrid ? face.markers() : DrawingDiagnostics{};
   return m_application.setDraftAxis(axis, &markers, drawGrid ? model->modelInBase : M4d::Identity());
 }

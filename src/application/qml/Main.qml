@@ -105,6 +105,7 @@ ApplicationWindow {
 
   Connections {
     target: App.Calibration
+    function onScanGenerated(objectId) { App.WorkspaceController.selectObject(objectId, false) }
     function onSettingsErrorChanged() {
       if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
     }
@@ -304,9 +305,10 @@ ApplicationWindow {
                                          && Viewport3D.OccController.errorString.length === 0
     readonly property bool busy: App.Machining.calculating || App.Calibration.calculating
                                  || App.MachiningPreparation.preparing || statusBar.sceneLoading
-    // Calibration playback without an error, or the Dry Run of the open chamfer editor.
-    readonly property bool playbackShown: App.Playback.active
-                                          && (root.calibrationActive ? App.Calibration.ownsPlayback && !App.Calibration.error : root.chamferEditorOpen)
+    readonly property bool refineErrorShown: root.preciseActive && !App.MachiningPreparation.calibrationRunning
+                                             && App.Scene.refineSelectionError.length > 0
+    readonly property bool playbackShown: modeTools.playbackActive
+                                          && (root.preciseActive || (root.calibrationActive ? !App.Calibration.error : root.chamferEditorOpen))
     readonly property string message: {
       if (App.MachiningPreparation.calibrationRunning) {
         const detected = App.MachiningPreparation.calibrationDetected
@@ -317,6 +319,7 @@ ApplicationWindow {
         const interruption = App.MachiningPreparation.calibrationInterruption
         return interruption ? progress + "\n" + interruption : progress
       }
+      if (statusBar.refineErrorShown) return App.Scene.refineSelectionError
       if (App.Machining.calculating || App.Calibration.calculating) return qsTr("Calculating trajectory…")
       if (App.MachiningPreparation.preparing) return qsTr("RSI Sampling…")
       if (statusBar.sceneLoading) return qsTr("Loading…")
@@ -339,7 +342,8 @@ ApplicationWindow {
     }
     // Calibration error or the reason Generate is unavailable; preparation status otherwise.
     readonly property string calibrationStatus: root.calibrationActive
-                                                ? App.Calibration.error || App.Calibration.unavailableReason : ""
+                                                ? App.Calibration.error || App.Calibration.unavailableReason
+                                                : root.preciseActive ? App.Calibration.error : ""
     readonly property bool errorShown: !App.MachiningPreparation.calibrationRunning && !statusBar.playbackShown
                                        && (statusBar.calibrationStatus ? App.Calibration.error.length > 0
                                            : root.chamferEditorOpen ? App.Machining.error.length > 0
@@ -397,10 +401,13 @@ ApplicationWindow {
         textFormat: Text.PlainText
         horizontalAlignment: Text.AlignRight
         elide: Text.ElideRight
-        color: statusBar.message.length > 0 && !statusBar.busy && statusBar.errorShown
+        color: statusBar.refineErrorShown || (statusBar.message.length > 0 && !statusBar.busy && statusBar.errorShown)
                ? Colors.maxColor : Colors.foreground.medium
         font: Fonts.body
         Accessible.name: statusBar.message
+        HoverHandler { id: statusHover }
+        ToolTip.visible: root.preciseActive && statusMessage.truncated && statusHover.hovered
+        ToolTip.text: statusBar.message
 
         // Inline before the right-aligned text; not part of the layout, so nothing moves.
         QxBusyIndicator {
@@ -468,6 +475,7 @@ ApplicationWindow {
       spacing: Metrics.sp4
 
       ModeToolBar {
+        id: modeTools
         Layout.fillWidth: true
         Layout.minimumHeight: implicitHeight
         Layout.maximumHeight: implicitHeight
@@ -476,13 +484,13 @@ ApplicationWindow {
         submode: root.measurementSubmode
         planeImportAvailable: root.geometryImportAvailable
         cylinderImportAvailable: root.geometryImportAvailable
-        playbackAvailable: root.calibrationActive ? App.Calibration.canPlay
-                                             : !root.preciseActive && App.Machining.canPlay
-        playing: App.Playback.playing && (!root.calibrationActive || App.Calibration.ownsPlayback)
-        playbackActive: root.calibrationActive ? App.Calibration.ownsPlayback : App.Playback.active
+        playbackAvailable: root.preciseActive || root.calibrationActive ? App.Calibration.canPlay : App.Machining.canPlay
+        playing: modeTools.playbackActive && App.Playback.playing
+        playbackActive: root.preciseActive || root.calibrationActive ? App.Calibration.ownsPlayback : App.Machining.ownsPlayback
         preparationAvailable: !root.chamferEditorOpen
-                              && (root.calibrationActive ? App.MachiningPreparation.canPrepareCalibration && !App.Playback.active
-                                                         : App.MachiningPreparation.canPrepare && !!statusBar.rsi && statusBar.rsi.isConnected)
+                              && (root.preciseActive ? App.Calibration.canPrepareScan
+                                  : root.calibrationActive ? App.MachiningPreparation.canPrepareCalibration && !App.Playback.active
+                                  : App.MachiningPreparation.canPrepare && !!statusBar.rsi && statusBar.rsi.isConnected)
         preparing: App.MachiningPreparation.preparing
         // A live calibration run requires the RSI socket.
         calibrationStartAvailable: App.MachiningPreparation.canStartCalibration
@@ -492,17 +500,21 @@ ApplicationWindow {
                                     && !!statusBar.rsi && statusBar.rsi.isConnected
         onCalibrationResumeRequested: App.MachiningPreparation.resumeCalibration()
         onPreparationRequested: {
-          if (root.calibrationActive) App.MachiningPreparation.prepareCalibration()
-          else App.MachiningPreparation.prepare()
+          if (root.preciseActive) App.Calibration.prepareScan()
+          else if (root.calibrationActive) App.MachiningPreparation.prepareCalibration()
+          else if (root.workflowMode === WorkflowPanel.Machining) App.MachiningPreparation.prepare()
         }
         onPauseRequested: App.Playback.pause()
         onDryRunRequested: {
-          if (root.calibrationActive) App.Calibration.dryRun()
-          else App.Machining.dryRun()
+          if (root.preciseActive && root.selectedSceneObject) App.Calibration.playProbePath(root.selectedSceneObject.objectId)
+          else if (root.calibrationActive) App.Calibration.dryRun()
+          else if (root.workflowMode === WorkflowPanel.Machining) App.Machining.dryRun()
         }
         onStopRequested: App.Playback.stop()
         generationAvailable: root.calibrationActive ? App.Calibration.canGenerate
-                             : !root.preciseActive && !App.Playback.active && root.selectedSceneObject !== null
+                             : root.preciseActive ? root.selectedSceneObject?.kind === App.SceneObject.RefineJob
+                                                    && !App.Scene.refineSelectionError && !App.Calibration.calculating && !App.Playback.active
+                             : !App.Playback.active && root.selectedSceneObject !== null
                                && (root.selectedSceneObject.kind === App.SceneObject.Edge
                                    || root.selectedSceneObject.kind === App.SceneObject.MachiningPath)
         onToolSetupRequested: root.openToolSetup()
@@ -510,6 +522,10 @@ ApplicationWindow {
         onGenerationRequested: {
           if (root.calibrationActive) {
             App.Calibration.generate()
+            return
+          }
+          if (root.preciseActive) {
+            App.Calibration.generateScan(root.selectedSceneObject.objectId)
             return
           }
           root.toolSetupOpen = false

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sceneobject.h"
+#include "viewport/refinecontacts.h"
 #include <QHash>
 #include <QList>
 #include <QJsonArray>
@@ -13,11 +14,14 @@ class SceneModel : public QObject
 {
   Q_OBJECT
   Q_PROPERTY(QQmlListProperty<SceneObject> objects READ objects NOTIFY objectsChanged FINAL)
+  Q_PROPERTY(QString refineSelectionError READ refineSelectionError NOTIFY refineSelectionErrorChanged FINAL)
 
 public:
   explicit SceneModel(QObject* parent = nullptr);
 
   void setViewport(RoboCrap3D::OccController* viewport);
+  void showSelection(const QList<quint32>& ids);
+  QString refineSelectionError() const { return m_refineSelectionError; }
   QQmlListProperty<SceneObject> objects();
   const QList<SceneObject*>& objectList() const { return m_objects; }
   Q_INVOKABLE SceneObject* findObject(quint32 objectId) const;
@@ -27,6 +31,9 @@ public:
   Q_INVOKABLE QVariantMap createRefineJob(quint32 target, const QJsonArray& planes);
   Q_INVOKABLE void loadRefineJobs();
   Q_INVOKABLE quint32 resolveRefineTarget(quint32 jobId);
+  RoboCrap3D::RefineContacts refineContacts(quint32 jobId) const;
+  QList<quint32> refinePathIds(const QString& jobId = {}, quint32 target = 0) const;
+  std::pair<quint32, QString> publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion);
   Q_INVOKABLE QVariantMap saveRefineJob(quint32 jobId, quint32 target, const QJsonArray& planes);
   SceneObject* addMachiningPath(SceneMachiningData data, const QString& name);
 	SceneObject* addBoundedPlane(const QUrl& sourceUrl, const QString& name, BoundedPlane plane);
@@ -40,6 +47,7 @@ public:
   Q_INVOKABLE bool setSphereDisplay(SceneObject* object, bool ballCenter, bool compensated);
 
 signals:
+  void refineSelectionErrorChanged();
   void refineJobError(const QString& error);
   void intersectionFailed(const QString& message);
   void objectsChanged();
@@ -49,10 +57,11 @@ signals:
   void objectDiagnosticOverlaysChanged(SceneObject* object);
 
 private:
+  QString previewRefineJob(SceneObject& object);
+  void refreshRefineSelection();
   std::optional<std::array<const SceneObject*, 2>> intersectionPair(const QList<quint32>& ids) const;
   static qsizetype objectCount(QQmlListProperty<SceneObject>* list);
   static SceneObject* objectAt(QQmlListProperty<SceneObject>* list, qsizetype index);
-  void removeRefinePaths(const QString& jobId);
   SceneObject* appendRefineObject(const QJsonObject& job, quint32 target);
   SceneObject* appendObject(SceneObject* object);
   SceneObject* createObject(SceneObject::Description description);
@@ -60,6 +69,8 @@ private:
   void onObjectDiagnosticOverlaysChanged();
 
   QPointer<RoboCrap3D::OccController> m_viewport;
+  quint32 m_selectedRefineJob = 0;
+  QString m_refineSelectionError;
   QList<SceneObject*> m_objects;
   QHash<quint32, SceneObject*> m_objectsById;
   quint32 m_nextId = 1; // Zero is never allocated, including after exhaustion.

@@ -1,4 +1,4 @@
-#include "trajectories/probetouchplan.h"
+#include "trajectories/probetouchmotion.h"
 
 #include "geometry/utils.h"
 #include "../motion/jointsegments.h"
@@ -96,6 +96,25 @@ ProbeTouch makeTouch(const ProbeTouchPlanParameters& parameters, const M3d& rota
           makeTransform(rotation, centre + contact * normal), normal, direction.tilt, direction.roll};
 }
 
+// Both poses are offsets from a material point, expressed in BASE.
+ProbeTouch planarTouchOffset(int group, const V3d& normal, double radius)
+{
+  const auto& angles = Groups[group - 1];
+  const M3d rotation = euler2rot(angles.a, angles.b, angles.c);
+  const V3d approach = -rotation.transpose() * normal;
+  const double tilt = std::acos(std::clamp(approach.z(), -1.0, 1.0)) * GeomConst::RadToDeg;
+  const double roll = std::atan2(approach.y(), -approach.x()) * GeomConst::RadToDeg;
+  return {makeTransform(rotation, (radius + ProbeApproachGap) * normal),
+          makeTransform(rotation, radius * normal), normal, tilt, roll < 0.0 ? roll + 360.0 : roll};
+}
+
+ProbeTouch atMaterialPoint(ProbeTouch touch, const V3d& material)
+{
+  touch.start.topRightCorner<3, 1>() += material;
+  touch.contact.topRightCorner<3, 1>() += material;
+  return touch;
+}
+
 } // namespace
 
 double ProbeTouchPlanParameters::strutClearance(const V3d& ball) const
@@ -109,6 +128,8 @@ double ProbeTouchPlanParameters::strutClearance(const V3d& ball) const
 
 QString ProbeTouchPass::label() const
 {
+  if (purpose == ProbeTouchPurpose::Scan)
+    return QStringLiteral("%1 face %2 G%3").arg(role).arg(sourceFace).arg(group);
   if (purpose == ProbeTouchPurpose::Gauge)
     return QStringLiteral("GE-22 face %1 G%2 pass %3").arg(face == ProbeFace::A ? "A" : "B").arg(group).arg(repetition);
   const QString name = purpose == ProbeTouchPurpose::Calibration ? QStringLiteral("Calibration")
@@ -169,16 +190,13 @@ ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double bal
   plan.gauge.emplace();
   plan.gauge->workpieceInBase = workpieceInBase;
   for (int group : {2, 1}) {
-    const auto& angles = Groups[group - 1];
-    const M3d rotation = euler2rot(angles.a, angles.b, angles.c);
     for (int sweep = 0; sweep < 4; ++sweep) {
       const bool faceA = sweep == 0 || sweep == 3;
       const double side = faceA ? -1.0 : 1.0;
       const double faceY = faceA ? -22.0 : 0.0;
       const V3d normal = side * axes.col(1);
-      const V3d approach = -rotation.transpose() * normal;
-      const double tilt = std::acos(std::clamp(approach.z(), -1.0, 1.0)) * GeomConst::RadToDeg;
-      const double roll = std::atan2(approach.y(), -approach.x()) * GeomConst::RadToDeg;
+      const auto offset = planarTouchOffset(group, normal, ballRadius);
+      const M3d rotation = offset.start.topLeftCorner<3, 3>();
       ProbeTouchPass pass;
       pass.purpose = ProbeTouchPurpose::Gauge;
       pass.face = faceA ? ProbeFace::A : ProbeFace::B;
@@ -186,10 +204,9 @@ ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double bal
       pass.repetition = sweep / 2 + 1;
       for (int number = 0; number < 4; ++number) {
         const int point = sweep < 2 ? number : 3 - number;
-        const V3d contact = origin + axes * V3d(width[point], faceY + side * ballRadius, -depth[point]);
-        pass.touches.append({makeTransform(rotation, contact + ProbeApproachGap * normal),
-                             makeTransform(rotation, contact), normal, tilt, roll < 0.0 ? roll + 360.0 : roll,
-                             point + 1});
+        auto touch = atMaterialPoint(offset, origin + axes * V3d(width[point], faceY, -depth[point]));
+        touch.facePoint = point + 1;
+        pass.touches.append(std::move(touch));
       }
       const double entryY = faceY + side * (ballRadius + ProbeApproachGap + 20.0);
       pass.entry = makeTransform(rotation, origin + axes * V3d(width[pass.touches.front().facePoint - 1], entryY, 20.0));
@@ -205,4 +222,44 @@ ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double bal
     }
   }
   return {std::move(plan), {}};
+}
+
+ProbeTouchMotionResult RefineScan::solve(const ChamferRobotSetup& robot) const
+{
+  const auto& frame = mounting.workpieceInBase;
+  if (!rigid(frame) || !positiveFinite(ballRadius))
+    return {{}, QStringLiteral("Invalid workpiece placement or ruby radius.")};
+  const M3d axes = frame.topLeftCorner<3, 3>();
+  const V3d origin = frame.topRightCorner<3, 1>();
+  QStringList failures;
+  for (int group : {2, 1}) {
+    ProbeTouchPlan plan{sphere, {}, mounting, tableTop};
+    for (const auto& plane : planes) {
+      if (plane.points.isEmpty()) return {{}, plane.role + QStringLiteral(": empty grid.")};
+      const V3d normal = axes * plane.normal;
+      const auto offset = planarTouchOffset(group, normal, ballRadius);
+      ProbeTouchPass pass;
+      pass.group = group;
+      pass.face = ProbeFace::Refine;
+      pass.purpose = ProbeTouchPurpose::Scan;
+      pass.sourceFace = plane.faceIndex;
+      pass.role = plane.role;
+      pass.touches.reserve(plane.points.size());
+      for (const auto& point : plane.points) {
+        auto touch = atMaterialPoint(offset, origin + axes * point.position);
+        touch.cell = point.index;
+        touch.localMaterialPoint = point.position;
+        pass.touches.append(std::move(touch));
+      }
+      pass.entry = pass.touches.front().start;
+      pass.exit = pass.touches.back().start;
+      pass.entry.topRightCorner<3, 1>() += 20.0 * normal;
+      pass.exit.topRightCorner<3, 1>() += 20.0 * normal;
+      plan.passes.append(std::move(pass));
+    }
+    auto result = ProbeTouchMotion::create(plan, robot);
+    if (result.motion) return result;
+    failures.append(QStringLiteral("G%1: %2").arg(group).arg(result.error));
+  }
+  return {{}, failures.join(QStringLiteral(" | "))};
 }

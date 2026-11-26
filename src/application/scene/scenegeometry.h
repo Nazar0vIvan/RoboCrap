@@ -6,6 +6,7 @@
 #include "trajectories/chamfermotion.h"
 #include "trajectories/probetouchmotion.h"
 #include <memory>
+#include <QJsonObject>
 #include <QList>
 #include <QObject>
 #include <optional>
@@ -142,11 +143,26 @@ struct SceneSphere
   }
 };
 
-using SceneEndGauge = ProbeGaugeMount;
+struct SceneEndGauge : ProbeGaugeMount
+{
+  QString workpieceId;
+  QString alternateLineEndingSha256;
+};
+
+struct RefineScanSource
+{
+  quint32 job = 0;
+  quint32 target = 0;
+  QString uuid;
+  int revision = 0;
+};
 
 // Generated probe calibration motion, shared with playback.
 struct SceneTouchPath
 {
   std::shared_ptr<const ProbeTouchMotion> motion;
   QString refineJobId; // Empty for calibration and standalone preset paths.
+  int refineJobRevision = 0;
+  quint32 targetId = 0; // Scene instance of the solved mounting.
+  QJsonObject samplingInput; // Prepared offline, owned by this path for its lifetime.
 };

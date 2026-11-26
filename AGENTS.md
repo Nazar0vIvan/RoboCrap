@@ -206,8 +206,12 @@ history, tutorials or repeated implementation descriptions.
 
 - Inspect git status and the final diff, including new/untracked files. Run git diff --check;
   inspect untracked contents separately because ordinary diffs omit them.
-- Run CMake configure/build or build-backed QML lint only when explicitly requested.
-  Do not run by default or ask permission to build.
+- An implementation request authorizes source edits, source review, and Git
+  diff/status checks. Compile, link, configure, build, lint, launch the
+  application, or run tests only when the user explicitly requests that
+  operation. This applies to every tool and location, including direct
+  compiler calls, syntax-only checks, Qt/Felgo tools, scratch executables,
+  temporary harnesses, and offscreen runs.
 - When requested, discover the installed matching Qt/compiler kit; do not invent SDK paths.
   Before reusing a build, check CMAKE_HOME_DIRECTORY and compiler/Qt paths in CMakeCache.txt.
   Preserve its mode; use a separate directory when needed.
@@ -218,9 +222,10 @@ history, tutorials or repeated implementation descriptions.
   concrete-device/geometry/path changes. Build for QML registration/resource changes too.
   For QML, verify available targets and run Components_qmllint, Styles_qmllint or robocrap_qmllint
   as appropriate (hot reload OFF for application QML); use all_qmllint for multiple modules.
-- Check changed UI states, resizing and binding/import warnings in a disconnected runtime when
-  available. Build/lint success proves neither visual nor hardware correctness.
-  Documentation-only work needs content/diff checks.
+- Acceptance criteria in a plan describe what must eventually pass. They do
+  not authorize execution. If a runtime check was not requested, record it
+  as pending and stop after source review and Git checks. Do not ask to run
+  it by default.
 - Fix introduced failures. Report pre-existing failures separately; change them only to unblock
   relevant validation. Report checks run/results and skipped checks/reasons. Reviews identify
   verified findings by file/line, impact and correction.

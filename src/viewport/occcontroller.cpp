@@ -28,6 +28,21 @@ bool usesModel(const DrawingObject& object, const QString& path)
   return false;
 }
 
+QJsonObject savedPlaneDraft(const QJsonObject& plane)
+{
+  const auto counts = plane.value("countsUV").toArray();
+  const auto spacing = plane.value("spacingMmUV").toArray();
+  const auto automatic = plane.value("autoSpacingUV").toArray();
+  QJsonArray margins;
+  for (const auto& value : plane.value("marginsMmLeftTopBottomRight").toArray())
+    margins.append(QString::number(value.toDouble(), 'g', 17));
+  return {{"faceIndex", plane.value("faceIndex")}, {"reversed", plane.value("reversed")},
+          {"uCount", counts.at(0)}, {"vCount", counts.at(1)},
+          {"uSpacing", automatic.at(0).toBool() ? -1.0 : spacing.at(0).toDouble()},
+          {"vSpacing", automatic.at(1).toBool() ? -1.0 : spacing.at(1).toDouble()},
+          {"margins", margins}, {"skipped", plane.value("skippedUV")}};
+}
+
 } // namespace
 
 OccController::OccController(QString occtResources, QObject* parent)
@@ -111,11 +126,15 @@ QString OccController::workpieceModelRevision(quint32 objectId) const
   return loaded && loaded->error.isEmpty() ? QString::fromLatin1(loaded->modelSha256.toHex()) : QString{};
 }
 
+DrawingFaceSelection DrawingDocument::workpieceFaces(quint32 id) const
+{
+  const auto* model = workpieceModel(id);
+  return model ? DrawingFaceSelection{id, model->path, models.value(model->path)} : DrawingFaceSelection{};
+}
+
 void OccController::setRefineTarget(quint32 objectId)
 {
-  const auto* model = m_document.workpieceModel(objectId);
-  m_document.face = model ? DrawingFaceSelection{objectId, model->path, m_document.models.value(model->path)}
-                          : DrawingFaceSelection{};
+  m_document.face = m_document.workpieceFaces(objectId);
   if (auto* drawing = viewport()) applySelection(*drawing);
 }
 
@@ -139,19 +158,73 @@ QString OccController::showRefineFace(int index, bool reversed, bool picking)
   return {};
 }
 
-quint32 OccController::resolveRefineTarget(const QJsonObject& job, quint32 liveTarget) const
+std::pair<quint32, QString> OccController::resolveRefineTarget(const QJsonObject& job) const
 {
-  if (m_document.workpieceModel(liveTarget)) return liveTarget;
+  const auto key = job.value("workpieceId").toString();
+  const auto mounting = job.value("mountingId").toString();
+  const auto name = job.value("workpieceName").toString(job.value("name").toString());
+  QList<quint32> changedAtSavedPath;
   quint32 match = 0;
   for (const auto& object : m_document.objects) {
     const auto* model = m_document.workpieceModel(object.id);
-    if (!model || model->mountingId != job.value("mountingId").toString()) continue;
-    if (model->path != job.value("modelPath").toString()
-        && workpieceModelRevision(object.id) != job.value("modelSha256").toString()) continue;
-    if (match) return 0;
+    if (!model) continue;
+    if (key.isEmpty()) {
+      if (model->mountingId != mounting && model->alternateLineEndingSha256 != mounting) continue;
+      if (!m_document.models.contains(model->path)) return {0, tr("Waiting for the workpiece CAD to load.")};
+      if (workpieceModelRevision(object.id) != job.value("modelSha256").toString()) {
+        if (model->path == job.value("modelPath").toString()) changedAtSavedPath.append(object.id);
+        continue;
+      }
+    } else if (model->workpieceId != key) continue;
+    if (match) return {0, tr("More than one workpiece matches %1 in the scene.").arg(name)};
     match = object.id;
   }
-  return match;
+  if (match) return {match, {}};
+  // Let the editor report a replaced BREP and reassign faces on the original mounting.
+  if (changedAtSavedPath.size() == 1) return {changedAtSavedPath.front(), {}};
+  if (!changedAtSavedPath.isEmpty()) return {0, tr("More than one workpiece matches %1 in the scene.").arg(name)};
+  return {0, tr("Workpiece %1 is missing from the scene.").arg(name)};
+}
+
+RefineContacts OccController::refineContacts(const QJsonObject& job, quint32 liveTarget) const
+{
+  quint32 target = liveTarget;
+  if (!m_document.workpieceModel(target)) {
+    const auto [resolved, error] = resolveRefineTarget(job);
+    if (!resolved) return error;
+    target = resolved;
+  }
+  auto face = m_document.workpieceFaces(target);
+  if (!face.source) return tr("The workpiece CAD is unavailable. Wait for the model to load.");
+  if (!face.source->error.isEmpty()) return face.source->error;
+  if (workpieceModelRevision(target) != job.value("modelSha256").toString())
+    return tr("The workpiece model has changed. Reassign the three faces.");
+
+  QJsonArray drafts;
+  const auto planes = job.value("planes").toArray();
+  for (const auto& plane : planes) drafts.append(savedPlaneDraft(plane.toObject()));
+  const auto checked = checkRefineJob(target, drafts, std::move(face));
+  if (!checked.error.isEmpty()) return checked.error;
+
+  std::array<RefinePlaneContacts, 3> contacts;
+  for (int role = 0; role < planes.size(); ++role) {
+    const auto plane = planes.at(role).toObject();
+    auto& result = contacts[role];
+    result.role = plane.value("role").toString();
+    result.faceIndex = plane.value("faceIndex").toInt();
+    const auto& grid = *checked.grids.constFind(result.faceIndex);
+    result.normal = grid.normal;
+    if (plane.value("reversed").toBool()) result.normal = -result.normal;
+    result.points.reserve(grid.points.size() - grid.skipped.size());
+    for (int row = 0; row * grid.columns < grid.points.size(); ++row) {
+      for (int col = 0; col < grid.columns; ++col) {
+        const int offset = row * grid.columns + (row % 2 ? grid.columns - 1 - col : col);
+        const QPoint index = grid.indexAt(offset);
+        if (!grid.skipped.contains(index)) result.points.append({index, grid.points.at(offset)});
+      }
+    }
+  }
+  return contacts;
 }
 
 QVariantMap OccController::restoreRefineGrids(const QJsonObject& job, const QJsonArray& planes)
@@ -159,7 +232,7 @@ QVariantMap OccController::restoreRefineGrids(const QJsonObject& job, const QJso
   const auto target = m_document.face.target;
   if (workpieceModelRevision(target) != job.value("modelSha256").toString())
     return {{"error", tr("The workpiece model has changed. Reassign the three faces.")}, {"staleFaces", true}};
-  auto [current, error, grids] = checkRefineJob(target, planes);
+  auto [current, error, grids] = checkRefineJob(target, planes, m_document.face);
   if (!error.isEmpty()) {
     if (!m_document.face.revisionError().isEmpty())
       return {{"error", tr("%1 Reload the workpiece model before assigning faces.").arg(error)}, {"staleFaces", true}};
@@ -172,14 +245,14 @@ QVariantMap OccController::restoreRefineGrids(const QJsonObject& job, const QJso
 
 std::pair<QJsonObject, QString> OccController::refineJobDefinition(quint32 target, const QJsonArray& planes) const
 {
-  auto result = checkRefineJob(target, planes);
+  auto result = checkRefineJob(target, planes, m_document.face);
   return {std::move(result.definition), std::move(result.error)};
 }
 
-OccController::CheckedRefineJob OccController::checkRefineJob(quint32 target, const QJsonArray& planes) const
+OccController::CheckedRefineJob OccController::checkRefineJob(
+    quint32 target, const QJsonArray& planes, DrawingFaceSelection face) const
 {
   const auto* model = m_document.workpieceModel(target);
-  auto face = m_document.face;
   if (!model || target != face.target || model->path != face.path || !face.source
       || face.source != m_document.models.value(model->path))
     return {{}, tr("Select the current placed workpiece again.")};
@@ -251,7 +324,7 @@ OccController::CheckedRefineJob OccController::checkRefineJob(quint32 target, co
     placement.append(QJsonArray{model->modelInBase(i,0), model->modelInBase(i,1),
                                 model->modelInBase(i,2), model->modelInBase(i,3)});
   return {QJsonObject{{"method", "byThreePlanes"}, {"coordinateConvention", "workpiece-metric-grid-v1"},
-                      {"workpieceSceneId", qint64(target)}, {"mountingId", model->mountingId},
+                      {"workpieceSceneId", qint64(target)}, {"workpieceId", model->workpieceId}, {"mountingId", model->mountingId},
                       {"modelPath", model->path}, {"modelSha256", QString::fromLatin1(face.source->modelSha256.toHex())},
                       {"modelInBase", placement}, {"planes", savedPlanes}, {"includedCount", total}}, {}, std::move(grids)};
 }
@@ -373,8 +446,27 @@ void OccController::setSpindleFrames(const std::optional<M4d>& tcp, const std::o
 
 void OccController::setSelectedObjects(const QList<quint32>& ids)
 {
+  m_document.selectedContacts = {};
   m_document.selected = ids;
   if (auto* drawing = viewport()) applySelection(*drawing);
+}
+
+QString OccController::showRefineContacts(const QJsonObject& job, quint32 target)
+{
+  m_document.selected.clear();
+  auto& markers = m_document.selectedContacts.emplace().markers;
+  QString error;
+  if (target) {
+    m_document.selected.append(target);
+    const auto contacts = refineContacts(job, target);
+    if (const auto* failure = std::get_if<QString>(&contacts)) error = *failure;
+    else {
+      for (const auto& plane : std::get<0>(contacts))
+        for (const auto& contact : plane.points) markers.append(contact.position);
+    }
+  }
+  if (auto* drawing = viewport()) applySelection(*drawing);
+  return error;
 }
 
 void OccController::setToolSelected(bool selected)

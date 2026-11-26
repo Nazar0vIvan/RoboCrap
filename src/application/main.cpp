@@ -128,7 +128,9 @@ int main(int argc, char* argv[])
   QObject::connect(&workspaceController, &WorkspaceController::preciseActiveChanged,
                    &calibration, &SceneCalibration::setPreciseActive);
   QObject::connect(&workspaceController, &WorkspaceController::selectionChanged,
-                   &viewportController, &RoboCrap3D::OccController::setSelectedObjects);
+                   &scene, &SceneModel::showSelection);
+  QObject::connect(&workspaceController, &WorkspaceController::selectionChanged,
+                   &calibration, &SceneCalibration::selectScanPath);
   QObject::connect(&viewportController, &RoboCrap3D::OccController::applicationSelectionRequested,
                    &workspaceController, &WorkspaceController::pickObject);
   QObject::connect(&viewportController, &RoboCrap3D::OccController::toolSelectionRequested,

@@ -66,6 +66,7 @@ class SceneCalibration : public QObject
   Q_PROPERTY(bool calculating READ calculating NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool ownsPlayback READ ownsPlayback NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool canPlay READ canPlay NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(bool canPrepareScan READ canPrepareScan NOTIFY availabilityChanged FINAL)
 public:
   SceneCalibration(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
   QString error() const { return m_error; }
@@ -81,18 +82,24 @@ public:
   // Entering reloads both fixtures and hides non-calibration objects; leaving restores them.
   void setActive(bool active);
   void setPreciseActive(bool active);
+  void selectScanPath(const QList<quint32>& ids);
   bool ownsPlayback() const;
   bool canGenerate() const { return unavailableReason().isEmpty(); }
   QString unavailableReason() const;
   bool calculating() const { return m_calculation.valid(); }
   Q_INVOKABLE void generate();
+  Q_INVOKABLE void generateScan(quint32 jobId);
   bool canPlay() const;
   // Resumes the paused calibration playback or starts the calibration path from HOME.
   Q_INVOKABLE void dryRun();
+  Q_INVOKABLE void playProbePath(quint32 pathId);
+  bool canPrepareScan() const;
+  Q_INVOKABLE void prepareScan();
   // The generated calibration path, or null.
   const SceneTouchPath* path() const;
 
 signals:
+  void scanGenerated(quint32 objectId);
   void errorChanged();
   // Also emitted for a repeated failure with the same text, so every failed write is reported.
   void settingsErrorChanged();
@@ -110,6 +117,10 @@ private:
   QString reloadEndGauge(const QString& path);
   // A changed sphere, measuring TCP or robot model makes the calibration path invalid.
   void invalidatePath();
+  void invalidateProbeMotions();
+  void invalidatePendingScan();
+  QString probeSetupError() const;
+  void trackCalculation(std::future<ProbeTouchMotionResult> calculation);
   void finishCalculation();
   void hideOther(SceneObject* object);
   void onObjectAdded(SceneObject* object);
@@ -130,6 +141,7 @@ private:
   quint32 m_sphereId = 0;
   quint32 m_endGaugeId = 0;
   quint32 m_pathId = 0; // Combined sphere and gauge path.
+  quint32 m_selectedScanId = 0;
   QList<quint32> m_hiddenIds; // Objects hidden on entry, shown again on exit.
   QString m_error;
   QString m_sphereError; // An invalid configured obstacle prevents generating a scan with missing geometry.
@@ -138,6 +150,7 @@ private:
   QString m_settingsReadError; // The start read's error; while set, nothing is written to the settings file.
   quint64 m_revision = 0; // Increased by invalidatePath.
   quint64 m_calculationRevision = 0;
+  std::optional<RefineScanSource> m_scanSource;
   QTimer m_calculationTimer;
   std::future<ProbeTouchMotionResult> m_calculation;
 };
