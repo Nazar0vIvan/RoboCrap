@@ -2,8 +2,8 @@
     "jobs": [
         {
             "coordinateConvention": "workpiece-metric-grid-v1",
-            "id": "7017998b-f49b-4dac-9bb3-4e7ef83380ce",
-            "includedCount": 15,
+            "id": "17c12137-9b2b-46bf-86dc-55a84888f88b",
+            "includedCount": 31,
             "method": "byThreePlanes",
             "modelInBase": [
                 [
@@ -33,33 +33,33 @@
             ],
             "modelPath": "D:/Qt/QtProjects/RoboCrap/build/Felgo_SDK_Desktop_Qt_6_8_3_MinGW_64_bit-Debug/resources/cad/GE-22.brep",
             "modelSha256": "79641b3d7e872f541faec374c214a54008db0667a305e145c513baa32e227271",
-            "mountingId": "066faac94c2cfed6a401c2b3079ba370e353bc40f4583a8a2179b222be247f0d",
-            "name": "Refine Job 7017998b",
+            "mountingId": "4f48ab0b017b542c23dfced4e281bef0cb8548204b67fac0a8d397d629a4d22b",
+            "name": "Refine Job 17c12137",
             "planes": [
                 {
                     "autoSpacingUV": [
                         true,
-                        true
+                        false
                     ],
                     "countsUV": [
                         4,
-                        2
+                        4
                     ],
                     "faceIndex": 2,
-                    "includedCount": 8,
+                    "includedCount": 16,
                     "marginsMmLeftTopBottomRight": [
+                        10,
                         0,
                         0,
-                        0,
-                        0
+                        3
                     ],
                     "reversed": false,
                     "role": "XPlane",
                     "skippedUV": [
                     ],
                     "spacingMmUV": [
-                        11.666,
-                        22
+                        7.333,
+                        5.3
                     ]
                 },
                 {
@@ -68,61 +68,57 @@
                         true
                     ],
                     "countsUV": [
-                        2,
-                        2
+                        3,
+                        3
                     ],
                     "faceIndex": 1,
-                    "includedCount": 4,
+                    "includedCount": 9,
                     "marginsMmLeftTopBottomRight": [
-                        0,
-                        0,
-                        0,
-                        0
+                        10,
+                        2,
+                        2,
+                        3
                     ],
                     "reversed": false,
                     "role": "YPlane",
                     "skippedUV": [
                     ],
                     "spacingMmUV": [
-                        35,
-                        9
+                        11,
+                        2.5
                     ]
                 },
                 {
                     "autoSpacingUV": [
-                        true,
+                        false,
                         true
                     ],
                     "countsUV": [
                         2,
-                        2
+                        3
                     ],
                     "faceIndex": 5,
-                    "includedCount": 3,
+                    "includedCount": 6,
                     "marginsMmLeftTopBottomRight": [
                         0,
-                        0,
-                        0,
+                        3,
+                        3,
                         0
                     ],
                     "reversed": false,
                     "role": "ZPlane",
                     "skippedUV": [
-                        [
-                            1,
-                            1
-                        ]
                     ],
                     "spacingMmUV": [
-                        9,
-                        22
+                        5,
+                        8
                     ]
                 }
             ],
             "revision": 1,
             "workpieceId": "fixture:end-gauge",
             "workpieceName": "End gauge",
-            "workpieceSceneId": 1
+            "workpieceSceneId": 2
         }
     ],
     "version": 1

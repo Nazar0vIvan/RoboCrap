@@ -168,7 +168,6 @@
   CMakeLists.txt.user* only when specifically required.
 - Live PLC/FTS/RSI connections, outputs, sensor bias or motion require explicit authorization
   covering that hardware action. GUI/build checks do not grant it.
-- For open-ended code or architecture searches, prefer QMD MCP over broad repository scans; verify results against current source files and respect the search exclusions above.
 
 ## Project basics
 
