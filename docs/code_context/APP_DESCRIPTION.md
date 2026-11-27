@@ -28,12 +28,13 @@ point on the hole axis, outside the hole.
 ## Workflow
 
 1. **Prepare, animate and run the probe calibration (Measuring mode, Calibration submode).**
-   Entering the submode reads `resources/json/calibration_sphere.json` beside the executable
-   (copied there by the build only when absent): the 25 mm sphere, the strut that holds it and ten
-   ruby ball centres recorded by jogging onto the sphere. The fitted sphere is shown as the
-   ball-centre sphere and the compensated sphere; a sphere centre made primary by *Reassign*
-   (below) replaces the fitted centre, and the table and stand move with it. If `resources/json/end_gauge.json`
-   is present, its three measured planes place the GE-22 gauge and its workpiece axes independently in the scene.
+   Entering the submode reads `SPH25_rough.json` from `ROBOCRAP_SETTINGS_DIR` (default `settings/`).
+   The file describes the 25 mm sphere, its strut and ten ruby ball centres recorded by jogging onto the sphere.
+   The viewport draws the ball-centre and compensated spheres. A sphere centre made primary by *Reassign*
+   (below) replaces the fitted centre, and the table and sphere stand move with it. If `EG22_rough.json`
+   is present in the same directory, five ball centres on each of the wide, end and top faces locate
+   the gauge. Its CAD model follows the fitted origin and orientation. Its stand shares that origin
+   and keeps its axes parallel to the robot base axes.
    Select **End gauge** to inspect the observation source, origin and axes in robot base coordinates.
    Other scene groups are hidden until the submode is left. *Generate Path* computes a fixed motion from HOME back to HOME: 114
    calibration touches in six passes and then 44 verification touches in two passes. Each pass
@@ -67,8 +68,11 @@ point on the hole axis, outside the hole.
    Import the workpiece end surface with *Plane from JSON* and the hole with *Cylinder from JSON*.
    Each file is fitted and compensated for the probe ball radius. Select both surfaces and run
    *Intersect Selected* to create their intersection edge: an ellipse when the end plane is
-   inclined to the hole axis. *Cone from JSON* and the Precise submode (Dry Scan, Scan) are
-   placeholders without an implementation.
+   inclined to the hole axis. *Cone from JSON* is a placeholder.
+
+   In Measuring / Precise, select a saved EG22 Refine Job, generate a G1 or G2 Scan Path and
+   inspect its Dry Run. *RSI Sampling* saves the numbered searches and controller job under
+   the configured records directory and exports `C:/RoboCrapJobs/scan_data.txt`. Physical Scan stays disabled pending installed-cell commissioning and justified measurement bounds.
 
 3. **Generate the animation trajectory (Machining mode).**
    Select the intersection edge and open *Generate Path*. Settings: chamfer size (mm) and angle

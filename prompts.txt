@@ -30,13 +30,40 @@ py -m opentab web
 ```
 py -m opentab
 ```
-
 --------
+
+Получить RoboCrap-snapshot - НАЧАЛО нового чата ChatGPT
+```
+cd "$env:USERPROFILE\Downloads"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "E:\Qt\QtProjects\RoboCrap" -Initial
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "D:\Qt\QtProjects\RoboCrap" -Initial
+```
+
+Получить RoboCrap-snapshot - ПРОДОЛЖЕНИЕ чата ChatGPT
+```
+cd "$env:USERPROFILE\Downloads"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "E:\Qt\QtProjects\RoboCrap"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "D:\Qt\QtProjects\RoboCrap"
+```
+
+Дерево проекта:
+```
+cd "$env:USERPROFILE\Downloads"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\Show-RoboCrapTree.ps1"
+```
+
 Экспорт сессии OpenTab
 ```
 cd "$env:USERPROFILE\Downloads"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\export-codex-session.ps1
 ```
+
+--------
+
+В данный момент у меня сохранена одна Refine Job в файле \settings\planar_probe_scans.json. Когда я выбираю его в Scene и нажимаю Generate Path -> Generate, в строке состояния появляется ошибка: G1: ZPlane face 5 G1 (2,1): transfer: Transfer schedule exceeds numerical range or 200,000 points.
+
+Как я понимаю, слишком много точек траектории. Это очень странно, потому что траектория для процедуры калибровки в разы больше. Важно понять, что Generate Path должен генерировать траекторию только для анимации, а уже RSI Sampling дискретизирует те участки на которых нужен RSI. Эта разница хорошо должна быть видна в коде для обработки фаски (chamfer) и для калибровки в принципе тоже. Была проделана специальная работа, чтобы траектория генерировалась на сначала для анимации упрощённо, но визуально правдоподобно, а уже потом RSI Sampling только для нужных участков, для сканирования и калибровки - это approach path 
+
 
 ---------
 Есть следующая проблема. Сейчас уже реализована создание Refine Job по точкам для трёх плоскостей + и анимация сканирования этих точек 

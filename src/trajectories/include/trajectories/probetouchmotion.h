@@ -83,5 +83,5 @@ struct RefineScan
   double ballRadius = 0.0;
   std::optional<ProbeTouchPlanParameters> sphere;
   std::optional<Eigen::AlignedBox3d> tableTop;
-  ProbeTouchMotionResult solve(const ChamferRobotSetup& robot) const;
+  ProbeTouchMotionResult solve(const ChamferRobotSetup& robot, int group) const;
 };

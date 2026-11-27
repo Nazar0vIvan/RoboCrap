@@ -18,6 +18,7 @@ struct EndGaugeObservations
 {
   // Indexed by the CAD coordinate held constant on the face: X, Y, Z.
   static const QStringList FaceNames;
+  static constexpr double ClampTopMm = -35.0 + 8.0; // Bottom 8 mm of the native side faces.
   std::array<QVector<V3d>, 3> ballCentres;
   double ballRadius = 0.0; // mm, as used when collecting these observations.
 

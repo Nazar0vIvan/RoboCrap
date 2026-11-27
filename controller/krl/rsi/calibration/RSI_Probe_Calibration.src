@@ -70,7 +70,7 @@ PTP  XHOME
          IF $IN[8] THEN
             RETURN
          ENDIF
-         IF NOT SEARCH(StepTouch[Step]) THEN
+         IF PROBE_SEARCH(StepTouch[Step])<>1 THEN
             LIN SearchStart
             RETURN
          ENDIF
@@ -83,13 +83,13 @@ PTP  XHOME
    ENDIF
 END
 
-DEFFCT BOOL SEARCH(Touch:IN)
+GLOBAL DEFFCT INT PROBE_SEARCH(Touch:IN)
    DECL INT Touch
    DECL BOOL Touched
-   
+
    $SEN_PINT[3]=Touch
    IF RSI_ON(#RELATIVE)<>RSIOK THEN
-      RETURN FALSE
+      RETURN -1
    ENDIF
 
    WAIT SEC 0.012
@@ -97,7 +97,13 @@ DEFFCT BOOL SEARCH(Touch:IN)
    RSI_MOVECORR()
    Touched=$IN[8]
    $SEN_PINT[1]=0
-   RETURN (RSI_OFF()==RSIOK) AND Touched
+   IF RSI_OFF()<>RSIOK THEN
+      RETURN -1
+   ENDIF
+   IF Touched THEN
+      RETURN 1
+   ENDIF
+   RETURN 0
 ENDFCT
 
 DEFFCT BOOL READ_JOB()

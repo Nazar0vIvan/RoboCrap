@@ -4,10 +4,12 @@
 #include "../motion/jointsegments.h"
 #include <limits>
 #include "geometry/utils.h"
+#include "geometry/endgaugefit.h"
 #include "kinematics/kr10kinematics.h"
 
 #include <QDateTime>
 #include <QStringList>
+#include <QUuid>
 
 #include <cmath>
 #include <utility>
@@ -61,16 +63,18 @@ public:
     const auto steps = probeMotionSteps(m_motion.plan());
     const auto& phases = m_motion.timed().phases();
     if (steps.size() != phases.size())
-      return {{}, QStringLiteral("The calibration path has %1 phases for %2 motion steps. Generate it again.")
+      return {{}, QStringLiteral("The probe path has %1 phases for %2 motion steps. Generate it again.")
                       .arg(phases.size()).arg(steps.size())};
     if (steps.size() > StepLimit)
-      return {{}, QStringLiteral("%1 steps exceed the %2 steps of RSI_Probe_Calibration.dat.")
+      return {{}, QStringLiteral("%1 steps exceed the controller DAT limit of %2.")
                       .arg(steps.size()).arg(StepLimit)};
     const auto tool = wirePose(m_motion.robot().flangeToTcp);
     if (!tool) return {{}, QStringLiteral("Cannot represent the measuring flange-to-TCP transform at six decimal places.")};
     m_job.toolCoordinates = *tool;
     // Pairs the stream table with its job; the job_id of the sessions that run it.
-    m_job.diagnosticId = QStringLiteral("calibration_")
+    const bool scan = m_motion.plan().passes.front().purpose == ProbeTouchPurpose::Scan;
+    m_job.diagnosticId = scan ? QStringLiteral("scan_") + QUuid::createUuid().toString(QUuid::WithoutBraces)
+        : QStringLiteral("calibration_")
         + QDateTime::currentDateTimeUtc().toString(QStringLiteral("yyyyMMdd_HHmmss_zzz"));
     m_job.streams.append(QVector<V6d>{}); // Touch numbers start at 1.
     for (qsizetype index = 0; index < steps.size(); ++index) {
@@ -81,7 +85,10 @@ public:
     m_job.plan = (QStringLiteral("touch;search_step;purpose;group;repetition;pass_touch;tilt_deg;roll_deg;normal_x;"
                                  "normal_y;normal_z;start_x_mm;start_y_mm;start_z_mm;start_a_deg;start_b_deg;start_c_deg;"
                                  "contact_x_mm;contact_y_mm;contact_z_mm;contact_a_deg;contact_b_deg;contact_c_deg;"
-                                 "start_s;start_t;face;face_point\n")
+                                 "start_s;start_t;face;face_point")
+                  + (scan ? QStringLiteral(";pass;role;source_face;u;v;local_x_mm;local_y_mm;local_z_mm;"
+                                           "direction_x;direction_y;direction_z;search_mm;overtravel_mm") : QString{})
+                  + QLatin1Char('\n')
                   + m_planRows).toUtf8();
     return {std::move(m_job), {}};
   }
@@ -129,8 +136,9 @@ private:
     m_job.streams.append(std::move(stream));
     m_job.steps.append(ProbeRsiStep{ProbeRsiStepKind::Search, number});
     const auto configuration = m_kinematics.configuration(start.joints, m_kinematics.solveFK(start.joints));
-    const QString purpose = pass.purpose == ProbeTouchPurpose::Calibration ? QStringLiteral("calibration")
-        : pass.purpose == ProbeTouchPurpose::Gauge ? QStringLiteral("gauge") : QStringLiteral("verification");
+    const bool scan = pass.purpose == ProbeTouchPurpose::Scan;
+    static const std::array<const char*, 4> purposes{"calibration", "verification", "gauge", "scan"};
+    const QString purpose = QString::fromLatin1(purposes.at(static_cast<std::size_t>(pass.purpose)));
     m_planRows += QStringList{QString::number(number), QString::number(m_job.steps.size()), purpose,
                               QString::number(pass.group), QString::number(pass.repetition),
                               QString::number(phase.touch), QString::number(touch.tilt, 'f', 6),
@@ -138,9 +146,20 @@ private:
                               QString::number(touch.normal.y(), 'f', 9), QString::number(touch.normal.z(), 'f', 9),
                               csvPose(touch.start), csvPose(touch.contact), QString::number(configuration.status),
                               QString::number(configuration.turn)}.join(QLatin1Char(';'))
-                  + (pass.face == ProbeFace::Sphere ? QStringLiteral(";;")
-                      : QStringLiteral(";%1;%2").arg(pass.face == ProbeFace::A ? "A" : "B").arg(touch.facePoint))
-                  + QLatin1Char('\n');
+                  + QLatin1Char(';');
+    if (scan) {
+      QStringList fields{EndGaugeObservations::FaceNames.at(phase.pass), QString{}, QString::number(phase.pass + 1), pass.role,
+                         QString::number(pass.sourceFace), QString::number(touch.cell.x()), QString::number(touch.cell.y())};
+      for (double value : touch.localMaterialPoint) fields.append(QString::number(value, 'g', 17));
+      for (double value : touch.normal) fields.append(QString::number(-value, 'f', 9));
+      fields << QString::number(touch.searchDistance(), 'g', 17) << QString::number(touch.overtravel, 'g', 17);
+      m_planRows += fields.join(QLatin1Char(';'));
+    } else if (pass.face == ProbeFace::Sphere) {
+      m_planRows += QLatin1Char(';');
+    } else {
+      m_planRows += QStringLiteral("%1;%2").arg(pass.face == ProbeFace::A ? "A" : "B").arg(touch.facePoint);
+    }
+    m_planRows += QLatin1Char('\n');
     return {};
   }
 
@@ -180,5 +199,18 @@ ProbeCalibrationRsiResult sampleProbeCalibrationRsi(const ProbeTouchMotion& moti
   if (!plan.sphere || !plan.gauge || !plan.touchCount(ProbeTouchPurpose::Calibration)
       || !plan.touchCount(ProbeTouchPurpose::Verification) || !plan.touchCount(ProbeTouchPurpose::Gauge))
     return {{}, QStringLiteral("Generate the combined sphere and GE-22 calibration path.")};
+  return CalibrationJobSampler(motion).run();
+}
+
+ProbeCalibrationRsiResult sampleProbeScanRsi(const ProbeTouchMotion& motion)
+{
+  const auto& plan = motion.plan();
+  if (!plan.gauge || plan.passes.size() != 3)
+    return {{}, QStringLiteral("Generate the three-plane EG22 Scan Path.")};
+  const int group = plan.passes.front().group;
+  for (const auto& pass : plan.passes)
+    if (pass.purpose != ProbeTouchPurpose::Scan || pass.face != ProbeFace::Refine || pass.touches.isEmpty()
+        || pass.group != group || (group != 1 && group != 2))
+      return {{}, QStringLiteral("The three scan passes must use the same G1 or G2 orientation.")};
   return CalibrationJobSampler(motion).run();
 }

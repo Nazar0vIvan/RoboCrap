@@ -4,7 +4,6 @@
 #include "viewport/occcontroller.h"
 
 #include <QDir>
-#include <QJsonArray>
 #include <QVariantMap>
 
 #include <algorithm>
@@ -48,6 +47,12 @@ QString radiusDiameter(double radius)
   return QStringLiteral("%1 / %2").arg(formatReal(radius), formatReal(2 * radius));
 }
 
+RoboCrap3D::DrawingPart calibrationStand(const QString& fileName, const V3d& origin)
+{
+  const QDir cad(RoboCrap3D::ViewportAssets::applicationAssets().cadDirectory);
+  return {RoboCrap3D::DrawingModel{cad.filePath(fileName), makeTranslation(origin)}, {{140, 140, 140}, 0.0, true}};
+}
+
 // Strokes of machining and calibration paths: the working move (machining turn, probe Approach)
 // green and wider, PTP purple, the other LIN/CIRC moves blue.
 constexpr RoboCrap3D::DrawingStyle WorkingStroke{{30, 130, 45}, 3.0};
@@ -87,6 +92,11 @@ void SceneObject::setRefineJob(const QJsonObject& job, quint32 target)
   emit propertiesChanged();
 }
 
+QString SceneEndGauge::cadPath()
+{
+  return QDir(RoboCrap3D::ViewportAssets::applicationAssets().cadDirectory).filePath(QStringLiteral("EG22.brep"));
+}
+
 void SceneObject::setScanSamplingInput(const QJsonObject& input)
 {
   if (!isRefineScan()) return;
@@ -96,20 +106,15 @@ void SceneObject::setScanSamplingInput(const QJsonObject& input)
 
 QVariantList SceneObject::properties() const
 {
-  if (const auto* path = touchPath(); path && !path->refineJobId.isEmpty()) {
+  if (const auto* path = touchPath(); path && !path->source.uuid.isEmpty()) {
     const auto& plan = path->motion->plan();
     QVariantList rows{propertyRow(tr("Included contacts"), QString::number(plan.touchCount(ProbeTouchPurpose::Scan))),
             propertyRow(tr("Probe orientation"), QStringLiteral("G%1").arg(plan.passes.front().group)),
-            propertyRow(tr("Job ID"), path->refineJobId),
-            propertyRow(tr("Job revision"), QString::number(path->refineJobRevision)),
+            propertyRow(tr("Job ID"), path->source.uuid),
+            propertyRow(tr("Job revision"), QString::number(path->source.revision)),
             propertyRow(tr("Clearance"), tr("Tool and mounting clearance unverified."))};
-    const auto searches = path->samplingInput.value("searches").toArray();
-    for (const auto& entry : searches) {
-      const auto search = entry.toObject();
-      rows.append(propertyRow(tr("Search %1").arg(search.value("touch").toInt()),
-                              tr("%1 (%2,%3)").arg(search.value("role").toString())
-                                  .arg(search.value("u").toInt()).arg(search.value("v").toInt())));
-    }
+    if (!path->samplingInput.isEmpty())
+      rows.append(propertyRow(tr("Sampled job"), path->samplingInput.value("job_id").toString()));
     return rows;
   }
   if (const auto* job = std::get_if<QJsonObject>(&m_shape))
@@ -229,14 +234,15 @@ std::optional<RoboCrap3D::DrawingObject> SceneObject::drawing() const
                                                 0.5 * table.widthY - table.sphereFromMinusY, -table.sphereAboveTop};
     result.parts.append({DrawingPlane{tableCenter, V3d::UnitZ(), V3d::UnitX(), table.lengthX, table.widthY},
                          {{190, 190, 190}, 0.0, true}});
-    result.parts.append({DrawingModel{value->standModel, makeTranslation(value->center)}, {{140, 140, 140}, 0.0, true}});
+    result.parts.append(calibrationStand(QStringLiteral("CALIBRATION_STAND_SPH25.brep"), value->center));
   } else if (const auto* gauge = endGauge()) {
     const auto& frame = gauge->workpieceInBase;
-    const QString model = QDir(ViewportAssets::applicationAssets().cadDirectory).filePath(QStringLiteral("GE-22.brep"));
+    const QString model = SceneEndGauge::cadPath();
     result.parts.append({DrawingModel{model, frame, gauge->observationsSha256, gauge->workpieceId,
                                      gauge->alternateLineEndingSha256}, {{160, 165, 170}}});
     constexpr DrawingStyle axes[] = {{{255, 0, 0}, 2.0, true}, {{0, 180, 0}, 2.0, true}, {{0, 0, 255}, 2.0, true}};
     const V3d origin = frame.col(3).head<3>();
+    result.parts.append(calibrationStand(QStringLiteral("CALIBRATION_STAND_EG22.brep"), origin));
     for (int axis = 0; axis < 3; ++axis) {
       const V3d tip = origin + 15.0 * frame.col(axis).head<3>();
       result.parts.append({QList<V3d>{origin, tip}, axes[axis]});

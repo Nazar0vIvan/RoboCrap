@@ -39,3 +39,4 @@ struct ProbeCalibrationRsiResult
 
 // Copied-input worker operation; writes no file.
 ProbeCalibrationRsiResult sampleProbeCalibrationRsi(const ProbeTouchMotion& motion);
+ProbeCalibrationRsiResult sampleProbeScanRsi(const ProbeTouchMotion& motion);

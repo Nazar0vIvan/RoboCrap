@@ -6,6 +6,7 @@ DEF  CELL ( )
   ;EXT EXAMPLE2 ( )
   ;EXT EXAMPLE3 ( )
   EXT RSI_Probe_Calibration ( )
+  EXT RSI_Probe_Scan ( )
   
   ;FOLD INIT
   DECL CHAR DMY[3]
@@ -54,7 +55,7 @@ DEF  CELL ( )
 
     CASE 1
       P00 (#EXT_PGNO,#PGNO_ACKN,DMY[],0 ) ; Reset Progr.No.-Request
-      WAIT SEC 5 ; program 2: placeholder without motion
+      RSI_Probe_Scan ( ) ; program 2: EG22 probe scan
 
     CASE 2
       P00 (#EXT_PGNO,#PGNO_ACKN,DMY[],0 ) ; Reset Progr.No.-Request

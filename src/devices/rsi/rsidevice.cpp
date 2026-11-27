@@ -7,6 +7,7 @@
 #include <QNetworkDatagram>
 #include <QTimer>
 #include <QUdpSocket>
+#include <QVarLengthArray>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
@@ -175,6 +176,7 @@ void RsiDevice::connectDevice(const QVariantMap& config)
 // Callers run while the device is started (stopDevice, connectDevice, invoke), so m_sock exists.
 void RsiDevice::disconnectDevice()
 {
+  if (m_scanAccess == ScanAccess::Running || m_scanAccess == ScanAccess::Paused) m_scanAccess = ScanAccess::Revoked;
   m_sock->close();
   // The controller peer port is learned again from the next connection.
   m_pp = 0;
@@ -191,6 +193,9 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
     if (acceptsSender(datagram)) storeRequest(datagram.data(), recordClockNs());
   }
   emitCapture(false);
+  m_scanAccess = diagnosticId.startsWith(QStringLiteral("scan_")) ? ScanAccess::Prepared : ScanAccess::OtherJob;
+  m_scanSearch = 0;
+  m_scanStartHigh = false;
   m_streams = streams;
   m_capture.diagnosticId = diagnosticId;
   m_activeStream = 0;
@@ -201,6 +206,15 @@ void RsiDevice::setCorrections(const QVector<QVector<V6d>>& streams, const QStri
   qInfo().noquote() << "[INFO]" << objectName() + ": RSI correction streams installed:"
                     << streams.size();
   publishState();
+}
+
+void RsiDevice::permitScan(const QString& diagnosticId, bool paused)
+{
+  if (m_scanAccess == ScanAccess::OtherJob || m_scanAccess == ScanAccess::Revoked) return;
+  if (diagnosticId != m_capture.diagnosticId || !m_sock || m_sock->state() != QAbstractSocket::BoundState)
+    m_scanAccess = ScanAccess::Revoked;
+  else
+    m_scanAccess = paused ? ScanAccess::Paused : ScanAccess::Running;
 }
 
 bool RsiDevice::acceptsSender(const QNetworkDatagram& datagram) const
@@ -217,19 +231,42 @@ void RsiDevice::onReadyRead()
   // controller cycle. Malformed and unanswered requests remain in the capture.
   const qint64 entryNs = recordClockNs();
   std::optional<Request> newest;
+  quint16 replyPort = 0;
   qsizetype newestRecord = -1; // Capture record of newest.
-  std::optional<Request> detection; // Oldest pending packet that reports a new touch.
+  QVarLengthArray<Request, 2> detections; // Usually empty; one GUI event per numbered scan SEARCH.
+  bool failed = false;
   while (m_sock && m_sock->hasPendingDatagrams()) {
     const QNetworkDatagram datagram = m_sock->receiveDatagram();
     if (!acceptsSender(datagram)) continue;
     const qsizetype record = storeRequest(datagram.data(), recordClockNs());
     const auto request = decodeRequest(datagram.data());
     if (!request) continue;
-    m_pp = datagram.senderPort();
+    replyPort = datagram.senderPort();
+    if (m_scanAccess == ScanAccess::OtherJob || m_scanAccess == ScanAccess::Running) m_pp = replyPort;
     newest = request;
     newestRecord = record;
-    if (!request->start) m_reportedTouch = 0; // KRL sends Start = 0 before every search.
-    if (!detection && reportsTouch(*request)) detection = request;
+    if (m_scanAccess != ScanAccess::OtherJob) {
+      if (m_scanAccess == ScanAccess::Paused) {
+        if (!request->start) m_scanStartHigh = false;
+        // A queued contact in the interrupted SEARCH still belongs to this attempt.
+        if (!m_scanStartHigh || request->touchIndex != m_scanSearch) continue;
+      } else if (m_scanAccess != ScanAccess::Running) continue;
+      if (request->start) {
+        const bool newSearch = !m_scanStartHigh || request->touchIndex != m_scanSearch;
+        if ((newSearch && (request->touchIndex != m_scanSearch + 1 || m_reportedTouch != m_scanSearch))
+            || request->touchIndex >= m_streams.size() || (request->touch && !request->joints)) {
+          m_scanAccess = ScanAccess::Revoked;
+          failed = true;
+          continue;
+        }
+        m_scanSearch = request->touchIndex;
+      }
+      m_scanStartHigh = request->start;
+    } else if (!request->start) m_reportedTouch = 0; // KRL sends Start = 0 before every search.
+    if ((m_scanAccess != ScanAccess::OtherJob || detections.empty()) && reportsTouch(*request)) {
+      detections.append(*request);
+      if (m_scanAccess != ScanAccess::OtherJob) m_reportedTouch = request->touchIndex;
+    }
   }
   if (!newest) return;
   const qsizetype index = m_index;
@@ -238,7 +275,7 @@ void RsiDevice::onReadyRead()
   const QByteArray encoded = encodeReply(reply);
   const qint64 sentNs = recordClockNs();
   // A reply follows an accepted request, so the endpoints exist.
-  const qint64 written = m_sock->writeDatagram(encoded, m_endpoints->peerAddress, m_pp);
+  const qint64 written = m_sock->writeDatagram(encoded, m_endpoints->peerAddress, replyPort);
   const qint64 writeNs = recordClockNs() - sentNs;
   if (newestRecord >= 0) {
     RsiCaptureRecord& stored = m_capture.records[newestRecord]; // Unshared: no detach.
@@ -256,10 +293,15 @@ void RsiDevice::onReadyRead()
   }
   m_handlerDoneNs = recordClockNs();
   // After the reply: the queued signal must not delay it.
-  if (detection) {
-    m_reportedTouch = detection->touchIndex;
-    emit touchDetected(static_cast<int>(detection->touchIndex), *detection->joints);
+  for (const auto& detection : std::as_const(detections)) {
+    m_reportedTouch = detection.touchIndex;
+    emit touchDetected(m_capture.diagnosticId, static_cast<int>(detection.touchIndex), *detection.joints);
   }
+  if (m_scanAccess == ScanAccess::Running && (written != encoded.size() || (reply.stop && m_reportedTouch != m_scanSearch))) {
+    m_scanAccess = ScanAccess::Revoked;
+    failed = true;
+  }
+  if (failed) emit scanSearchFailed(m_capture.diagnosticId);
 }
 
 bool RsiDevice::reportsTouch(const Request& request) const
@@ -280,7 +322,7 @@ void RsiDevice::onDispatcherAwake()
 
 qsizetype RsiDevice::storeRequest(const QByteArray& xml, qint64 receivedNs)
 {
-  if (m_streams.isEmpty()) return -1; // Requests without a table belong to no run.
+  if (m_streams.isEmpty() || m_scanAccess == ScanAccess::Prepared) return -1;
   QVector<RsiCaptureRecord>& records = m_capture.records;
   if (records.size() == CaptureRecords || xml.size() > CaptureXmlBytes - m_capture.requestXml.size()) {
     ++m_capture.dropped;
@@ -325,6 +367,12 @@ void RsiDevice::onCaptureTimer()
 
 RsiDevice::Reply RsiDevice::advance(const Request& request)
 {
+  if (m_scanAccess == ScanAccess::Paused) return {}; // Hold the stream index across a passive STOP.
+  if (m_scanAccess == ScanAccess::Prepared || m_scanAccess == ScanAccess::Revoked) {
+    Reply reply;
+    reply.stop = request.start;
+    return reply;
+  }
   if (!request.start) {
     resetRun();
     return {};
@@ -379,5 +427,5 @@ void RsiDevice::publishState()
   static const char* const names[4] = {"idle", "streaming", "finished", "stopping"};
   const char* name = names[static_cast<int>(m_state)];
   emit stateReady({{"rsiState", QString::fromLatin1(name)},
-                   {"rsiCorrections", activeStreamSize()}});
+                   {"rsiCorrections", activeStreamSize()}, {"rsiDiagnosticId", m_capture.diagnosticId}});
 }

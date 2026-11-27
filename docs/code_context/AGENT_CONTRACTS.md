@@ -54,23 +54,22 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   CMAKE_RUNTIME_OUTPUT_DIRECTORY overrides.
 - Application, the executable's declaring directory, attaches the OCCT POST_BUILD deployment helper;
   root owns deployment setup and installation. Deployed CAD/resources stay beside the executable.
-  The sphere and end-gauge JSON files in resources/deploy/config/ are copied independently to
-  <exe dir>/resources/json/ when absent, preserving deployed observations. File/type moves require
-  owning source-list/import updates; asset moves require resource-URL updates.
+  File/type moves require owning source-list/import updates; asset moves require resource-URL updates.
 - Source layout: resources/qrc/ holds the compiled resources (icons.qrc → qrc:/icons/, fonts.qrc →
   qrc:/fonts/, config.qrc → :/config/db.json); resources/deploy/ holds what the deployment copies
-  beside the executable (cad/robot/kr10 BREPs, cad/**/*.stp converted to BREP, config/); controller/
+  beside the executable (cad/robot/kr10 BREPs, cad/**/*.stp converted to BREP); controller/
   holds KR C4 files (krl/ programs, krl/lib/ shared modules, krl/template/, rsi_config/, read-only
   snapshots/<date>/ copies of controller files); data/ holds input data that the application does not
-  produce (probe point files, workpiece models). The executable-side layout (resources/cad,
-  resources/json, resources/occt) does not change with the source layout.
+  produce (probe point files, workpiece models). The executable-side layout (resources/cad and
+  resources/occt) does not change with the source layout.
 - `ROBOCRAP_RECORDS_DIR` is the CMake cache path for records (default `<repository>/records`,
   git-ignored). `SessionRecorder` writes a folder per recorded run. Manual FTS logs go directly
   under the records root. See [RECORDS_FORMAT.md](RECORDS_FORMAT.md).
 - The probe settings file probe_calibration.json (primary ball centre in {F}, sphere centre in {B},
   contact distances, last calibration result) is in the root cache path ROBOCRAP_SETTINGS_DIR
   (default <repository>/settings, tracked by git so the values move between computers), passed to
-  every target as a compile definition; only SceneCalibration reads and writes it.
+  every target as a compile definition; only SceneCalibration reads and writes it. The same directory
+  is the sole source of rough fixture observations (`SPH25_rough.json` and `EG22_rough.json`).
 - SceneModel restores Refine Job definitions from version 1 of `planar_probe_scans.json` in the
   same settings directory. Hold the file lock across read, comparison of the previous UUID record
   and atomic replacement. A conflict, read, format, lock or write failure preserves the file and draft.
@@ -122,7 +121,7 @@ in [ARCHITECTURE.md](ARCHITECTURE.md); this file states only constraints.
   assets or republishing the model; it is not movement-error recovery. Preserve application
   presentations. End-effector models are fixed:
   no tool CAD selection, Browse or Retry. Initial camera fitting stops after a gesture on that
-  surface. Decorative parts (axes, markers, normals, calibration table and stand) are non-selectable
+  surface. Decorative parts (axes, markers, normals, calibration table and fixture stands) are non-selectable
   and excluded from fit bounds: OccScene marks their presentation structures infinite after display
   (OccPartProps::fitExcluded), never their AIS objects, because AIS_Shape computes an infinite
   object's shaded presentation as wireframe.
@@ -209,7 +208,7 @@ src/application/main.cpp; for QML registration also Build and modules.
   the index and any other text as an invalid packet; `Touch` is on only for "1" and `AIPos` gives the
   angles, neither invalidates a packet. Once per search (reset by every Start = 0 packet and by a new
   table) the oldest pending packet with Start 1, Touch 1, angles and TouchIndex > 0 is emitted as
-  `touchDetected(touch, joints)` after the send attempt and capture bookkeeping. `RsiDevice` stores
+  `touchDetected(diagnosticId, touch, joints)` after the send attempt and capture bookkeeping. `RsiDevice` stores
   accepted-peer requests under the installed table, including unanswered ones, up to each buffer's
   limits. `captureReady` passes a capture to the recorder. Protocol details are in
   `controller/krl/rsi/chamfer/RSI_Chamfer_Hole_CONTRACT.md` ("PC behavior") and
@@ -249,7 +248,7 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   Properties panel. Preserve stable scene-allocated IDs (0 = none), shared references and GUI-thread
   mutations. Numerical fitting/intersection belongs to Geometry; OCCT presentation to adapters.
   Decorative points/normals/axes take no part in picking or fit bounds. The calibration sphere's
-  drawing adds the table top (sphere file `table`) and CALIBRATION_STAND as decorative parts that share
+  drawing adds the table top (sphere file `table`) and `CALIBRATION_STAND_SPH25.brep` as decorative parts that share
   its visibility; diagnostic overlay updates keep them.
 - A Refine Job owns the saved definition as scene metadata. Publish it after the file commit.
   Creation checks the current BREP revision, three independent trimmed planes and each role's
@@ -262,8 +261,10 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   observations (LF and CRLF are equivalent) and CAD revision to exactly one workpiece. Save the
   resulting key under the existing file lock, keeping the job revision. Recheck the loaded and on-disk BREP before restoring
   face indices. A moved mounting retains model-local points and needs fresh clearance checks at generation.
-- In Precise, Generate Path uses the selected saved Refine Job. One orientation group covers the
-  three passes. Try G2 first and retry the whole route in G1 on failure. Each point keeps its saved
+- In Precise, Generate Path opens Scan Path in Properties for the selected saved Refine Job.
+  Generate uses the chosen group (G1 by default, or G2) for all three passes. Failure keeps the
+  editor and group for retry. Cancel discards the draft. A changed or invalid selection or leaving
+  Precise closes the editor. Each point keeps its saved
   face and grid cell. Check the placed sphere, strut and finite table top at the stored motion points
   when present. Tool-body and mounting clearance need visual review.
   Publish and select the new Scan Path only after rechecking the job revision, target, placement,
@@ -278,7 +279,7 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   cylinder inputs; there is no circle import. SceneSurfaceImporter refuses files above 4 MiB before
   reading them, and decodeProbeSamples refuses more than MaximumProbeSamples (10,000) points.
 - fitSphere rejects fewer than four or nonfinite points, a smallest singular value below 1e-9 of the
-  largest, and a nonpositive squared radius. SceneCalibration reads the deployed sphere file on the GUI
+  largest, and a nonpositive squared radius. SceneCalibration reads `SPH25_rough.json` on the GUI
   thread at every entry into Calibration: version 1, positive sphereDiameter, strutDiameter and
   strutRecess below the diameter, at least four finite roughPoints X/Y/Z; other keys ignored.
   SceneSphere::roughCenter and the ball-centre radius come from the readings; the compensated radius
@@ -288,13 +289,15 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   Calibration is active the sphere, end gauge and calibration path form the Calibration group. Entry records and
   hides other visible objects (also ones added meanwhile), exit shows the recorded ones that still
   exist. Delete is disabled for the Calibration group.
-- On entry to Calibration or Precise, the executable-side `resources/json/end_gauge.json` supplies
+- On entry to Calibration or Precise, `EG22_rough.json` supplies
   GE-22 ball centres in {B} and their observation radius in mm. Native X=0 (wide), Y=0 (end)
   and Z=0 (top) have outward normals near base −X, +Y and +Z respectively. Compensate each
   fitted plane inward before intersecting them. The top fixes Z and the wide face fixes X
   projected onto that top. Keep gauge placement independent of sphere placement and probe settings.
-  Display GE-22.brep and the three positive {W} axes using that single placement. The solid is
-  selectable and participates in fit bounds. Its axes are decorations. An absent or invalid gauge
+  Place the native frame of `EG22.brep` and the three positive workpiece axes at the fitted origin
+  and orientation. Translate `CALIBRATION_STAND_EG22.brep` to that origin with its axes parallel to
+  the base axes. The gauge solid participates in picking and fit bounds. Its stand and axes share
+  the gauge visibility and are excluded from picking and fit bounds. An absent or invalid gauge
   removes the prior gauge on re-entry, and invalid input reports the filename and reason.
 
 ## Machining and playback
@@ -433,10 +436,22 @@ Apply Geometry and scene to numerical changes.
     shared stream table QVector<QVector<V6d>> plus its diagnosticId through the queued main.cpp link
     (chamfer and test LIN: one stream at index 0; calibration: index t = touch number, index 0 empty);
     keep that identifier paired with the active corrections.
-  - At most one table and its job file are held: preparing chamfer or test LIN first removes shared_data.txt and sends an empty table; a removed,
+  - At most one table and its job file are held. After the previous controller job is released, preparing chamfer, test LIN, calibration or EG22 first removes shared_data.txt and scan_data.txt and sends an empty table. A removed,
     incompatible or regenerated source path drops its table and file. A job file that cannot be removed
     is shown as the preparation error and stops that Sampling or test LIN request before sampling or
     installing a stream; startup and invalidation show it too.
+  - EG22 RSI Sampling accepts the saved three-face motion after checking its Refine Job, mounted
+    CAD revision, native face planes, signed approach sides and ruby clearance from the clamp.
+    The shared probe sampler numbers each Approach once for plan.csv and the stream table. Scan Path Properties shows the sampled job ID.
+    Archive the sampled record before exporting the same scan_data.txt bytes and installing the table.
+    Physical Scan requires the same selected path, applied primary, measured mounting, acknowledged table ID,
+    connected devices, PLC Run conditions and a fresh SHA-256 of the live bytes. The commissioning gate
+    stays closed pending installed-cell evidence and justified physical pose bounds.
+    Installing a scan table grants no correction permission. ControlIO requires the admitted job ID and
+    acknowledged program 2. Passive STOP holds the stream index. Abort or invalidation revokes permission
+    synchronously. The preparation owner retains the export and table until fresh CELL feedback and capture closure.
+    The settings marker scan_in_progress preserves the replacement block across restart. See the scan module contract
+    for recovery and the completion levels at X1.1.
   - Calibration RSI Sampling (prepareCalibration, App.Calibration path present, no calculation)
     runs sampleProbeCalibrationRsi on the saved ProbeTouchMotion: probeMotionSteps pairs one to one
     with the timed phases (PTP to entry, LIN descend/retract/retreat, CIRC transfer, Search for each
@@ -445,14 +460,14 @@ Apply Geometry and scene to numerical changes.
     search stream moves 5 mm along the approach direction at the plan's searchFeed, then 50 zeros.
     After checking that the sampled motion is still current, preparation saves plan.csv, calibration_data.txt
     and session.json under records with outcome sampled. Start remains unavailable pending controller integration.
-  - The RSI test LIN (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md) is the third stream
-    source: prepareTestLin drops any held stream and job file like a new request and queues 25000
+  - The RSI test LIN (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md)
+    uses prepareTestLin, which drops any held stream and job file like a new request and queues 25000
     increments of +0.004 mm WORLD X plus 50 zeros with a `test_lin_` ID through the same link; a later
     chamfer or test LIN request, startup or shutdown drops it.
   - Calibration run (startCalibration, plans/PROBE_SPHERE_CALIBRATION_RUN_EXECPLAN.md): allowed with a
     held current calibration job, no Sampling or run active and the PLC's own Run checks met (step
     IDLE, X1.0 and X1.7 on, X1.6 off). It opens the session before sending PLC runRobotProgram 1.
-    Detections arrive through the queued main.cpp link from RsiDevice::touchDetected to recordTouch
+    Detections arrive through the recorder GUI queue from RsiDevice::touchDetected to recordTouch
     (first per touch number). The PLC state comes
     through DeviceRunner::dataUpdated, because QQmlPropertyMap::valueChanged does not report insert().
     Once the PLC start sequence has left IDLE, a return to IDLE without STARTED or a running program

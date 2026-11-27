@@ -1,0 +1,182 @@
+&ACCESS RV
+&PARAM EDITMASK = *
+&PARAM TEMPLATE = C:\KRC\Roboter\Template\vorgabe
+DEF RSI_Probe_Scan( )
+DECL INT Step
+DECL INT SearchResult
+DECL E6POS SearchStart
+
+$OUT[2]=FALSE
+;FOLD INI;%{PE}
+  ;FOLD BASISTECH INI
+    GLOBAL INTERRUPT DECL 3 WHEN $STOPMESS==TRUE DO IR_STOPM ( )
+    INTERRUPT ON 3
+    BAS (#INITMOV,0 )
+  ;ENDFOLD (BASISTECH INI)
+  ;FOLD USER INI
+    ;Make your modifications here
+
+  ;ENDFOLD (USER INI)
+;ENDFOLD (INI)
+
+$ADVANCE=0
+$SEN_PINT[1]=0
+$SEN_PINT[2]=0
+$SEN_PINT[3]=0
+IF RSI_RESET()<>RSIOK THEN
+   RETURN
+ENDIF
+IF NOT READ_JOB() THEN
+   RETURN
+ENDIF
+
+;FOLD PTP HOME (INIT_PTP_VEL)
+$BWDSTART = FALSE
+PDAT_ACT=PDEFAULT
+FDAT_ACT=FHOME
+BAS (#PTP_PARAMS,20 )
+INIT_PTP_VEL ( )
+$H_POS=XHOME
+PTP  XHOME
+;ENDFOLD
+
+$BASE=$NULLFRAME
+$TOOL=ToolFrame
+$IPO_MODE=#BASE
+$ORI_TYPE=#CONSTANT
+$VEL.CP=TransferVelocity
+$ACC.CP=TransferAcceleration
+FOR Step=1 TO 6
+   $ACC_AXIS[Step]=20
+ENDFOR
+IF RSI_CREATE("RSI_Probe_Calibration.rsi")<>RSIOK THEN
+   RETURN
+ENDIF
+
+FOR Step=1 TO StepCount-1
+   SWITCH StepKind[Step]
+   CASE 1
+      PTP StepTarget[Step]
+   CASE 2
+      LIN StepTarget[Step]
+   CASE 4
+      SearchStart=$POS_ACT
+      IF $IN[8] THEN
+         RETURN
+      ENDIF
+      SearchResult=PROBE_SEARCH(StepTouch[Step])
+      IF SearchResult<>1 THEN
+         IF SearchResult==0 THEN
+            LIN SearchStart
+         ENDIF
+         RETURN
+      ENDIF
+   ENDSWITCH
+ENDFOR
+;FOLD PTP HOME (INIT_PTP_VEL)
+$BWDSTART = FALSE
+PDAT_ACT=PDEFAULT
+FDAT_ACT=FHOME
+BAS (#PTP_PARAMS,20 )
+INIT_PTP_VEL ( )
+$H_POS=XHOME
+PTP  XHOME
+;ENDFOLD
+
+WAIT SEC 0
+$OUT[2]=TRUE
+END
+
+DEFFCT BOOL READ_JOB()
+   DECL STATE_T State
+   DECL MODUS_T Mode
+   DECL INT File
+   DECL INT Version
+   DECL INT Step
+   DECL BOOL Ok
+   DECL CHAR Tail
+   DECL INT Searches
+   DECL POS StartPos
+   DECL POS RetractPos
+
+   ; Version 1 of /RoboCrapJobs/scan_data.txt (RSI_Probe_Scan_CONTRACT.md).
+   Mode=#SYNC
+   File=0
+   Version=0
+   StepCount=0
+   TransferVelocity=0
+   TransferAcceleration=0
+   IF NOT REMOUNT_SHARE() THEN
+      RETURN FALSE
+   ENDIF
+   CWRITE($FCT_CALL,State,Mode,"krl_fopen","/RoboCrapJobs/scan_data.txt","r",File)
+   IF State.RET1<>#DATA_OK THEN
+      RETURN FALSE
+   ENDIF
+   CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d",Version)
+   Ok=(State.RET1==#DATA_OK) AND (Version==1)
+   ToolFrame=READ_FRAME(File,Ok)
+   CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%f",TransferVelocity)
+   Ok=Ok AND (State.RET1==#DATA_OK)
+   CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%f",TransferAcceleration)
+   Ok=Ok AND (State.RET1==#DATA_OK)
+   Ok=Ok AND (TransferVelocity>0) AND (TransferVelocity<=$VEL_MA.CP)
+   Ok=Ok AND (TransferAcceleration>0) AND (TransferAcceleration<=$ACC_MA.CP)
+   CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d",StepCount)
+   Ok=Ok AND (State.RET1==#DATA_OK) AND (StepCount>=1) AND (StepCount<=600)
+   Searches=0
+   Step=1
+   WHILE Ok AND (Step<=StepCount)
+      ; Reset first: values left from a previous job must not survive a partial conversion.
+      StepKind[Step]=0
+      StepTouch[Step]=0
+      CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d;%d",StepKind[Step],StepTouch[Step])
+      Ok=(State.RET1==#DATA_OK) AND (StepKind[Step]>=1) AND (StepKind[Step]<=5)
+      IF Ok THEN
+         SWITCH StepKind[Step]
+         CASE 1,2
+            StepTarget[Step]=READ_POS(File,Ok)
+            Ok=Ok AND (StepTouch[Step]==0) AND ((StepKind[Step]==2) OR (Step==1))
+         CASE 4
+            Searches=Searches+1
+            Ok=(StepTouch[Step]==Searches) AND (Step>1) AND (Step<StepCount)
+            IF Ok THEN
+               Ok=(StepKind[Step-1]==2)
+            ENDIF
+         CASE 5
+            Ok=(Step==StepCount) AND (StepTouch[Step]==0)
+         DEFAULT
+            Ok=FALSE
+         ENDSWITCH
+      ENDIF
+      IF Ok AND (Step>1) THEN
+         IF StepKind[Step-1]==4 THEN
+            Ok=(StepKind[Step]==2)
+            IF Ok THEN
+               StartPos=StepTarget[Step-2]
+               RetractPos=StepTarget[Step]
+               Ok=(StartPos.X==RetractPos.X) AND (StartPos.Y==RetractPos.Y) AND (StartPos.Z==RetractPos.Z)
+               Ok=Ok AND (StartPos.A==RetractPos.A) AND (StartPos.B==RetractPos.B) AND (StartPos.C==RetractPos.C)
+               Ok=Ok AND (StartPos.S==RetractPos.S) AND (StartPos.T==RetractPos.T)
+            ENDIF
+         ENDIF
+      ENDIF
+      Step=Step+1
+   ENDWHILE
+   IF Ok THEN
+      Ok=(Searches>0) AND (StepCount>=6) AND (StepKind[1]==1) AND (StepKind[StepCount]==5)
+   ENDIF
+   IF Ok THEN
+      Ok=(StepKind[StepCount-3]==4) AND (StepKind[StepCount-1]==2)
+   ENDIF
+   WHILE Ok
+      CWRITE($FCT_CALL,State,Mode,"krl_fgetc",File,Tail)
+      IF State.RET1<>#DATA_OK THEN
+         Ok=(State.MSG_NO==-4)
+         EXIT
+      ENDIF
+      Ok=(Tail==13) OR (Tail==10)
+   ENDWHILE
+   CWRITE($FCT_CALL,State,Mode,"krl_fclose",File)
+   RETURN Ok AND (State.RET1==#DATA_OK)
+ENDFCT

@@ -79,12 +79,14 @@ public slots:
   // Discard buffered requests and reset run/peer state; install the table in Idle.
   // Stream i plays for TouchIndex i; RSI_Chamfer_Hole and RSI_Probe_Check use stream 0.
   void setCorrections(const QVector<QVector<V6d>>& streams, const QString& diagnosticId);
+  void permitScan(const QString& diagnosticId, bool paused);
   // Emits the stored requests now (requested = true), also when there are none.
   void flushCapture();
 
 signals:
   // Once per search: the joint angles of the first packet with Touch 1 of touch number touch.
-  void touchDetected(int touch, const V6d& joints);
+  void touchDetected(const QString& diagnosticId, int touch, const V6d& joints);
+  void scanSearchFailed(const QString& diagnosticId);
   // Stored requests: after 1 s without a request, on flushCapture, before a new table, on disconnect and stop.
   void captureReady(const RsiCapture& capture);
 
@@ -123,6 +125,10 @@ private:
   qsizetype m_index = 0;
   // TouchIndex reported in the current search; 0 after a Start = 0 packet or a new table.
   qsizetype m_reportedTouch = 0;
+  enum class ScanAccess { OtherJob, Prepared, Running, Paused, Revoked };
+  ScanAccess m_scanAccess = ScanAccess::OtherJob;
+  bool m_scanStartHigh = false;
+  qsizetype m_scanSearch = 0; // Last admitted rising Start, retained across Start-low packets.
   RunState m_state = RunState::Idle;
   // Capture timing, recordClockNs(); -1 until first recorded.
   qint64 m_sleepNs = -1; // ControlIO event loop last went to sleep.

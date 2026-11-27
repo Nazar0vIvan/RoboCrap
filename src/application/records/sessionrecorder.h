@@ -24,8 +24,10 @@ public:
   RecordWriteResult saveCalibrationPlan(const SessionJob& job) const;
   // The table was dropped; an open calibration session keeps its own copy of the job.
   void disarm();
-  // Start Calibration: opens the calibration session of the armed job.
+  // Opens an explicit probe session for the armed calibration or scan job.
   void openCalibration();
+  const SessionJob* armedJob() const { return m_job ? &*m_job : nullptr; }
+  void failScan(const QString& error);
   QString sessionName() const; // Folder name of the open session without suffix; empty when none.
   void addFile(const RecordFile& file);
   void setResult(const QJsonObject& result);
@@ -41,6 +43,9 @@ public slots:
 signals:
   // RsiDevice::flushCapture: the remaining requests of the closing calibration session.
   void captureRequested();
+  void scanClosing(const QString& jobId, const QString& error);
+  void probeTouch(const QString& jobId, int touch, const V6d& joints);
+  void scanSearchFailed(const QString& jobId);
 
 private:
   struct OpenSession

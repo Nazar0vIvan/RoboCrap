@@ -58,7 +58,7 @@ public:
   const SceneSphere* sphere() const { return std::get_if<SceneSphere>(&m_shape); }
   const SceneEndGauge* endGauge() const { return std::get_if<SceneEndGauge>(&m_shape); }
   const SceneTouchPath* touchPath() const { return std::get_if<SceneTouchPath>(&m_shape); }
-  bool isRefineScan() const { return touchPath() && !touchPath()->refineJobId.isEmpty(); }
+  bool isRefineScan() const { return touchPath() && !touchPath()->source.uuid.isEmpty(); }
   void setScanSamplingInput(const QJsonObject& input);
   const ChamferMotion* machiningPath() const { return m_machiningPath ? &m_machiningPath->motion() : nullptr; }
   QVariantList properties() const;

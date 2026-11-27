@@ -104,10 +104,13 @@ int main(int argc, char* argv[])
   // Implicitly shared corrections and their log identifier cross to ControlIO together.
   QObject::connect(&preparation, &SceneMachiningPreparation::correctionsReady,
                    rsiDev, &RsiDevice::setCorrections, Qt::QueuedConnection);
-  // Calibration run: program 1 through the PLC, one detection per touch from ControlIO.
-  preparation.attachPlc(hub.device(QStringLiteral("plc")));
-  QObject::connect(rsiDev, &RsiDevice::touchDetected, &preparation,
-                   &SceneMachiningPreparation::recordTouch, Qt::QueuedConnection);
+  // PLC feedback owns run admission; ControlIO applies permission changes before returning.
+  preparation.attachPlc(hub.device(QStringLiteral("plc")), hub.device(QStringLiteral("rsi")));
+  QObject::connect(&preparation, &SceneMachiningPreparation::scanPermission,
+                   rsiDev, &RsiDevice::permitScan, Qt::BlockingQueuedConnection);
+  // Touches and the final capture share a GUI receiver, also during the recorder's shutdown drain.
+  QObject::connect(rsiDev, &RsiDevice::touchDetected, &recorder, &SessionRecorder::probeTouch, Qt::QueuedConnection);
+  QObject::connect(rsiDev, &RsiDevice::scanSearchFailed, &recorder, &SessionRecorder::scanSearchFailed, Qt::QueuedConnection);
   // Disable result dispatch and finish the worker before shutting down ControlIO.
   QObject::connect(&app, &QApplication::aboutToQuit, &preparation, &SceneMachiningPreparation::shutdown);
   QObject::connect(&app, &QApplication::aboutToQuit, &hub, &DeviceHub::stopAll);

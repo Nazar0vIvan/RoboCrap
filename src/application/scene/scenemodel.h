@@ -31,7 +31,8 @@ public:
   Q_INVOKABLE QVariantMap createRefineJob(quint32 target, const QJsonArray& planes);
   Q_INVOKABLE void loadRefineJobs();
   Q_INVOKABLE quint32 resolveRefineTarget(quint32 jobId);
-  RoboCrap3D::RefineContacts refineContacts(quint32 jobId) const;
+  RoboCrap3D::RefineContacts refineContacts(quint32 jobId, std::optional<double> eg22BallRadius = {}) const;
+  QString refineScanError(const RefineScanSource& source, const ProbeTouchPlan& plan);
   QList<quint32> refinePathIds(const QString& jobId = {}, quint32 target = 0) const;
   std::pair<quint32, QString> publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion);
   Q_INVOKABLE QVariantMap saveRefineJob(quint32 jobId, quint32 target, const QJsonArray& planes);

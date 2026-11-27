@@ -6,13 +6,17 @@ RoboCrap writes run records under `ROBOCRAP_RECORDS_DIR` (CMake cache path, defa
 
 - A calibration session covers one **Start Calibration** request, including interruptions and resumes. For chamfer (`RSI_Chamfer_Hole`) and test LIN (`RSI_Probe_Check`), each recorded RSI capture forms a session.
 - **Calibration RSI Sampling** computes the sphere and gauge search streams and saves the planned job in a timestamped calibration folder. Both synthetic and measured placements use this operation. The status bar shows the saved path. Chamfer sampling exports its KRL job to `C:/RoboCrapJobs/` and keeps the plan for the run. **RSI test LIN** installs fixed increments.
-- `job_id` in `session.json` identifies the sampled correction table (`diagnosticId`, based on UTC). Separate sessions can use the same table.
+- `job_id` in `session.json` identifies the sampled correction table (`diagnosticId`, a UUID for EG22 scans and time-based for the other kinds). Separate sessions can use the same table.
 - The controller sends an XML request every 4 ms while RSI is on. The PC answers the newest valid request it read. IPOC is the controller's millisecond counter, normally increasing by 4 per cycle.
 - The PC timestamps requests, replies and PLC observations with `recordClockNs()`, using `std::chrono::steady_clock`.
 
 ## Session start, end and writing
 
 **Sampling record.** Calibration sampling writes `plan.csv`, `calibration_data.txt` (the serialized step table) and `session.json` with `outcome` set to `sampled`. The local start timestamp marks the save and `duration_s` is zero. Detections, PLC observations, RSI packets and fitted results belong to an executed session. Controller delivery for combined calibration is deferred.
+
+**EG22 RSI Sampling.** A `scan` folder contains `session.json` with outcome `sampled`, `plan.csv` and the version-1 `scan_data.txt`. The live export uses the archived bytes. `inputs.scan_data_sha256` identifies those bytes, and `job_id` identifies the numbered stream table. Inputs include Refine Job UUID/revision, workpiece identity, mounting pose and observation digest, CAD SHA-256, robot, TCP, applied probe setup and timing. A sample has no measured contacts.
+
+**EG22 execution.** Scan opens a second session with the sampled job ID before the export digest check and program-2 request. Resume continues that session. After a controller start, the recorder keeps available captures and ordered detections through return to CELL or application shutdown. The requested capture for that ID closes acquisition after earlier touch events. A missing final capture, dropped capture rows, incomplete touch sequence, missing success levels or controller failure produces a failed session. A failed digest check produces a failed attempt before motion. A new start requires a new sample.
 
 **Calibration run.** The session starts before the application sends PLC program 1. A Passive STOP and Resume share the original session. Program completion, a detected start failure, leaving AUT EXT, PLC disconnection, job invalidation or application shutdown ends the run. Closing requests the remaining capture. If the flush acknowledgement is still missing after the 2 s wait, the recorder writes the available data with an error. RSI traffic for an armed calibration outside an open session is reported and skipped.
 
@@ -22,19 +26,20 @@ RoboCrap writes run records under `ROBOCRAP_RECORDS_DIR` (CMake cache path, defa
 
 ## Folder name
 
-`yyyy-MM-dd_HH-mm-ss_<kind>`, followed by `_failed` when the session failed, for example `2026-11-20_16-58-26_calibration` or `2026-11-21_10-04-51_chamfer_failed`. The time is the local time of the session start; `<kind>` is `calibration`, `chamfer` or `test-lin`. When a folder of that name exists, `_2`, `_3`, … is appended. A calibration session fails when its run error is not empty (start failure, PLC disconnect, missing touches, fit or settings error); a chamfer or test LIN session fails when the correction stream did not reach its end (Result 1 echoed by the controller).
+`yyyy-MM-dd_HH-mm-ss_<kind>`, followed by `_failed` when the session failed, for example `2026-11-20_16-58-26_calibration` or `2026-11-21_10-04-51_chamfer_failed`. The time is the local time of the session start; `<kind>` is `calibration`, `scan`, `chamfer` or `test-lin`. When a folder of that name exists, `_2`, `_3`, … is appended. A calibration session fails when its run error is not empty (start failure, PLC disconnect, missing touches, fit or settings error); a chamfer or test LIN session fails when the correction stream did not reach its end (Result 1 echoed by the controller).
 
 ## Files
 
 | File | Kinds | Content |
 | --- | --- | --- |
 | `session.json` | all | what, when, outcome, inputs, result, RSI summary |
-| `plan.csv` | calibration, chamfer | One row per planned touch, or the initial pose and one row per chamfer motion increment |
-| `calibration_data.txt` / `shared_data.txt` | native calibration / chamfer | Serialized job bytes for the sampled or executed job |
+| `plan.csv` | calibration, scan, chamfer | One row per planned touch, or the initial pose and one row per chamfer motion increment |
+| `calibration_data.txt` / `scan_data.txt` / `shared_data.txt` | calibration / scan / chamfer | Serialized job bytes for the sampled or executed job |
 | `rsi.csv` | with a capture | One row per stored request, with reply fields when a send was attempted |
 | `rsi_timing.csv` | with a capture | PC timing for the same requests in the same order |
 | `plc.csv` | with PLC rows | Available state at session start and observations through session end |
-| `touches.csv` | calibration with detections | Joint angles per detected touch |
+| `touches.csv` | calibration with detections, executed scan | Actual AIPos joint angles in detection order. Scan appends `search_step;pass;role;source_face;u;v` from its sampled plan and retains the header for zero detections. |
+| `scan_completion.json` | executed scan | Program acknowledgement, observed low and subsequent high, termination status, last available PLC feedback (eight X1 bits, step, program, result and program state), and failure reason |
 | `residual_sets.csv` | calibration with a computed fit | Step-K7 residual sets |
 
 Manual force sensor logs (`fts_*.json`) go directly under the records root.
@@ -49,7 +54,7 @@ JSON indented by 4 spaces, top-level keys in this order, keys inside `inputs`, `
 
     {
       "format": 1,
-      "kind": "calibration",                       // calibration, chamfer or test-lin
+      "kind": "calibration",                       // calibration, scan, chamfer or test-lin
       "krl_program": "RSI_Probe_Calibration",
       "start": "2026-11-20T16:58:26.391+03:00",    // local time of t_s = 0 with UTC offset
       "duration_s": 1001.234,
@@ -80,6 +85,8 @@ Calibration, one row per touch:
     touch;search_step;purpose;group;repetition;pass_touch;tilt_deg;roll_deg;normal_x;normal_y;normal_z;start_x_mm;start_y_mm;start_z_mm;start_a_deg;start_b_deg;start_c_deg;contact_x_mm;contact_y_mm;contact_z_mm;contact_a_deg;contact_b_deg;contact_c_deg;start_s;start_t;face;face_point
 
 `touch` is the global touch number (the RSI TouchIndex), `search_step` the 1-based step of the search in `calibration_data.txt`, `purpose` `calibration`, `verification` or `gauge`, `group` the probe orientation (1 stylus down, 2 stylus along +X, 3 stylus down turned 180°), `repetition` the pass of that group, `pass_touch` the touch within the pass, `tilt_deg`/`roll_deg` the touch direction, `normal_*` the outward surface normal at the contact, `start_*` and `contact_*` the nominal ball-centre poses at the search start and at contact, `start_s`/`start_t` the KUKA Status/Turn at the search start. Combined sessions append `face` (A or B) and `face_point` (1–4) for gauge rows. Sphere rows leave both fields empty. Earlier sphere-only sessions omit these two columns.
+
+Scan rows use purpose `scan`, face `wide`, `end` or `top`, and an empty `face_point`. Additional columns give the 1-based pass, role, source BREP face index, 1-based U/V cell, material point in native CAD mm, inward search unit direction in robot base coordinates, total permitted travel and overtravel in mm. `search_step` indexes `scan_data.txt`.
 
 Combined sessions store `gauge_length_mm`, `gauge_reference` (nominal for the GE-22 preset), `gauge_source`, `gauge_observations_sha256` and `gauge_workpiece_in_base` (four matrix rows, translation in mm) in `session.json` inputs. Run `python python/calibration/calibration_analysis.py gauge <session folder>` for measured length and effective ball radius by probe orientation.
 
@@ -115,7 +122,7 @@ X1 inputs report KR C4 outputs. Y1.0–Y1.4 drive Automatic External inputs, Y1.
 
 ## touches.csv and residual_sets.csv
 
-`touches.csv` has header `touch;a1_deg;a2_deg;a3_deg;a4_deg;a5_deg;a6_deg`. Each row holds the first reported detection for that touch in run order. The RSI request must decode with Start 1, Touch 1, a positive TouchIndex and six joint angles. The writer prints the angles in degrees to six decimals. Failed runs retain their detections.
+Calibration `touches.csv` has header `touch;a1_deg;a2_deg;a3_deg;a4_deg;a5_deg;a6_deg`. Each row holds the first reported detection for that touch in run order. The RSI request must decode with Start 1, Touch 1, a positive TouchIndex and six joint angles. The writer prints the angles in degrees to six decimals. Failed runs retain their detections.
 
 `residual_sets.csv`: `set;group;value_deg;mean_mm;bound_mm;count`, one row per step-K7 set of `docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_METHOD_RU.md`: `set` is `ring` (equal tilt) or `roll` (equal roll), `value_deg` that tilt or roll, `mean_mm` the mean calibration residual, `bound_mm` = 3·repeatability/√count.
 

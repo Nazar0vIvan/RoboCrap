@@ -5,6 +5,7 @@
 #include "occt/occviewwindow.h"
 
 #include "geometry/plane.h"
+#include "geometry/endgaugefit.h"
 #include <Eigen/SVD>
 #include <QJSEngine>
 #include <QDir>
@@ -15,6 +16,7 @@
 #include <utility>
 
 #include <Font_FontMgr.hxx>
+#include <Precision.hxx>
 #include <Standard_Failure.hxx>
 
 namespace RoboCrap3D {
@@ -186,7 +188,7 @@ std::pair<quint32, QString> OccController::resolveRefineTarget(const QJsonObject
   return {0, tr("Workpiece %1 is missing from the scene.").arg(name)};
 }
 
-RefineContacts OccController::refineContacts(const QJsonObject& job, quint32 liveTarget) const
+RefineContacts OccController::refineContacts(const QJsonObject& job, quint32 liveTarget, std::optional<double> eg22BallRadius) const
 {
   quint32 target = liveTarget;
   if (!m_document.workpieceModel(target)) {
@@ -215,12 +217,23 @@ RefineContacts OccController::refineContacts(const QJsonObject& job, quint32 liv
     const auto& grid = *checked.grids.constFind(result.faceIndex);
     result.normal = grid.normal;
     if (plane.value("reversed").toBool()) result.normal = -result.normal;
+    if (eg22BallRadius) {
+      const QString expectedRole = QStringLiteral("%1Plane").arg(QStringLiteral("XYZ").at(role));
+      const V3d outward = (role == 0 ? -1.0 : 1.0) * V3d::Unit(role);
+      if (result.role != expectedRole || (result.normal - outward).norm() > Precision::Angular()
+          || std::abs(grid.points.front()[role]) > Precision::Confusion())
+        return tr("%1 must use the EG22 native zero plane with its outward approach side.").arg(expectedRole);
+    }
     result.points.reserve(grid.points.size() - grid.skipped.size());
     for (int row = 0; row * grid.columns < grid.points.size(); ++row) {
       for (int col = 0; col < grid.columns; ++col) {
         const int offset = row * grid.columns + (row % 2 ? grid.columns - 1 - col : col);
         const QPoint index = grid.indexAt(offset);
-        if (!grid.skipped.contains(index)) result.points.append({index, grid.points.at(offset)});
+        if (grid.skipped.contains(index)) continue;
+        const auto& point = grid.points.at(offset);
+        if (eg22BallRadius && role != 2 && point.z() - *eg22BallRadius < EndGaugeObservations::ClampTopMm)
+          return tr("%1 (%2,%3): the ruby ball enters the EG22 clamp exclusion.").arg(result.role).arg(index.x()).arg(index.y());
+        result.points.append({index, point});
       }
     }
   }

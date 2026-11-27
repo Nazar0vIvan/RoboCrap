@@ -92,10 +92,9 @@ EndGaugeFit EndGaugeObservations::checkContacts(const M4d& placement, const M3d&
                        .arg(FaceNames[face]).arg(maximum[u] - minimum[u]).arg(maximum[v] - minimum[v]).arg(overEdge));
     if (overEdge > roundingMm)
       return {{}, patches.join(QStringLiteral("; "))};
-    const double excludedTop = lower.z() + 8.0;
-    if (face != 2 && lowestBall < excludedTop - roundingMm)
+    if (face != 2 && lowestBall < ClampTopMm - roundingMm)
       return {{}, patches.join(QStringLiteral("; ")) + QStringLiteral(". Ball enters clamp exclusion by %1 mm.")
-                                                          .arg(excludedTop - lowestBall)};
+                                                          .arg(ClampTopMm - lowestBall)};
   }
   return {placement, patches.join(QStringLiteral("; "))};
 }

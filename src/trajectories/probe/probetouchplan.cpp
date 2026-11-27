@@ -224,42 +224,40 @@ ProbeTouchPlanResult createGaugeTouchPlan(const M4d& workpieceInBase, double bal
   return {std::move(plan), {}};
 }
 
-ProbeTouchMotionResult RefineScan::solve(const ChamferRobotSetup& robot) const
+ProbeTouchMotionResult RefineScan::solve(const ChamferRobotSetup& robot, int group) const
 {
   const auto& frame = mounting.workpieceInBase;
   if (!rigid(frame) || !positiveFinite(ballRadius))
     return {{}, QStringLiteral("Invalid workpiece placement or ruby radius.")};
+  if (group != 1 && group != 2)
+    return {{}, QStringLiteral("Select G1 or G2 for the Scan Path.")};
   const M3d axes = frame.topLeftCorner<3, 3>();
   const V3d origin = frame.topRightCorner<3, 1>();
-  QStringList failures;
-  for (int group : {2, 1}) {
-    ProbeTouchPlan plan{sphere, {}, mounting, tableTop};
-    for (const auto& plane : planes) {
-      if (plane.points.isEmpty()) return {{}, plane.role + QStringLiteral(": empty grid.")};
-      const V3d normal = axes * plane.normal;
-      const auto offset = planarTouchOffset(group, normal, ballRadius);
-      ProbeTouchPass pass;
-      pass.group = group;
-      pass.face = ProbeFace::Refine;
-      pass.purpose = ProbeTouchPurpose::Scan;
-      pass.sourceFace = plane.faceIndex;
-      pass.role = plane.role;
-      pass.touches.reserve(plane.points.size());
-      for (const auto& point : plane.points) {
-        auto touch = atMaterialPoint(offset, origin + axes * point.position);
-        touch.cell = point.index;
-        touch.localMaterialPoint = point.position;
-        pass.touches.append(std::move(touch));
-      }
-      pass.entry = pass.touches.front().start;
-      pass.exit = pass.touches.back().start;
-      pass.entry.topRightCorner<3, 1>() += 20.0 * normal;
-      pass.exit.topRightCorner<3, 1>() += 20.0 * normal;
-      plan.passes.append(std::move(pass));
+  ProbeTouchPlan plan{sphere, {}, mounting, tableTop};
+  for (const auto& plane : planes) {
+    if (plane.points.isEmpty()) return {{}, plane.role + QStringLiteral(": empty grid.")};
+    const V3d normal = axes * plane.normal;
+    const auto offset = planarTouchOffset(group, normal, ballRadius);
+    ProbeTouchPass pass;
+    pass.group = group;
+    pass.face = ProbeFace::Refine;
+    pass.purpose = ProbeTouchPurpose::Scan;
+    pass.sourceFace = plane.faceIndex;
+    pass.role = plane.role;
+    pass.touches.reserve(plane.points.size());
+    for (const auto& point : plane.points) {
+      auto touch = atMaterialPoint(offset, origin + axes * point.position);
+      touch.cell = point.index;
+      touch.localMaterialPoint = point.position;
+      pass.touches.append(std::move(touch));
     }
-    auto result = ProbeTouchMotion::create(plan, robot);
-    if (result.motion) return result;
-    failures.append(QStringLiteral("G%1: %2").arg(group).arg(result.error));
+    pass.entry = pass.touches.front().start;
+    pass.exit = pass.touches.back().start;
+    pass.entry.topRightCorner<3, 1>() += 20.0 * normal;
+    pass.exit.topRightCorner<3, 1>() += 20.0 * normal;
+    plan.passes.append(std::move(pass));
   }
-  return {{}, failures.join(QStringLiteral(" | "))};
+  auto result = ProbeTouchMotion::create(plan, robot);
+  if (!result.motion) result.error = QStringLiteral("G%1: %2").arg(group).arg(result.error);
+  return result;
 }

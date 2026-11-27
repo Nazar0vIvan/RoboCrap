@@ -313,8 +313,8 @@ QList<quint32> SceneModel::refinePathIds(const QString& jobId, quint32 target) c
   QList<quint32> ids;
   for (const auto* object : m_objects) {
     const auto* path = object->touchPath();
-    if (path && !path->refineJobId.isEmpty() && (jobId.isEmpty() || path->refineJobId == jobId)
-        && (!target || path->targetId == target)) ids.append(object->objectId());
+    if (path && !path->source.uuid.isEmpty() && (jobId.isEmpty() || path->source.uuid == jobId)
+        && (!target || path->source.target == target)) ids.append(object->objectId());
   }
   return ids;
 }
@@ -359,33 +359,39 @@ QVariantMap SceneModel::saveRefineJob(quint32 jobId, quint32 target, const QJson
   return {{"objectId", object->objectId()}};
 }
 
-RoboCrap3D::RefineContacts SceneModel::refineContacts(quint32 jobId) const
+RoboCrap3D::RefineContacts SceneModel::refineContacts(quint32 jobId, std::optional<double> eg22BallRadius) const
 {
   const auto* object = findObject(jobId);
   if (!object || object->kind() != SceneObject::RefineJob) return tr("Select a saved Refine Job.");
   if (!m_viewport) return tr("The workpiece CAD is unavailable.");
-  return m_viewport->refineContacts(object->refineJob(), object->refineTarget());
+  return m_viewport->refineContacts(object->refineJob(), object->refineTarget(), eg22BallRadius);
 }
 
-std::pair<quint32, QString> SceneModel::publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion)
+QString SceneModel::refineScanError(const RefineScanSource& source, const ProbeTouchPlan& plan)
 {
   const auto* owner = findObject(source.job);
   const auto job = owner ? owner->refineJob() : QJsonObject{};
   const auto* target = findObject(source.target);
   const auto* gauge = target ? target->endGauge() : nullptr;
-  const auto& mount = motion.plan().gauge;
+  const auto& mount = plan.gauge;
   if (!m_viewport || job.value("id").toString() != source.uuid || job.value("revision").toInt() != source.revision
       || resolveRefineTarget(source.job) != source.target || !gauge || !mount
       || gauge->workpieceInBase != mount->workpieceInBase || gauge->observationsSha256 != mount->observationsSha256)
-    return {0, tr("The Refine Job or its mounted workpiece changed. Generate again.")};
+    return tr("The Refine Job or its mounted workpiece changed. Generate again.");
   if (m_viewport->workpieceModelRevision(source.target) != job.value("modelSha256").toString())
-    return {0, tr("The workpiece model has changed. Reassign the three faces.")};
-  if (const auto error = m_viewport->workpieceRevisionError(source.target); !error.isEmpty()) return {0, error};
+    return tr("The workpiece model has changed. Reassign the three faces.");
+  return m_viewport->workpieceRevisionError(source.target);
+}
+
+std::pair<quint32, QString> SceneModel::publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion)
+{
+  if (const QString error = refineScanError(source, motion.plan()); !error.isEmpty()) return {0, error};
+  const auto* owner = findObject(source.job);
   const auto oldIds = refinePathIds(source.uuid);
   const auto* old = findObject(oldIds.value(0));
   const QString name = old ? old->name() : tr("Scan Path · %1").arg(owner->name());
   auto* path = addCalibrationObject(SceneTouchPath{std::make_shared<const ProbeTouchMotion>(std::move(motion)),
-                                                   source.uuid, source.revision, source.target}, name);
+                                                   source}, name);
   if (!path) return {0, tr("Cannot insert the Scan Path into the scene.")};
   if (old && !old->visible()) setObjectVisible(path, false);
   removeObjects(oldIds);
@@ -460,7 +466,7 @@ SceneObject* SceneModel::addCalibrationObject(SceneObject::Shape shape, const QS
   if (std::holds_alternative<SceneSphere>(shape)) kind = SceneObject::Sphere;
   else if (const auto* path = std::get_if<SceneTouchPath>(&shape)) {
     if (!path->motion) return nullptr;
-    kind = !path->refineJobId.isEmpty() || path->motion->plan().passes.front().purpose == ProbeTouchPurpose::Gauge
+    kind = !path->source.uuid.isEmpty() || path->motion->plan().passes.front().purpose == ProbeTouchPurpose::Gauge
         ? SceneObject::ScanPath : SceneObject::CalibrationPath;
   } else if (std::holds_alternative<SceneEndGauge>(shape)) kind = SceneObject::EndGauge;
   else return nullptr;

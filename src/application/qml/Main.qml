@@ -33,6 +33,7 @@ ApplicationWindow {
   }
 
   function openToolSetup() {
+    root.scanJob = null
     refineEditor.active = false
     if (root.chamferEditorOpen) machiningPanel.cancelEditing()
     root.toolSetupOpen = true
@@ -58,6 +59,11 @@ ApplicationWindow {
   property bool toolSetupOpen: false
   readonly property list<real> selectedObjectIds: App.WorkspaceController.selectedObjectIds
   readonly property App.SceneObject selectedSceneObject: App.WorkspaceController.selectedObject
+  readonly property App.SceneObject selectedRefineJob: root.preciseActive && !App.Scene.refineSelectionError
+                                                      && root.selectedSceneObject?.kind === App.SceneObject.RefineJob
+                                                      ? root.selectedSceneObject : null
+  property App.SceneObject scanJob: null
+  onSelectedRefineJobChanged: root.scanJob = null
 
   TapHandler {
     parent: root.contentItem.Window.contentItem
@@ -105,7 +111,10 @@ ApplicationWindow {
 
   Connections {
     target: App.Calibration
-    function onScanGenerated(objectId) { App.WorkspaceController.selectObject(objectId, false) }
+    function onScanGenerated(objectId) {
+      root.scanJob = null
+      App.WorkspaceController.selectObject(objectId, false)
+    }
     function onSettingsErrorChanged() {
       if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
     }
@@ -313,7 +322,9 @@ ApplicationWindow {
       if (App.MachiningPreparation.calibrationRunning) {
         const detected = App.MachiningPreparation.calibrationDetected
         const count = App.MachiningPreparation.calibrationTouchCount
-        const progress = qsTr("Calibration run: %1 % · %2/%3 touches")
+        if (App.MachiningPreparation.scanRunning && App.MachiningPreparation.error) return App.MachiningPreparation.error
+        const progress = (App.MachiningPreparation.scanRunning ? qsTr("Scan: %1 % · %2/%3 touches")
+                                                               : qsTr("Calibration run: %1 % · %2/%3 touches"))
                          .arg(count > 0 ? Math.floor(100 * detected / count) : 0).arg(detected).arg(count)
         // Joined with " · " in the one status line.
         const interruption = App.MachiningPreparation.calibrationInterruption
@@ -328,6 +339,7 @@ ApplicationWindow {
                .arg(App.Playback.phase).arg(App.Playback.elapsed.toFixed(2)).arg(App.Playback.duration.toFixed(2))
       if (statusBar.calibrationStatus) return statusBar.calibrationStatus
       if (root.chamferEditorOpen) return machiningPanel.message
+      if (root.preciseActive) return App.MachiningPreparation.error || App.MachiningPreparation.summary
       if (!root.calibrationActive && root.workflowMode !== WorkflowPanel.Machining) return ""
       const preparation = App.MachiningPreparation
       const status = preparation.error || (root.calibrationActive
@@ -484,11 +496,12 @@ ApplicationWindow {
         submode: root.measurementSubmode
         planeImportAvailable: root.geometryImportAvailable
         cylinderImportAvailable: root.geometryImportAvailable
-        playbackAvailable: root.preciseActive || root.calibrationActive ? App.Calibration.canPlay : App.Machining.canPlay
+        playbackAvailable: !App.MachiningPreparation.scanRunning
+                           && (root.preciseActive || root.calibrationActive ? App.Calibration.canPlay : App.Machining.canPlay)
         playing: modeTools.playbackActive && App.Playback.playing
         playbackActive: root.preciseActive || root.calibrationActive ? App.Calibration.ownsPlayback : App.Machining.ownsPlayback
         preparationAvailable: !root.chamferEditorOpen
-                              && (root.preciseActive ? App.Calibration.canPrepareScan
+                              && (root.preciseActive ? App.MachiningPreparation.canPrepareScan
                                   : root.calibrationActive ? App.MachiningPreparation.canPrepareCalibration && !App.Playback.active
                                   : App.MachiningPreparation.canPrepare && !!statusBar.rsi && statusBar.rsi.isConnected)
         preparing: App.MachiningPreparation.preparing
@@ -496,7 +509,10 @@ ApplicationWindow {
         calibrationStartAvailable: App.MachiningPreparation.canStartCalibration
                                    && !!statusBar.rsi && statusBar.rsi.isConnected
         onCalibrationStartRequested: App.MachiningPreparation.startCalibration()
-        calibrationResumeAvailable: App.MachiningPreparation.canResumeCalibration
+        scanAvailable: App.MachiningPreparation.canStartScan
+        onScanRequested: App.MachiningPreparation.startScan()
+        calibrationResumeAvailable: (root.preciseActive === App.MachiningPreparation.scanRunning)
+                                    && App.MachiningPreparation.canResumeCalibration
                                     && !!statusBar.rsi && statusBar.rsi.isConnected
         onCalibrationResumeRequested: App.MachiningPreparation.resumeCalibration()
         onPreparationRequested: {
@@ -512,20 +528,24 @@ ApplicationWindow {
         }
         onStopRequested: App.Playback.stop()
         generationAvailable: root.calibrationActive ? App.Calibration.canGenerate
-                             : root.preciseActive ? root.selectedSceneObject?.kind === App.SceneObject.RefineJob
-                                                    && !App.Scene.refineSelectionError && !App.Calibration.calculating && !App.Playback.active
+                             : root.preciseActive ? !!root.selectedRefineJob && !App.Calibration.calculating && !App.Playback.active
                              : !App.Playback.active && root.selectedSceneObject !== null
                                && (root.selectedSceneObject.kind === App.SceneObject.Edge
                                    || root.selectedSceneObject.kind === App.SceneObject.MachiningPath)
         onToolSetupRequested: root.openToolSetup()
-        onRefineFrameRequested: refineEditor.active = true
+        onRefineFrameRequested: {
+          root.scanJob = null
+          refineEditor.active = true
+        }
         onGenerationRequested: {
           if (root.calibrationActive) {
             App.Calibration.generate()
             return
           }
           if (root.preciseActive) {
-            App.Calibration.generateScan(root.selectedSceneObject.objectId)
+            root.toolSetupOpen = false
+            refineEditor.active = false
+            root.scanJob = root.selectedRefineJob
             return
           }
           root.toolSetupOpen = false
@@ -566,7 +586,7 @@ ApplicationWindow {
       }
       PropertiesPanel {
         anchors.fill: parent
-        visible: !root.chamferEditorOpen && !root.toolSetupOpen && !refineEditor.active
+        visible: !root.chamferEditorOpen && !root.toolSetupOpen && !refineEditor.active && !scanEditor.active
         selectionCount: root.selectedObjectIds.length
         selectedObject: root.selectedSceneObject
         showPoints: root.selectedSceneObject ? root.selectedSceneObject.showPoints : false
@@ -584,6 +604,18 @@ ApplicationWindow {
         onVisibilityRequested: (object, visible) => root.sceneModel.setObjectVisible(object, visible)
         onSphereDisplayRequested: (object, ballCenter, compensated) =>
             root.sceneModel.setSphereDisplay(object, ballCenter, compensated)
+      }
+      Loader {
+        id: scanEditor
+        anchors.fill: parent
+        active: !!root.scanJob
+        sourceComponent: ScanPathPanel {
+          jobName: root.scanJob?.name ?? ""
+          enabled: !App.Calibration.calculating
+          generationAvailable: modeTools.generationAvailable
+          onGenerateRequested: group => App.Calibration.generateScan(root.scanJob.objectId, group)
+          onCancelRequested: root.scanJob = null
+        }
       }
       EndEffectorPanel {
         anchors.fill: parent

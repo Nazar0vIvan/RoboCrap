@@ -5,11 +5,14 @@
 #include "kinematics/kr10kinematics.h"
 #include "records/sessionrecorder.h"
 
+#include <QByteArrayList>
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
 #include <QSaveFile>
 #include <QStringList>
 #include <QThread>
@@ -22,7 +25,12 @@
 namespace {
 
 // Job files in the folder that KRL mounts as /RoboCrapJobs.
+const QString ScanDataPath = QStringLiteral("C:/RoboCrapJobs/scan_data.txt");
 const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt");
+
+const QString ScanOwnerPath = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/scan_in_progress");
+// Enable only after the installed CELL, output, RSI context and physical measurement bounds are commissioned.
+constexpr bool ScanCommissioned = false;
 
 // RSI_Probe_Check (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
 constexpr double RsiCycleSeconds = 0.004; // #IPO_FAST
@@ -171,10 +179,16 @@ constexpr int X1InHome = 7;
 const QStringList StartResultNames{QStringLiteral("-"), QStringLiteral("STARTED"), QStringLiteral("RESUMED"),
                                    QStringLiteral("TIMEOUT"), QStringLiteral("ABORTED"), QStringLiteral("AUT EXT LOST")};
 
+QJsonObject scanPlcState(const QQmlPropertyMap& data)
+{
+  return {{"x1", QJsonArray::fromVariantList(data.value("x1").toList())},
+          {"robot_step", data.value("robotStep").toInt()}, {"robot_program", data.value("robotProgram").toInt()},
+          {"robot_result", data.value("robotResult").toInt()}, {"program_state", data.value("robotProgramState").toInt()}};
+}
+
 // session.json "inputs" of a calibration session (docs/code context/RECORDS_FORMAT.md).
 QJsonObject calibrationInputs(const ProbeCalibrationRsi& job, const ProbeTouchMotion& motion)
 {
-  const ProbeTouchPlanParameters& plan = *motion.plan().sphere;
   const ChamferTimingParameters& timing = motion.robot().timing;
   const auto& mount = *motion.plan().gauge;
   QJsonArray placement;
@@ -182,22 +196,24 @@ QJsonObject calibrationInputs(const ProbeCalibrationRsi& job, const ProbeTouchMo
     const V4d values = mount.workpieceInBase.row(row).transpose();
     placement.append(recordArray(values.data(), 4));
   }
-  return {{QStringLiteral("gauge_length_mm"), 22.0},
-          {QStringLiteral("gauge_reference"), QStringLiteral("nominal")},
+  QJsonObject inputs{
           {QStringLiteral("gauge_source"), mount.source},
           {QStringLiteral("gauge_observations_sha256"), mount.observationsSha256},
           {QStringLiteral("gauge_workpiece_in_base"), placement},
           {QStringLiteral("tool_xyzabc"), recordArray(job.toolCoordinates.data(), 6)},
-          {QStringLiteral("sphere_centre_b_mm"), recordArray(plan.sphereCentre.data(), 3)},
-          {QStringLiteral("sphere_radius_mm"), recordNumber(plan.sphereRadius)},
-          {QStringLiteral("ball_radius_mm"), recordNumber(plan.ballRadius)},
-          {QStringLiteral("strut_radius_mm"), recordNumber(plan.strutRadius)},
-          {QStringLiteral("strut_recess_mm"), recordNumber(plan.strutRecess)},
-          {QStringLiteral("search_feed_mm_s"), recordNumber(plan.searchFeed)},
+          {QStringLiteral("search_feed_mm_s"), recordNumber(motion.plan().searchFeed())},
           {QStringLiteral("transfer_feed_mm_s"), recordNumber(timing.transferFeed)},
           {QStringLiteral("transfer_acceleration_mm_s2"), recordNumber(timing.transferAcceleration)},
           {QStringLiteral("touches"), job.touchCount},
           {QStringLiteral("steps"), static_cast<qint64>(job.steps.size())}};
+  if (const auto& sphere = motion.plan().sphere) {
+    inputs.insert("sphere_centre_b_mm", recordArray(sphere->sphereCentre.data(), 3));
+    inputs.insert("sphere_radius_mm", recordNumber(sphere->sphereRadius));
+    inputs.insert("ball_radius_mm", recordNumber(sphere->ballRadius));
+    inputs.insert("strut_radius_mm", recordNumber(sphere->strutRadius));
+    inputs.insert("strut_recess_mm", recordNumber(sphere->strutRecess));
+  }
+  return inputs;
 }
 
 // session.json "result" of a successful calibration session.
@@ -250,12 +266,26 @@ SceneMachiningPreparation::SceneMachiningPreparation(SceneModel* scene, SceneMac
   // SceneCalibration emits this when its path is inserted, replaced or removed.
   connect(calibration, &SceneCalibration::availabilityChanged, this,
           &SceneMachiningPreparation::onCalibrationAvailabilityChanged);
+  connect(calibration, &SceneCalibration::settingsErrorChanged, this, &SceneMachiningPreparation::onCalibrationAvailabilityChanged);
+  connect(calibration, &SceneCalibration::scanSamplingRequested, this, &SceneMachiningPreparation::prepareProbe);
+  connect(scene, &SceneModel::objectsChanged, this, &SceneMachiningPreparation::onCalibrationAvailabilityChanged);
+  connect(&m_scanCad, &QFileSystemWatcher::fileChanged, this, &SceneMachiningPreparation::onCalibrationAvailabilityChanged);
   m_timer.setInterval(30);
   // One worker runs at a time; each completion slot ignores the other's future.
   connect(&m_timer, &QTimer::timeout, this, &SceneMachiningPreparation::finishPreparation);
   connect(&m_timer, &QTimer::timeout, this, &SceneMachiningPreparation::finishCalibration);
-  // No stream exists yet, so a file left by an earlier session is stale.
-  setError(clearPrepared());
+  m_scanRequestTimer.setSingleShot(true);
+  // PLC PREP/START/SELECT timeouts total 37 s; allow two additional 2 s snapshots.
+  m_scanRequestTimer.setInterval(41000);
+  connect(&m_scanRequestTimer, &QTimer::timeout, this, &SceneMachiningPreparation::onScanRequestTimeout);
+  if (QFile::exists(ScanOwnerPath)) {
+    m_scan.emplace();
+    m_scan->flushed = true;
+    m_scan->failure = tr("Previous scan requires controller recovery and confirmed return to CELL.");
+    setError(m_scan->failure);
+  } else {
+    setError(clearPrepared());
+  }
 }
 
 SceneMachiningPreparation::~SceneMachiningPreparation()
@@ -275,10 +305,26 @@ bool SceneMachiningPreparation::isCurrentCalibration(const std::shared_ptr<const
   return motion && path && path->motion == motion;
 }
 
+bool SceneMachiningPreparation::controllerBusy() const
+{
+  if (m_scan || m_run != CalibrationRun::Idle) return true;
+  if (m_plc && m_plc->isConnected()) {
+    const auto& data = *m_plc->data();
+    const int program = data.value("robotProgramState").toInt();
+    const auto x1 = data.value("x1").toList();
+    if (data.value("robotStep").toInt() != 0 || x1.value(X1ApplRun).toBool()
+        || (!x1.value(X1AutExt).toBool() && x1.value(X1ProAct).toBool())
+        || program == ProgramRunning || program == ProgramInterrupted) return true;
+  }
+  if (!m_rsi || !m_rsi->isConnected()) return false;
+  const auto state = m_rsi->data()->value("rsiState").toString();
+  return !state.isEmpty() && state != QStringLiteral("idle");
+}
+
 QString SceneMachiningPreparation::busyReason() const
 {
   if (m_shuttingDown) return tr("Application is shutting down.");
-  if (m_run != CalibrationRun::Idle) return tr("Calibration run in progress.");
+  if (controllerBusy()) return tr("Controller program in progress.");
   if (m_preparing) return tr("RSI Sampling…");
   return {};
 }
@@ -307,7 +353,8 @@ QString SceneMachiningPreparation::summary() const
     return tr("RSI test LIN: WORLD +X %1 mm at %2 mm/s · %3 cycles")
         .arg(TestLinCycles * TestLinStep).arg(TestLinStep / RsiCycleSeconds).arg(TestLinCycles + TestLinSettleCycles);
   if (m_preparedCalibration)
-    return tr("RSI calibration: %1 touches · %2 steps")
+    return (m_preparedCalibration->scanPathId ? tr("RSI Sampling: %1 touches · %2 steps")
+                                              : tr("RSI calibration: %1 touches · %2 steps"))
         .arg(m_preparedCalibration->touchCount).arg(m_preparedCalibration->stepCount);
   if (!m_prepared) return {};
   const auto& stream = m_prepared->stream;
@@ -327,10 +374,30 @@ void SceneMachiningPreparation::onAvailabilityChanged()
   emit availabilityChanged();
 }
 
+QString SceneMachiningPreparation::probeJobError(const PreparedProbe& probe) const
+{
+  if (!probe.scanPathId)
+    return isCurrentCalibration(probe.motion) ? QString{} : tr("The calibration path changed. Run RSI Sampling again.");
+  const auto* object = m_scene->findObject(probe.scanPathId);
+  const auto* path = object ? object->touchPath() : nullptr;
+  if (!path || path->motion != probe.motion || probe.probeInputs != m_calibration->scanProbeInputs())
+    return tr("The scan path or measuring setup changed. Run RSI Sampling again.");
+  if (m_scanCad.files().isEmpty()) return tr("The EG22 CAD file was removed or replaced. Run RSI Sampling again.");
+  return m_scene->refineScanError(path->source, probe.motion->plan());
+}
+
 void SceneMachiningPreparation::onCalibrationAvailabilityChanged()
 {
-  if (m_preparedCalibration && !isCurrentCalibration(m_preparedCalibration->motion))
-    if (const QString removeError = clearPrepared(); !removeError.isEmpty()) setError(removeError);
+  if (m_preparing && m_pendingProbe.scanPathId && m_pendingScanError.isEmpty())
+    m_pendingScanError = probeJobError(m_pendingProbe);
+  if (m_preparedCalibration) {
+    const QString reason = probeJobError(*m_preparedCalibration);
+    if (!reason.isEmpty()) {
+      if (m_scan) { failScan(reason); return; }
+      const QString removeError = clearPrepared();
+      setError(removeError.isEmpty() ? reason : reason + QLatin1Char(' ') + removeError);
+    }
+  }
   emit availabilityChanged();
 }
 
@@ -353,14 +420,45 @@ void SceneMachiningPreparation::prepare()
 
 void SceneMachiningPreparation::prepareCalibration()
 {
+  prepareProbe(0);
+}
+
+void SceneMachiningPreparation::prepareProbe(quint32 scanPathId)
+{
   Q_ASSERT(QThread::currentThread() == thread());
-  const QString reason = calibrationUnavailableReason();
+  const QString reason = scanPathId ? busyReason() : calibrationUnavailableReason();
   if (!reason.isEmpty()) { setError(reason); return; }
-  m_lastCalibrationRecord.clear();
-  m_pendingCalibration = m_calibration->path()->motion;
+  if (scanPathId && (!m_calibration->canPrepareScan() || !m_recorder)) {
+    setError(tr("Select a generated Scan Path with the measuring tool active."));
+    return;
+  }
+  if (const QString error = clearPrepared(); !error.isEmpty()) { setError(error); return; }
+  m_pendingProbe = {};
+  m_pendingScanError.clear();
+  if (scanPathId) {
+    const auto* object = m_scene->findObject(scanPathId);
+    if (!object || !object->isRefineScan()) { setError(tr("The Scan Path was removed.")); return; }
+    const auto& path = *object->touchPath();
+    const auto inputs = m_calibration->scanProbeInputs();
+    if (inputs.isEmpty() || m_scene->resolveRefineTarget(path.source.job) != path.source.target) {
+      setError(tr("The measuring tool or mounted Refine Job target changed."));
+      return;
+    }
+    const auto contacts = m_scene->refineContacts(path.source.job, inputs.value("ball_radius_mm").toDouble());
+    if (const auto* error = std::get_if<QString>(&contacts)) { setError(*error); return; }
+    if (!m_scanCad.addPath(SceneEndGauge::cadPath())) {
+      setError(tr("Cannot monitor the EG22 CAD revision at %1.").arg(SceneEndGauge::cadPath()));
+      return;
+    }
+    m_pendingProbe = {path.motion, scanPathId, inputs};
+  } else {
+    m_lastCalibrationRecord.clear();
+    m_pendingProbe.motion = m_calibration->path()->motion;
+  }
   setError({});
   m_preparing = true;
-  m_calibrationFuture = std::async(std::launch::async, &sampleProbeCalibrationRsi, std::cref(*m_pendingCalibration));
+  const auto sample = scanPathId ? &sampleProbeScanRsi : &sampleProbeCalibrationRsi;
+  m_calibrationFuture = std::async(std::launch::async, sample, std::cref(*m_pendingProbe.motion));
   m_timer.start();
   emit preparingChanged();
   emit availabilityChanged();
@@ -398,7 +496,9 @@ void SceneMachiningPreparation::finishPreparation()
                              .arg(result.stream->increments.size()).arg(result.stream->duration);
   else
     qInfo().noquote() << "RSI Sampling failed:" << result.error;
-  if (!isCurrent(m_pending)) {
+  if (controllerBusy()) {
+    setError(tr("Controller program in progress."));
+  } else if (!isCurrent(m_pending)) {
     setError(tr("The sampled path changed. Run RSI Sampling again."));
   } else if (!result.stream) {
     setError(result.error);
@@ -432,41 +532,75 @@ void SceneMachiningPreparation::finishCalibration()
       || m_calibrationFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
   m_timer.stop();
   auto result = m_calibrationFuture.get();
-  if (result.job)
-    qInfo().noquote() << QStringLiteral("RSI calibration sampling: %1 touches, %2 steps")
-                             .arg(result.job->touchCount).arg(result.job->steps.size());
-  else
-    qInfo().noquote() << "RSI calibration sampling failed:" << result.error;
-  if (!isCurrentCalibration(m_pendingCalibration)) {
-    setError(tr("The calibration path changed. Run RSI Sampling again."));
-  } else if (!result.job) {
-    setError(result.error);
-  } else {
-    const auto& job = *result.job;
-    const SessionJob record{SessionKind::Calibration, job.diagnosticId,
-                            {{QStringLiteral("plan.csv"), job.plan},
-                             {QStringLiteral("calibration_data.txt"), calibrationData(job, m_pendingCalibration->robot().timing)}},
-                            calibrationInputs(job, *m_pendingCalibration)};
-    const auto saved = m_recorder->saveCalibrationPlan(record);
-    m_lastCalibrationRecord = QDir::toNativeSeparators(saved.folder);
-    setError(saved.error);
-  }
-  m_pendingCalibration.reset();
+  QString error = m_pendingScanError;
+  if (error.isEmpty()) error = probeJobError(m_pendingProbe);
+  if (error.isEmpty() && controllerBusy()) error = tr("Controller program in progress.");
+  if (error.isEmpty()) error = result.job ? saveProbePlan(*result.job) : result.error;
+  if (!error.isEmpty() && !m_scanCad.files().isEmpty()) m_scanCad.removePaths(m_scanCad.files());
+  setError(error);
+  m_pendingProbe = {};
   m_preparing = false;
   emit preparingChanged();
   emit availabilityChanged();
 }
 
+QString SceneMachiningPreparation::saveProbePlan(const ProbeCalibrationRsi& job)
+{
+  const auto& motion = *m_pendingProbe.motion;
+  const bool scan = m_pendingProbe.scanPathId != 0;
+  const QByteArray bytes = calibrationData(job, motion.robot().timing);
+  SessionJob record{scan ? SessionKind::Scan : SessionKind::Calibration, job.diagnosticId,
+                    {{"plan.csv", job.plan}, {scan ? QStringLiteral("scan_data.txt") : QStringLiteral("calibration_data.txt"), bytes}},
+                    calibrationInputs(job, motion)};
+  auto* object = m_scene->findObject(m_pendingProbe.scanPathId);
+  if (scan) {
+    const auto& source = object->touchPath()->source;
+    const auto definition = m_scene->findObject(source.job)->refineJob();
+    record.inputs.insert("refine_job_id", source.uuid);
+    record.inputs.insert("refine_job_revision", source.revision);
+    record.inputs.insert("workpiece_id", m_scene->findObject(source.target)->endGauge()->workpieceId);
+    record.inputs.insert("model_sha256", definition.value("modelSha256"));
+    const auto digest = QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex();
+    record.inputs.insert("scan_data_sha256", QString::fromLatin1(digest));
+    record.inputs.insert("measuring_setup", m_pendingProbe.probeInputs);
+    record.inputs.insert("robot_model", QStringLiteral("KUKA KR10 R1420"));
+    record.inputs.insert("home_joints_deg", recordArray(motion.robot().model.qHome.data(), 6));
+    record.inputs.insert("joint_speed_limits_deg_s", recordArray(motion.robot().timing.jointSpeed.data(), 6));
+    record.inputs.insert("cycle_s", RsiCycleSeconds);
+    record.inputs.insert("group", motion.plan().passes.front().group);
+  } else {
+    record.inputs.insert("gauge_length_mm", 22.0);
+    record.inputs.insert("gauge_reference", QStringLiteral("nominal"));
+  }
+  const auto saved = m_recorder->saveCalibrationPlan(record);
+  if (!scan) m_lastCalibrationRecord = QDir::toNativeSeparators(saved.folder);
+  if (!saved.error.isEmpty() || !scan) return saved.error;
+  if (const auto error = saveFile(ScanDataPath, bytes); !error.isEmpty()) return error;
+  m_pendingProbe.touchCount = job.touchCount;
+  m_pendingProbe.stepCount = job.steps.size();
+  m_preparedCalibration = m_pendingProbe;
+  m_recorder->arm(record);
+  emit correctionsReady(job.streams, job.diagnosticId);
+  object->setScanSamplingInput({{"job_id", record.jobId}, {"scan_data_sha256", record.inputs.value("scan_data_sha256")}});
+  emit preparedChanged();
+  return {};
+}
+
 QString SceneMachiningPreparation::clearPrepared()
 {
+  if (m_scan) return tr("The previous scan still owns the controller job.");
   // The detections belong to the dropped table.
   if (m_run != CalibrationRun::Idle) endRun(tr("The calibration job was replaced."));
   // Without a stream KRL must not find frames from another or older path.
-  QString error;
-  if (QFile::exists(SharedDataPath) && !QFile::remove(SharedDataPath)) {
-    error = tr("Cannot remove %1.").arg(QDir::toNativeSeparators(SharedDataPath));
-    qInfo().noquote() << "[ERROR] RSI Sampling:" << error;
+  QStringList errors;
+  for (const auto& path : {SharedDataPath, ScanDataPath}) {
+    if (QFile::exists(path) && !QFile::remove(path))
+      errors.append(tr("Cannot remove %1.").arg(QDir::toNativeSeparators(path)));
   }
+  const QString error = errors.join(QLatin1Char(' '));
+  if (!error.isEmpty()) qInfo().noquote() << "[ERROR] RSI Sampling:" << error;
+  if (!m_scanCad.files().isEmpty()) m_scanCad.removePaths(m_scanCad.files());
+  auto* scan = m_preparedCalibration ? m_scene->findObject(m_preparedCalibration->scanPathId) : nullptr;
   const bool wasPrepared = m_prepared.has_value() || m_testLin || m_preparedCalibration.has_value();
   m_prepared.reset();
   m_testLin = false;
@@ -474,6 +608,7 @@ QString SceneMachiningPreparation::clearPrepared()
   // At shutdown the recorder still needs the job to write the RSI device's final capture.
   if (m_recorder && !m_shuttingDown) m_recorder->disarm();
   emit correctionsReady({}, {});
+  if (scan) scan->setScanSamplingInput({});
   if (wasPrepared) emit preparedChanged();
   return error;
 }
@@ -495,18 +630,28 @@ void SceneMachiningPreparation::shutdown()
   m_future = {};
   m_calibrationFuture = {};
   m_pending = {};
-  m_pendingCalibration.reset();
+  m_pendingProbe = {};
   m_preparing = false;
-  if (m_run != CalibrationRun::Idle) endRun(tr("Application closed during the calibration run."));
+  if (m_scan && !m_scan->flushed) {
+    failScan(tr("Application closed during the scan."));
+    closeScan();
+  } else if (!m_scan && m_run != CalibrationRun::Idle) {
+    endRun(tr("Application closed during the calibration run."));
+  }
   clearPrepared(); // A removal failure is already logged; nothing shows the text after shutdown.
   emit preparingChanged();
   emit availabilityChanged();
 }
 
-void SceneMachiningPreparation::attachPlc(DeviceRunner* plc)
+void SceneMachiningPreparation::attachPlc(DeviceRunner* plc, DeviceRunner* rsi)
 {
   Q_ASSERT(plc && !m_plc && plc->thread() == thread());
   m_plc = plc;
+  m_rsi = rsi;
+  if (rsi) {
+    connect(rsi, &DeviceRunner::dataUpdated, this, &SceneMachiningPreparation::onRsiState);
+    connect(rsi, &DeviceRunner::socketStateChanged, this, &SceneMachiningPreparation::onRsiState);
+  }
   connect(plc, &DeviceRunner::dataUpdated, this, &SceneMachiningPreparation::onPlcData);
   connect(plc, &DeviceRunner::socketStateChanged, this, &SceneMachiningPreparation::onPlcSocket);
   emit availabilityChanged();
@@ -516,6 +661,9 @@ void SceneMachiningPreparation::attachRecorder(SessionRecorder* recorder)
 {
   Q_ASSERT(recorder && !m_recorder && recorder->thread() == thread());
   m_recorder = recorder;
+  connect(recorder, &SessionRecorder::probeTouch, this, &SceneMachiningPreparation::recordTouch);
+  connect(recorder, &SessionRecorder::scanSearchFailed, this, &SceneMachiningPreparation::onSearchFailure);
+  connect(recorder, &SessionRecorder::scanClosing, this, &SceneMachiningPreparation::finishScanRecord);
 }
 
 // The PLC's own Run checks (FB_RunSetVar): step IDLE, AUT EXT, $IN_HOME, APPL_RUN off.
@@ -532,6 +680,8 @@ bool SceneMachiningPreparation::plcReady() const
 // message stays (only the PLC's $CONF_MESS acknowledges it in AUT EXT), so the PLC refuses Resume.
 bool SceneMachiningPreparation::canResumeCalibration() const
 {
+  if (m_scan && (!m_scan->paused || !m_scan->failure.isEmpty() || m_scan->closing || !m_rsi || !m_rsi->isConnected()
+                 || m_rsi->data()->value("rsiDiagnosticId").toString() != m_scan->id)) return false;
   if (m_run != CalibrationRun::Started || !m_plc || !m_plc->isConnected()) return false;
   const QQmlPropertyMap& data = *m_plc->data();
   const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
@@ -559,16 +709,273 @@ void SceneMachiningPreparation::resumeCalibration()
 {
   Q_ASSERT(QThread::currentThread() == thread());
   if (!canResumeCalibration()) return;
+  if (m_scan) {
+    const QString stale = probeJobError(*m_preparedCalibration);
+    if (!stale.isEmpty()) { failScan(stale); return; }
+  }
   m_runError.clear();
   m_run = CalibrationRun::Resuming;
+  if (m_scan) { m_scan->requestPending = true; m_scanRequestTimer.start(); }
   m_plc->invoke(QStringLiteral("resumeRobot"));
   emit calibrationRunChanged();
   emit availabilityChanged();
 }
 
+bool SceneMachiningPreparation::canStartScan() const
+{
+  if (!ScanCommissioned || !canPrepareScan() || !m_preparedCalibration || !plcReady() || !m_plc->data()->value("plcIoCurrent").toBool()
+      || !m_rsi || !m_rsi->isConnected()) return false;
+  const auto& probe = *m_preparedCalibration;
+  const auto* job = m_recorder->armedJob();
+  if (!job || job->kind != SessionKind::Scan || m_calibration->selectedScanId() != probe.scanPathId
+      || m_rsi->data()->value("rsiDiagnosticId").toString() != job->jobId) return false;
+  const auto* object = m_scene->findObject(probe.scanPathId);
+  const auto* path = object ? object->touchPath() : nullptr;
+  if (!path || path->samplingInput.value("job_id").toString() != job->jobId
+      || path->samplingInput.value("scan_data_sha256") != job->inputs.value("scan_data_sha256")) return false;
+  const auto& plan = probe.motion->plan();
+  const auto primary = probe.probeInputs.value("primary").toObject();
+  const auto source = primary.value("source").toString();
+  const auto centre = primary.value("ballCentreF").toArray();
+  if (source.isEmpty() || source == QStringLiteral("manual") || centre.size() != 3
+      || primary.value("sphereCentreB").toArray().size() != 3
+      || !probe.probeInputs.value("settings_error").toString().isEmpty()
+      || !plan.gauge || plan.gauge->source != QStringLiteral("measured") || !plan.sphere
+      || primary.value("contactVertical").toDouble() <= plan.sphere->sphereRadius
+      || primary.value("contactHorizontal").toDouble() <= plan.sphere->sphereRadius) return false;
+  for (int axis = 0; axis < 3; ++axis)
+    if (centre.at(axis).toDouble() != probe.motion->robot().flangeToTcp(axis, 3)) return false;
+  return true;
+}
+
+void SceneMachiningPreparation::startScan()
+{
+  if (!canStartScan()) return;
+  const QString stale = probeJobError(*m_preparedCalibration);
+  if (!stale.isEmpty()) {
+    const QString cleanup = clearPrepared();
+    setError(stale + QLatin1Char(' ') + cleanup);
+    return;
+  }
+  const SessionJob& job = *m_recorder->armedJob();
+  m_recorder->openCalibration();
+  m_scan.emplace();
+  m_scan->id = job.jobId;
+  m_scan->terminal = scanPlcState(*m_plc->data());
+  m_detections.clear();
+  m_runError.clear();
+  setError({});
+  QString error = saveFile(ScanOwnerPath, job.jobId.toUtf8());
+  if (error.isEmpty()) {
+    QFile file(ScanDataPath);
+    QCryptographicHash digest(QCryptographicHash::Sha256);
+    if (!file.open(QIODevice::ReadOnly) || !digest.addData(&file) || file.error() != QFileDevice::NoError)
+      error = tr("Cannot read %1: %2").arg(ScanDataPath, file.errorString());
+    else if (digest.result().toHex() != job.inputs.value("scan_data_sha256").toString().toLatin1())
+      error = tr("scan_data.txt differs from the sampled job. Run RSI Sampling again.");
+  }
+  if (!error.isEmpty()) {
+    m_scan->terminated = true; // No PLC request was sent.
+    failScan(error);
+    closeScan();
+    return;
+  }
+  m_run = CalibrationRun::Requested;
+  m_scan->requestPending = true;
+  m_scanRequestTimer.start();
+  m_plc->invoke(QStringLiteral("runRobotProgram"), {{QStringLiteral("program"), 2}});
+  emit calibrationRunChanged();
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::onRsiState()
+{
+  if (m_scan && (!m_rsi->isConnected() || m_rsi->data()->value("rsiDiagnosticId").toString() != m_scan->id))
+    failScan(tr("Scan RSI connection or installed job was lost."));
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::onSearchFailure(const QString& id)
+{
+  if (m_scan && m_scan->id == id) failScan(tr("Invalid or restarted scan SEARCH. Inspect the recorded RSI requests."));
+}
+
+void SceneMachiningPreparation::onScanRequestTimeout()
+{
+  if (m_scan) failScan(tr("The PLC did not confirm the scan command."));
+}
+
+void SceneMachiningPreparation::failScan(const QString& error)
+{
+  if (!m_scan || !m_scan->failure.isEmpty()) return;
+  m_scan->failure = error;
+  if (!m_scan->closing) emit scanPermission({});
+  m_scanRequestTimer.stop();
+  m_runError = error;
+  setError(error);
+  emit calibrationRunChanged();
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::closeScan()
+{
+  if (m_scan->closing || m_scan->flushed) return;
+  m_scan->closing = true;
+  emit scanPermission({});
+  m_scanRequestTimer.stop();
+  m_recorder->closeCalibration(m_scan->failure);
+}
+
+void SceneMachiningPreparation::finishScanRecord(const QString& id, const QString& error)
+{
+  if (!m_scan || m_scan->id != id) return;
+  if (!error.isEmpty()) failScan(error);
+  if (m_scan->failure.isEmpty()) {
+    const QString stale = probeJobError(*m_preparedCalibration);
+    if (!stale.isEmpty()) failScan(stale);
+  }
+  const SessionJob& job = *m_recorder->armedJob();
+  const int expected = m_preparedCalibration->touchCount;
+  if (m_detections.size() != expected)
+    failScan(tr("Recorded %1 of %2 scan detections.").arg(m_detections.size()).arg(expected));
+
+  // plan.csv is the immutable sampled acquisition table; touch numbers are one-based row numbers.
+  QList<QByteArray> plan;
+  for (const auto& file : job.files)
+    if (file.name == QStringLiteral("plan.csv")) plan = file.contents.split('\n');
+  const auto header = plan.value(0).trimmed().split(';');
+  const QList<QByteArray> columns{"search_step", "pass", "role", "source_face", "u", "v"};
+  auto rows = touchesCsv(m_detections).split('\n');
+  rows[0] += ';' + columns.join(';');
+  for (const auto& detection : std::as_const(m_detections)) {
+    const auto fields = plan.value(detection.touch).trimmed().split(';');
+    const bool matches = fields.value(0) == QByteArray::number(detection.touch);
+    for (const auto& column : columns) {
+      const QByteArray field = matches ? fields.value(header.indexOf(column)) : QByteArray{};
+      if (field.isEmpty()) failScan(tr("Missing scan plan field for touch %1.").arg(detection.touch));
+      rows[detection.touch] += ';' + field;
+    }
+  }
+  m_recorder->addFile({"touches.csv", rows.join('\n')});
+  QJsonObject evidence{{"acknowledged", m_scan->acknowledged}, {"observed_low", m_scan->low},
+                       {"observed_high_after_low", m_scan->high}, {"terminated", m_scan->terminated},
+                       {"terminal_plc", m_scan->terminal}, {"error", m_scan->failure}};
+  m_recorder->addFile({"scan_completion.json", QJsonDocument(evidence).toJson()});
+  m_recorder->failScan(m_scan->failure);
+  m_scan->flushed = true;
+  releaseScan();
+}
+
+void SceneMachiningPreparation::releaseScan()
+{
+  if (!m_scan->terminated || !m_scan->flushed) return;
+  if (QFile::exists(ScanOwnerPath) && !QFile::remove(ScanOwnerPath)) {
+    setError(tr("Cannot release %1.").arg(ScanOwnerPath));
+    return;
+  }
+  const QString outcome = m_scan->id.isEmpty() ? QString{} : m_scan->failure;
+  m_scan.reset();
+  m_run = CalibrationRun::Idle;
+  const QString cleanup = clearPrepared();
+  setError(cleanup.isEmpty() ? outcome : outcome + QLatin1Char(' ') + cleanup);
+  emit calibrationRunChanged();
+  emit availabilityChanged();
+}
+
+void SceneMachiningPreparation::observeScan(const QVariantHash& values)
+{
+  auto& scan = *m_scan;
+  if (scan.terminated) { releaseScan(); return; }
+  if (values.contains("plcIoCurrent") && !values.value("plcIoCurrent").toBool()) {
+    failScan(tr("Scan PLC feedback was lost."));
+    return;
+  }
+  for (const auto& key : {QStringLiteral("scanStartReply"), QStringLiteral("resumeReply")}) {
+    if (!values.contains(key) || !scan.requestPending) continue;
+    const bool resume = key == QStringLiteral("resumeReply");
+    if (resume != (m_run == CalibrationRun::Resuming || m_run == CalibrationRun::ResumeStarting)) return;
+    scan.requestPending = false;
+    if (!values.value(key).isValid()) {
+      failScan(tr("PLC command outcome is unknown. Controller recovery is required."));
+    } else if (!values.value(key).toBool()) {
+      m_scanRequestTimer.stop();
+      if (resume && scan.failure.isEmpty()) {
+        m_run = CalibrationRun::Started;
+        m_runError = tr("PLC refused Resume. Check the stop acknowledgement.");
+        emit calibrationRunChanged();
+      } else if (!resume) {
+        scan.recoverySeen = true; // Matched negative PLC reply confirms non-start.
+        failScan(tr("PLC refused scan program 2."));
+      }
+    } else if (!resume) {
+      scan.accepted = true;
+    }
+    return;
+  }
+  const auto x1 = values.value("x1").toList();
+  if (x1.size() != 8 || !m_plc->isConnected() || !values.contains("robotStep")
+      || values.value("robotProgramState", -1).toInt() == 0) return;
+  const int step = values.value("robotStep").toInt();
+  const int program = values.value("robotProgram").toInt();
+  const int result = values.value("robotResult").toInt();
+  const int state = m_plc->data()->value("robotProgramState").toInt();
+  const bool automatic = x1.at(X1AutExt).toBool();
+  const bool active = x1.at(X1ApplRun).toBool();
+  const bool proAct = x1.at(X1ProAct).toBool();
+  const bool cell = automatic && !active && proAct && x1.at(5).toBool() && step == 0;
+  scan.terminal = scanPlcState(*m_plc->data());
+  if (scan.accepted && program == 2 && (result == 4 || result == 5) && m_run == CalibrationRun::Starting)
+    failScan(tr("PLC aborted the scan start sequence."));
+  if (!automatic) {
+    failScan(tr("AUT EXT was left during the scan."));
+    if (!active && !proAct && step == 0 && !scan.requestPending) scan.recoverySeen = true;
+  }
+  if (!scan.acknowledged && program == 2 && step != 0 && m_run == CalibrationRun::Requested)
+    m_run = CalibrationRun::Starting;
+  if (scan.accepted && m_run == CalibrationRun::Starting && program == 2) {
+    if (active && !x1.at(5).toBool() && (proAct || state == ProgramInterrupted)) {
+      scan.acknowledged = true;
+      m_run = CalibrationRun::Started;
+      m_scanRequestTimer.stop();
+      scan.paused = state == ProgramInterrupted;
+      if (scan.failure.isEmpty()) emit scanPermission(scan.id, scan.paused);
+    } else if (step == 0 && !active) {
+      failScan(tr("Scan program 2 did not start. PLC result %1.").arg(result));
+    }
+  }
+  if (scan.acknowledged && active && !x1.at(1).toBool()) scan.low = true;
+  if (scan.low && x1.at(1).toBool()) scan.high = true;
+  if (scan.acknowledged && scan.failure.isEmpty()) {
+    if (state == ProgramInterrupted && !scan.paused) {
+      scan.paused = true;
+      emit scanPermission(scan.id, true);
+    }
+    const bool resuming = m_run == CalibrationRun::Resuming || m_run == CalibrationRun::ResumeStarting;
+    if (resuming && program == 0 && step != 0) m_run = CalibrationRun::ResumeStarting;
+    if (resuming && program == 0 && !scan.requestPending) observeResume(state, step, result);
+    if (scan.paused && active && proAct && state == ProgramRunning && !scan.requestPending) {
+      if (resuming && program == 0) {
+        scan.paused = false;
+        emit scanPermission(scan.id, false);
+      } else {
+        failScan(tr("Scan continued without its acknowledged Resume."));
+      }
+    }
+  }
+  if (cell && !scan.requestPending && (scan.acknowledged || scan.recoverySeen)) {
+    scan.terminated = true;
+    if (!scan.acknowledged || scan.paused || !scan.low || !scan.high || !x1.at(1).toBool()
+        || !x1.at(X1InHome).toBool() || state != ProgramFinished)
+      failScan(tr("CELL returned without complete scan success and HOME evidence."));
+    closeScan();
+  }
+  releaseScan();
+}
+
 bool SceneMachiningPreparation::canStartCalibration() const
 {
-  return busyReason().isEmpty() && m_preparedCalibration && isCurrentCalibration(m_preparedCalibration->motion)
+  return busyReason().isEmpty() && m_preparedCalibration && !m_preparedCalibration->scanPathId
+      && isCurrentCalibration(m_preparedCalibration->motion)
       && plcReady();
 }
 
@@ -585,8 +992,19 @@ void SceneMachiningPreparation::startCalibration()
   emit availabilityChanged();
 }
 
-void SceneMachiningPreparation::recordTouch(int touch, const V6d& joints)
+void SceneMachiningPreparation::recordTouch(const QString& jobId, int touch, const V6d& joints)
 {
+  if (m_scan) {
+    if (jobId != m_scan->id || m_scan->flushed || !m_preparedCalibration) return;
+    if (touch != m_detections.size() + 1 || touch > m_preparedCalibration->touchCount || !joints.allFinite()) {
+      failScan(tr("Unexpected scan detection %1 after %2 accepted rows.").arg(touch).arg(m_detections.size()));
+      return;
+    }
+    m_detections.append(ProbeTouchDetection{touch, joints});
+    emit calibrationRunChanged();
+    return;
+  }
+  if (!m_recorder->armedJob() || m_recorder->armedJob()->jobId != jobId) return;
   if (m_run == CalibrationRun::Idle) return;
   for (const ProbeTouchDetection& detection : std::as_const(m_detections))
     if (detection.touch == touch) return;
@@ -594,10 +1012,34 @@ void SceneMachiningPreparation::recordTouch(int touch, const V6d& joints)
   emit calibrationRunChanged();
 }
 
+void SceneMachiningPreparation::observeResume(int state, int step, int result)
+{
+  if (m_run != CalibrationRun::Resuming && m_run != CalibrationRun::ResumeStarting) return;
+  const bool resumed = m_run == CalibrationRun::ResumeStarting && step == 0 && result == StartResultResumed;
+  if (m_scan && resumed && state != ProgramRunning) return; // Await the resumed application's PRO_ACT.
+  if (state == ProgramRunning || resumed) {
+    m_run = CalibrationRun::Started;
+  } else if (step != 0) {
+    m_run = CalibrationRun::ResumeStarting;
+  } else if (m_run == CalibrationRun::ResumeStarting) {
+    m_run = CalibrationRun::Started;
+    m_runError = tr("Resume failed: %1.").arg(StartResultNames.value(result, QString::number(result)));
+  }
+  if (m_scan && m_run == CalibrationRun::Started) m_scanRequestTimer.stop();
+  emit calibrationRunChanged();
+}
+
 // The PLC sends robotResult with every 2 s heartbeat, so a start or resume failure is taken only when
 // the start sequence of this run (robotStep above IDLE) returns to IDLE without program 1 running.
 void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
 {
+  if (!m_scan && (values.contains("resumeReply") || values.contains("scanStartReply")
+                  || (values.contains("plcIoCurrent") && !values.contains("x1")))) return;
+  if (m_scan) {
+    observeScan(values);
+    emit availabilityChanged();
+    return;
+  }
   const int state = values.value(QStringLiteral("robotProgramState"), -1).toInt(); // -1: unchanged.
   const QQmlPropertyMap& data = *m_plc->data();
   const int step = data.value(QStringLiteral("robotStep")).toInt();
@@ -612,18 +1054,7 @@ void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
     endRun({});
     return;
   }
-  if (m_run == CalibrationRun::Resuming || m_run == CalibrationRun::ResumeStarting) {
-    // A failed resume keeps the run interrupted; its reason is shown with the interruption.
-    if (state == ProgramRunning || (m_run == CalibrationRun::ResumeStarting && step == 0 && result == StartResultResumed)) {
-      m_run = CalibrationRun::Started;
-    } else if (step != 0) {
-      m_run = CalibrationRun::ResumeStarting;
-    } else if (m_run == CalibrationRun::ResumeStarting) {
-      m_run = CalibrationRun::Started;
-      m_runError = tr("Resume failed: %1.").arg(StartResultNames.value(result, QString::number(result)));
-    }
-    emit calibrationRunChanged();
-  }
+  observeResume(state, step, result);
   if (m_run == CalibrationRun::Requested || m_run == CalibrationRun::Starting) {
     // A start sequence ending with STARTED also counts: the running state can be lost with a PLC frame.
     if (state == ProgramRunning || (m_run == CalibrationRun::Starting && step == 0 && result == StartResultStarted)) {
@@ -641,6 +1072,12 @@ void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
 void SceneMachiningPreparation::onPlcSocket()
 {
   emit availabilityChanged();
+  if (m_scan && !m_plc->isConnected()) {
+    m_scan->requestPending = false;
+    m_scan->recoverySeen = false;
+    failScan(tr("PLC disconnected during the scan."));
+    return;
+  }
   if (m_run != CalibrationRun::Idle && !m_plc->isConnected()) endRun(tr("PLC disconnected during the calibration run."));
 }
 

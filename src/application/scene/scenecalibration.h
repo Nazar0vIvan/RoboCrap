@@ -88,18 +88,21 @@ public:
   QString unavailableReason() const;
   bool calculating() const { return m_calculation.valid(); }
   Q_INVOKABLE void generate();
-  Q_INVOKABLE void generateScan(quint32 jobId);
+  Q_INVOKABLE void generateScan(quint32 jobId, int group);
   bool canPlay() const;
   // Resumes the paused calibration playback or starts the calibration path from HOME.
   Q_INVOKABLE void dryRun();
   Q_INVOKABLE void playProbePath(quint32 pathId);
   bool canPrepareScan() const;
+  quint32 selectedScanId() const { return m_precise ? m_selectedScanId : 0; }
+  QJsonObject scanProbeInputs() const;
   Q_INVOKABLE void prepareScan();
   // The generated calibration path, or null.
   const SceneTouchPath* path() const;
 
 signals:
   void scanGenerated(quint32 objectId);
+  void scanSamplingRequested(quint32 pathId);
   void errorChanged();
   // Also emitted for a repeated failure with the same text, so every failed write is reported.
   void settingsErrorChanged();

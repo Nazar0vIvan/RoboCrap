@@ -15,7 +15,7 @@
 // Session record folders (docs/code context/RECORDS_FORMAT.md): the values one folder needs and
 // the worker operation that writes it.
 
-enum class SessionKind { Calibration, Chamfer, TestLin };
+enum class SessionKind { Calibration, Chamfer, TestLin, Scan };
 
 struct RecordFile
 {

@@ -93,7 +93,7 @@ Automatic External connects the KR C4 to the Delta PLC through `$IN[1..5]` and `
 the user on the smartPAD, Configuration > Inputs/outputs > Automatic External, 2026-11-13; wiring in
 [ARCHITECTURE.md](../code%20context/ARCHITECTURE.md) §1; design and procedure in
 `plans/PLC_AUT_EXT_PROGRAM_START_EXECPLAN.md`). `$IN[1025]` is always TRUE and `$IN[1026]` always
-FALSE; outputs above 16 are not mapped to the EL2809. `$OUT[2]` is wired to PLC X1.1 but unassigned.
+FALSE; outputs above 16 are not mapped to the EL2809. The wiring connects `$OUT[2]` to PLC X1.1. The last documented configuration had this output free. The scan source reserves it for completion. Confirm exclusive assignment and observed levels on the installed cell before physical use.
 Outputs 138 (`$PR_MODE`) and 139 (`$SS_MODE`) are taken by other machine-data signals; assigning them
 again causes KSS00251 "Signal allocation conflict". `$CHCK_MOVENA` is FALSE (`$OPTION.DAT`), so
 `$MOVE_ENABLE` on `$IN[1025]` does not block external start. The smartPAD screens with these values
@@ -120,9 +120,9 @@ updates that file and this table together.
 | | | | `$ON_PATH`, `$NEAR_POSRET` | 997, 147 |
 | | | | `$IN_HOME1` … `$IN_HOME5` | FALSE |
 
-`R1\CELL.SRC` on the controller is `controller/krl/autext/cell.src`: CASE 0 calls
-`RSI_Probe_Calibration` (RoboCrap program 1, program number PGNO 0), CASE 1–3 are `WAIT SEC 5`
-placeholders (programs 2–4). Velocities are programmed, not reduced by the override:
+In the repository's `controller/krl/autext/cell.src`, CASE 0 calls `RSI_Probe_Calibration` (PC program 1).
+CASE 1 calls `RSI_Probe_Scan` (PC program 2). Programs 3 and 4 remain placeholders. The installed
+program-2 selection, share access and RSI Visual routing require commissioning. Velocities are programmed, not reduced by the override:
 
 - CELL sets the program override `$OV_PRO` to 100 % before every program number (only reached in
   AUT EXT). In T1 the override is the operator's: no program writes it there, and the controller

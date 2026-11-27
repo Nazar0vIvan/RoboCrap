@@ -148,6 +148,7 @@ void PlcDevice::writeMessage(const QVariantMap& msg)
   // A request made without a connection is dropped, never sent at a later connect.
   // Callers are invoke-only methods and the heartbeat, which exists only while started.
   if (m_sock->state() != QAbstractSocket::ConnectedState) {
+    publishProgramReply(msg, false);
     qInfo().noquote() << "[ERROR]" << objectName() + ":" << "PLC is not connected";
     return;
   }
@@ -185,6 +186,7 @@ void PlcDevice::sendNext()
     const PlcMessageManager::ParseResult built = m_mgr.buildReq(msg, tid);
 
     if (!built.ok()) {
+      publishProgramReply(msg, false);
       qInfo().noquote() << "[ERROR]" << objectName() + ":" << "WRITE ERROR: " + QString::number(built.error);
       continue;
     }
@@ -197,6 +199,7 @@ void PlcDevice::sendNext()
           << QString("Incomplete PLC write: %1 of %2 bytes queued").arg(count).arg(data.size());
       // A partially queued frame cannot safely be followed by another request. The RST close
       // clears the pending replies, and onStateChanged clears the queue, which ends this loop.
+      publishProgramReply(msg, count > 0 ? QVariant{} : QVariant(false));
       if (count > 0) disconnectDevice();
       continue;
     }
@@ -216,6 +219,9 @@ void PlcDevice::onReplyTimeout()
   qInfo().noquote() << "[ERROR]" << objectName() + ":"
       << QString("PLC reply timeout for transaction %1").arg(static_cast<uint>(m_nextTid));
   recordIo(QString("reply timeout %1").arg(static_cast<uint>(m_nextTid)));
+  const auto request = m_pend.value(m_nextTid);
+  if (request.value("cmd").toUInt() == PlcMessageManager::SNAPSHOT) emit stateReady({{"plcIoCurrent", false}});
+  publishProgramReply(request, {});
   m_pend.clear();
   sendNext();
 }
@@ -241,6 +247,17 @@ void PlcDevice::recordIo(const QString& event)
                               m_logged.value("robotProgram").toInt(), m_logged.value("robotResult").toInt()});
 }
 
+// An invalid value denotes a transmitted command without a matched reply.
+void PlcDevice::publishProgramReply(const QVariantMap& request, const QVariant& accepted)
+{
+  if (request.value("cmd").toUInt() != PlcMessageManager::SET_VAR) return;
+  const uint var = request.value("var").toUInt();
+  if (var == PlcMessageManager::RUN_PROG && request.value("attr").toInt() == 2)
+    emit stateReady({{"scanStartReply", accepted}});
+  else if (var == PlcMessageManager::ROBOT_RESUME)
+    emit stateReady({{"resumeReply", accepted}});
+}
+
 bool PlcDevice::matchResponse(const QVariantMap& data)
 {
   const auto tid = static_cast<quint8>(data.value("tid").toUInt());
@@ -264,6 +281,9 @@ bool PlcDevice::matchResponse(const QVariantMap& data)
       default: break;
     }
   }
+  const bool accepted = data.value("type").toUInt() == PlcMessageManager::RESP_OK;
+  if (cmd == PlcMessageManager::SNAPSHOT && !accepted) emit stateReady({{"plcIoCurrent", false}});
+  publishProgramReply(request, accepted);
   m_pend.remove(tid);
   m_replyTimer->stop();
   return true;
@@ -333,6 +353,7 @@ void PlcDevice::onStateChanged(QAbstractSocket::SocketState state)
 
   // Clear the persistent PLC state seen by QML.
   emit stateReady({
+    {"plcIoCurrent", false},
     {"x1", QVariantList(8, false)},
     {"y1", QVariantList(8, false)},
     {"x2", QVariantList(8, false)},
@@ -379,7 +400,7 @@ void PlcDevice::publishData(const QVariantMap& data)
 void PlcDevice::publishIo(const QVariantMap& data)
 {
   // The IO change frame and the SNAPSHOT reply carry the same IO bytes and start-sequence state.
-  QVariantHash values;
+  QVariantHash values{{"plcIoCurrent", true}};
   for (const char* key : {"x1", "y1", "x2", "y2", "robotStep", "robotProgram", "robotResult"})
     values.insert(key, data.value(key));
 

@@ -132,14 +132,12 @@ struct SceneSphere
   double strutRadius = 0.0; // mm, vertical strut under the sphere.
   double strutRecess = 0.0; // mm, strut top above the lowest sphere point.
   CalibrationTable table;
-  QString standModel; // Absolute BREP path of the stand, saved with its origin at the sphere center.
 
   friend bool operator==(const SceneSphere& a, const SceneSphere& b)
   {
     return a.center == b.center && a.roughCenter == b.roughCenter && a.radius == b.radius && a.ballCenterRadius == b.ballCenterRadius
         && a.compensatedRadius == b.compensatedRadius && a.rms == b.rms && a.roughPoints == b.roughPoints
-        && a.strutRadius == b.strutRadius && a.strutRecess == b.strutRecess && a.table == b.table
-        && a.standModel == b.standModel;
+        && a.strutRadius == b.strutRadius && a.strutRecess == b.strutRecess && a.table == b.table;
   }
 };
 
@@ -147,6 +145,7 @@ struct SceneEndGauge : ProbeGaugeMount
 {
   QString workpieceId;
   QString alternateLineEndingSha256;
+  static QString cadPath();
 };
 
 struct RefineScanSource
@@ -161,8 +160,6 @@ struct RefineScanSource
 struct SceneTouchPath
 {
   std::shared_ptr<const ProbeTouchMotion> motion;
-  QString refineJobId; // Empty for calibration and standalone preset paths.
-  int refineJobRevision = 0;
-  quint32 targetId = 0; // Scene instance of the solved mounting.
+  RefineScanSource source; // Empty for calibration and standalone preset paths.
   QJsonObject samplingInput; // Prepared offline, owned by this path for its lifetime.
 };

@@ -17,9 +17,9 @@ constexpr qint64 CaptureWaitNs = 2'000'000'000; // A closing session is written 
 constexpr int PollMs = 250;
 
 // Folder kind and KRL program of each SessionKind.
-const QStringList KindNames{QStringLiteral("calibration"), QStringLiteral("chamfer"), QStringLiteral("test-lin")};
+const QStringList KindNames{QStringLiteral("calibration"), QStringLiteral("chamfer"), QStringLiteral("test-lin"), QStringLiteral("scan")};
 const QStringList KrlPrograms{QStringLiteral("RSI_Probe_Calibration"), QStringLiteral("RSI_Chamfer_Hole"),
-                              QStringLiteral("RSI_Probe_Check")};
+                              QStringLiteral("RSI_Probe_Check"), QStringLiteral("RSI_Probe_Scan")};
 
 } // namespace
 
@@ -43,7 +43,7 @@ void SessionRecorder::disarm()
 
 void SessionRecorder::openCalibration()
 {
-  if (!m_job || m_job->kind != SessionKind::Calibration) return;
+  if (!m_job || (m_job->kind != SessionKind::Calibration && m_job->kind != SessionKind::Scan)) return;
   if (m_session) writeCalibration(tr("RSI capture not received."));
   m_session = createSession(*m_job, recordClockNs());
 }
@@ -93,9 +93,9 @@ void SessionRecorder::addRsiCapture(const RsiCapture& capture)
     return;
   }
   if (capture.records.isEmpty() || !m_job || capture.diagnosticId != m_job->jobId) return;
-  if (m_job->kind == SessionKind::Calibration) {
+  if (m_job->kind == SessionKind::Calibration || m_job->kind == SessionKind::Scan) {
     qInfo().noquote() << "[ERROR] Records: RSI exchange of" << capture.diagnosticId
-                      << "outside Start Calibration was not recorded.";
+                      << "outside a probe run was not recorded.";
     return;
   }
   // Chamfer and test LIN: the programs start on the smartPAD, so the capture is the session.
@@ -177,10 +177,22 @@ void SessionRecorder::writeSession(const OpenSession& session)
 
 void SessionRecorder::writeCalibration(const QString& note)
 {
+  if (!note.isEmpty()) m_session->error = m_session->error.isEmpty() ? note : m_session->error + QLatin1Char(' ') + note;
+  if (m_session->job.kind == SessionKind::Scan) {
+    if (m_session->captures.isEmpty()) failScan(tr("No scan RSI capture."));
+    for (const auto& capture : std::as_const(m_session->captures))
+      if (capture.dropped) { failScan(tr("Incomplete scan RSI capture.")); break; }
+    emit scanClosing(m_session->job.jobId, m_session->error);
+  }
   OpenSession session = std::move(*m_session);
   m_session.reset();
-  if (!note.isEmpty()) session.error = session.error.isEmpty() ? note : session.error + QLatin1Char(' ') + note;
   writeSession(session);
+}
+
+void SessionRecorder::failScan(const QString& error)
+{
+  if (m_session && m_session->job.kind == SessionKind::Scan && m_session->error.isEmpty())
+    m_session->error = error;
 }
 
 void SessionRecorder::onTimer()

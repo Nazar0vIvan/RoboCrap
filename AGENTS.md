@@ -205,26 +205,26 @@ history, tutorials or repeated implementation descriptions.
 
 - Inspect git status and the final diff, including new/untracked files. Run git diff --check;
   inspect untracked contents separately because ordinary diffs omit them.
-- An implementation request authorizes source edits, source review, and Git
-  diff/status checks. Compile, link, configure, build, lint, launch the
-  application, or run tests only when the user explicitly requests that
-  operation. This applies to every tool and location, including direct
-  compiler calls, syntax-only checks, Qt/Felgo tools, scratch executables,
-  temporary harnesses, and offscreen runs.
+- An implementation request authorizes source inspection, edits, static review, line counts and
+  Git checks. Other validation requires explicit user authorization for the specific operation:
+  configure, compile (including syntax-only), link, build, lint, launch or test; create or run
+  auxiliary verification code or environments (reproducers, reimplementations, temporary projects,
+  mocks, stubs, simulations, numerical experiments, test harnesses). This applies to every
+  language, tool and location, including inline scripts and outside the repository.
 - When requested, discover the installed matching Qt/compiler kit; do not invent SDK paths.
   Before reusing a build, check CMAKE_HOME_DIRECTORY and compiler/Qt paths in CMakeCache.txt.
   Preserve its mode; use a separate directory when needed.
 - USE_HOT_RELOAD=ON requires Felgo/FelgoHotReload; OFF embeds application QML and is required
   for packaging verification. FAST_QML_BUILD=ON skips cache generation; verify OFF when
   cache-generation verification is requested.
-- Build the owning target for C++/CMake/resources, plus robocrap for application integration or
-  concrete-device/geometry/path changes. Build for QML registration/resource changes too.
-  For QML, verify available targets and run Components_qmllint, Styles_qmllint or robocrap_qmllint
-  as appropriate (hot reload OFF for application QML); use all_qmllint for multiple modules.
-- Acceptance criteria in a plan describe what must eventually pass. They do
-  not authorize execution. If a runtime check was not requested, record it
-  as pending and stop after source review and Git checks. Do not ask to run
-  it by default.
+- If building is authorized, build the owning target for C++/CMake/resources, plus robocrap for
+  application integration or concrete-device/geometry/path changes. Build for QML registration/resource changes too.
+- If linting is authorized, verify available targets and run Components_qmllint, Styles_qmllint or
+  robocrap_qmllint as appropriate (hot reload OFF for application QML); use all_qmllint for multiple modules.
+- Plans and contracts do not authorize validation execution. Beyond mandatory reviews, repeat checks
+  only after relevant changes or for a specific unresolved issue. Unless further validation is
+  explicitly requested, stop after source review and Git checks; report pending validation without
+  asking to run it by default.
 - Fix introduced failures. Report pre-existing failures separately; change them only to unblock
   relevant validation. Report checks run/results and skipped checks/reasons. Reviews identify
   verified findings by file/line, impact and correction.

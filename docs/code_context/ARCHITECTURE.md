@@ -19,7 +19,7 @@ Supplied by the user unless a source is named.
 | Force/torque sensor | Schunk Delta IP68 SI-660-60 (ATI Net F/T electronics) | `FtsDevice`, key `fts` | ATI RDT over UDP, peer 192.168.1.3:49152 |
 | Spindle | GDZ-65-800A on an H100-1.5S2-1B frequency inverter (VFD) | none | Started through PLC output Y2.0 |
 | Touch probe | WP-500 V6 | none | Workpiece probe data enters as JSON point files; calibration touches as the application's touch file with the actual joint angles at detection ([RSI_Probe_Calibration_CONTRACT.md](../../controller/krl/rsi/calibration/RSI_Probe_Calibration_CONTRACT.md)) |
-| Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `resources/deploy/config/calibration_sphere.json`; the stand CAD `resources/deploy/cad/fixtures/CALIBRATION_STAND.stp` has its origin at the sphere centre |
+| Calibration sphere | ⌀25 mm bearing ball, grade G40, ISO 3290 | none | Passive, on a vertical pole on a table in front of the robot; sits 2 mm deep in the top of a ⌀17.8 mm strut, so only the surface above 10.5 mm below its centre is reachable. Strut and table geometry (table top 170.5 mm below the centre, tape-measured 2026-10-29) are in `settings/SPH25_rough.json`; the stand CAD `resources/deploy/cad/fixtures/CALIBRATION_STAND_SPH25.stp` has its origin at the sphere centre |
 | EtherCAT I/O | Beckhoff EK1100 coupler, EL1809 (16 DI), EL2809 (16 DO) on the KR C4 | none | Automatic External interface and probe signal to/from the PLC (wiring below); no PC code addresses them |
 | Network switch | D-Link DGS-1005P (5 Gigabit ports, 4 PoE, unmanaged) | none | Connects the PC to the PLC, sensor and VFD |
 
@@ -90,7 +90,7 @@ unconnected):
 | PLC terminal | Connected to |
 |---|---|
 | X1.0, X1.2 … X1.7 | EL2809 outputs 1, 3 … 8: `$I_O_ACTCONF`, `$PERI_RDY`, `$STOPMESS`, `$PRO_ACT`, PGNO_REQ, APPL_RUN, `$IN_HOME` |
-| X1.1 | EL2809 output 2 (`$OUT[2]`, unassigned) |
+| X1.1 | EL2809 output 2 (`$OUT[2]`), reserved in scan source for normal completion. Installed assignment awaits confirmation. |
 | X2.0 | WP-500 NPN output |
 | Y1.0 … Y1.4 | EL1809 inputs 1–5: `$EXT_START`, `$DRIVES_ON`, `$CONF_MESS`, PGNO bits 0 and 1 |
 | Y1.7 | EL1809 input 8 (`$IN[8]`); the PLC program copies X2.0 to Y1.7 |

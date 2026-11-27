@@ -1,10 +1,8 @@
 #include "scenecalibration.h"
 
-#include "assetpaths.h"
 #include "geometry/endgaugefit.h"
 #include "geometry/spherefit.h"
 
-#include <QCoreApplication>
 #include <QDebug>
 #include <QDir>
 #include <QFile>
@@ -369,21 +367,17 @@ void SceneCalibration::setPreciseActive(bool active)
 
 void SceneCalibration::activate()
 {
-  const QDir fixtures(QCoreApplication::applicationDirPath() + QStringLiteral("/resources/json"));
-  const QString sphereFile = fixtures.filePath(QStringLiteral("calibration_sphere.json"));
+  const QString sphereFile = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/SPH25_rough.json");
   auto file = m_precise && !QFile::exists(sphereFile) ? SphereFileResult{}
       : readSphereFile(sphereFile, m_effectors->rubyBallDiameter() / 2.0);
   m_sphereError = file.error;
-  if (const QString error = reloadEndGauge(fixtures.filePath(QStringLiteral("end_gauge.json"))); !error.isEmpty()) {
+  if (const QString error = reloadEndGauge(QStringLiteral(ROBOCRAP_SETTINGS_DIR "/EG22_rough.json")); !error.isEmpty()) {
     if (!file.error.isEmpty()) file.error.append(QLatin1Char('\n'));
     file.error += error;
   }
   setError(file.error);
   if (file.sphere) {
     if (m_settings.primary.sphereCentre) file.sphere->center = *m_settings.primary.sphereCentre;
-    // Converted from resources/deploy/cad/fixtures/CALIBRATION_STAND.stp at build time.
-    file.sphere->standModel = QDir(RoboCrap3D::ViewportAssets::applicationAssets().cadDirectory)
-                                  .filePath(QStringLiteral("CALIBRATION_STAND.brep"));
     replaceSphere(*file.sphere);
   } else if (m_scene->findObject(m_sphereId)) {
     m_scene->removeObjects({m_sphereId});
@@ -484,33 +478,24 @@ void SceneCalibration::playProbePath(quint32 pathId)
 
 bool SceneCalibration::canPrepareScan() const
 {
-  return m_precise && m_selectedScanId && m_scene->findObject(m_selectedScanId)
+  return m_precise && m_sphereError.isEmpty() && m_effectors->activeTool() == SceneEndEffectors::Measuring
+      && m_selectedScanId && m_scene->findObject(m_selectedScanId)
       && !calculating() && !m_playback->active();
+}
+
+QJsonObject SceneCalibration::scanProbeInputs() const
+{
+  if (!m_sphereError.isEmpty() || m_effectors->activeTool() != SceneEndEffectors::Measuring) return {};
+  return {{"primary", primaryObject(m_settings.primary)}, {"settings_error", m_settingsError},
+          {"probe", m_effectors->measuringName()}, {"ball_radius_mm", m_effectors->rubyBallDiameter() / 2.0},
+          {"stylus_length_mm", m_effectors->stylusLength()}};
 }
 
 void SceneCalibration::prepareScan()
 {
   if (!canPrepareScan()) return;
-  auto* object = m_scene->findObject(m_selectedScanId);
-  const auto& path = *object->touchPath();
-  if (!path.samplingInput.isEmpty()) return;
-  const auto& plan = path.motion->plan();
-  const M3d baseToWorkpiece = plan.gauge->workpieceInBase.topLeftCorner<3, 3>().transpose();
-  QJsonArray searches;
-  for (qsizetype i = 0; i < plan.passes.size(); ++i) {
-    const auto& pass = plan.passes[i];
-    for (const auto& touch : pass.touches) {
-      searches.append(QJsonObject{
-          {"touch", searches.size() + 1}, {"role", pass.role}, {"sourceFace", pass.sourceFace},
-          {"u", touch.cell.x()}, {"v", touch.cell.y()}, {"localMaterialPointMm", vectorArray(touch.localMaterialPoint)},
-          {"approachSideNormalLocal", vectorArray(baseToWorkpiece * touch.normal)},
-          {"searchDirectionBase", vectorArray(-touch.normal)}, {"purpose", "scan"},
-          {"group", pass.group}, {"pass", i + 1}, {"repetition", pass.repetition},
-          {"startBaseMm", vectorArray(touch.start.topRightCorner<3, 1>())}, {"searchDistanceMm", touch.searchDistance()}});
-    }
-  }
-  object->setScanSamplingInput({{"refineJobId", path.refineJobId}, {"refineJobRevision", path.refineJobRevision},
-                                {"searchFeedMmPerSecond", plan.searchFeed()}, {"searches", searches}});
+  setError({});
+  emit scanSamplingRequested(m_selectedScanId);
 }
 
 void SceneCalibration::replaceSphere(const SceneSphere& sphere)
@@ -561,6 +546,7 @@ void SceneCalibration::onObjectRemoved(quint32 id)
 void SceneCalibration::invalidatePendingScan()
 {
   if (m_scanSource) ++m_revision;
+  emit availabilityChanged();
 }
 
 QString SceneCalibration::probeSetupError() const
@@ -599,7 +585,7 @@ void SceneCalibration::generate()
   trackCalculation(std::async(std::launch::async, &ProbeTouchMotion::create, std::move(*plan.plan), std::move(robot)));
 }
 
-void SceneCalibration::generateScan(quint32 jobId)
+void SceneCalibration::generateScan(quint32 jobId, int group)
 {
   if (!m_precise) { setError(tr("Select Measuring / Precise to generate a Scan Path.")); return; }
   if (m_effectors->activeTool() != SceneEndEffectors::Measuring) { setError(tr("Select the measuring tool.")); return; }
@@ -621,7 +607,7 @@ void SceneCalibration::generateScan(quint32 jobId)
   }
   ChamferRobotSetup robot{*m_playback->robotModel(), *m_effectors->measuringTcpFrame(), {}};
   m_scanSource = RefineScanSource{jobId, targetId, job.value("id").toString(), job.value("revision").toInt()};
-  trackCalculation(std::async(std::launch::async, &RefineScan::solve, std::move(scan), std::move(robot)));
+  trackCalculation(std::async(std::launch::async, &RefineScan::solve, std::move(scan), std::move(robot), group));
 }
 
 void SceneCalibration::trackCalculation(std::future<ProbeTouchMotionResult> calculation)
@@ -768,6 +754,7 @@ bool SceneCalibration::reassignPrimaryCentres()
     moved.center = last.sphereCentre;
     replaceSphere(moved);
   }
+  emit availabilityChanged();
   return m_settingsError.isEmpty();
 }
 

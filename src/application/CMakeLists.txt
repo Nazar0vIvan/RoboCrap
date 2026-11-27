@@ -88,6 +88,7 @@ else()
       "qml/Views/Workspace/RefineFrameIconRow.qml"
       "qml/Views/Workspace/EndEffectorPanel.qml"
       "qml/Views/Workspace/MachiningPanel.qml"
+      "qml/Views/Workspace/ScanPathPanel.qml"
       "qml/Views/Workspace/CalibrationResultWindow.qml"
   )
 endif()

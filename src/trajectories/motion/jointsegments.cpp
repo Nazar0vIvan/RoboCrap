@@ -157,8 +157,14 @@ std::optional<LinearProfile> timedProfile(LinearProfile result)
   result.ramp = result.peak / limits.acceleration;
   result.cruise = triangular ? 0.0 : (result.length - result.peak * result.ramp) / result.peak;
   if (!std::isfinite(result.peak) || result.peak <= 0.0 || !std::isfinite(result.ramp)
-      || result.ramp <= TimeResolution || !std::isfinite(result.cruise) || result.cruise < 0.0
-      || !std::isfinite(result.duration()) || result.duration() <= result.ramp
+      || result.ramp <= TimeResolution || !std::isfinite(result.cruise) || result.cruise < 0.0)
+    return std::nullopt;
+  if (result.cruise > 0.0 && result.cruise <= TimeResolution) {
+    // Two ramps at the same peak cover the full length when each lasts length / peak.
+    result.ramp = result.length / result.peak;
+    result.cruise = 0.0;
+  }
+  if (!std::isfinite(result.duration()) || result.duration() <= result.ramp
       || (result.cruise > 0.0 && result.ramp + result.cruise <= result.ramp))
     return std::nullopt;
   return result;
@@ -247,7 +253,6 @@ std::optional<LinearProfile> circularProfile(const LinearProfile& chord, const V
 
 LinearSchedule linearSchedule(const LinearProfile& profile)
 {
-  LinearSchedule result;
   const std::array<double, 4> stops{0.0, profile.ramp, profile.ramp + profile.cruise, profile.duration()};
   std::array<int, 3> intervals{};
   qsizetype plannedPoints = 1;
@@ -258,16 +263,22 @@ LinearSchedule linearSchedule(const LinearProfile& profile)
     const double duration = stops[stage + 1] - stops[stage];
     if (duration == 0.0) continue;
     const double acceleration = (stage == 1 ? 0.0 : profile.limits.acceleration) + normal;
-    const double count = std::max(1.0, std::ceil(duration * std::sqrt(acceleration / (8.0 * TransferPositionTolerance))));
-    if (!std::isfinite(duration) || duration <= 0.0 || !std::isfinite(count)
-        || count > MaximumScheduledPoints - plannedPoints || !(duration / count > TimeResolution)) {
-      result.error = QStringLiteral("Transfer schedule exceeds numerical range or %1 points.")
-          .arg(MaximumScheduledPoints);
-      return result;
-    }
+    const double subdivisions = duration * std::sqrt(acceleration / (8.0 * TransferPositionTolerance));
+    if (!std::isfinite(subdivisions) || !(duration > 0.0))
+      return {{}, QStringLiteral("Cannot calculate transfer intervals for duration %1 s and acceleration bound %2 mm/s^2.")
+                      .arg(duration, 0, 'g', 17).arg(acceleration, 0, 'g', 17)};
+    const double count = std::max(1.0, std::ceil(subdivisions));
+    if (count > MaximumScheduledPoints - plannedPoints)
+      return {{}, QStringLiteral("Transfer schedule exceeds %1 points (%2 already planned, %3 more required).")
+                      .arg(MaximumScheduledPoints).arg(plannedPoints).arg(count, 0, 'g', 17)};
+    const double step = duration / count;
+    if (!(step > TimeResolution))
+      return {{}, QStringLiteral("Transfer interval %1 s must exceed %2 s (duration %3 s, %4 intervals).")
+                      .arg(step, 0, 'g', 17).arg(TimeResolution).arg(duration, 0, 'g', 17).arg(count)};
     intervals[stage] = static_cast<int>(count);
     plannedPoints += intervals[stage];
   }
+  LinearSchedule result;
   result.localTimes.reserve(plannedPoints - 1);
   for (std::size_t stage = 0; stage < intervals.size(); ++stage)
     for (int index = 1; index <= intervals[stage]; ++index)

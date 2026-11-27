@@ -14,6 +14,8 @@ ToolBar {
   property bool generationAvailable: false
   property bool preparationAvailable: false
   property bool preparing: false
+  property bool scanAvailable: false
+  signal scanRequested()
   property bool calibrationStartAvailable: false
   property bool calibrationResumeAvailable: false
   property bool playbackAvailable: false
@@ -213,7 +215,7 @@ ToolBar {
 
       Tool {
         visible: !root.rough
-        text: root.precise ? qsTr("Offline Sampling") : root.preparing ? qsTr("Sampling…") : qsTr("RSI Sampling")
+        text: root.preparing ? qsTr("Sampling…") : qsTr("RSI Sampling")
         iconSource: "qrc:/icons/rsi_sampling.svg"
         available: root.preparationAvailable
         onTriggered: root.preparationRequested()
@@ -230,7 +232,7 @@ ToolBar {
 
       // A separate tool, so no label change resizes the toolbar.
       Tool {
-        visible: root.calibration
+        visible: root.calibration || root.precise
         text: qsTr("Resume")
         iconSource: "qrc:/icons/run.svg"
         preserveIconColors: true
@@ -242,6 +244,8 @@ ToolBar {
         visible: !root.rough && !root.calibration
         text: root.precise ? qsTr("Scan") : qsTr("Start Machining")
         iconSource: root.precise ? "qrc:/icons/scan.svg" : "qrc:/icons/run.svg"
+        available: root.precise && root.scanAvailable
+        onTriggered: root.scanRequested()
         preserveIconColors: true
       }
     }
