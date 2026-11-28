@@ -31,18 +31,8 @@ const QString ScanDataPath = QStringLiteral("C:/RoboCrapJobs/scan_data.txt");
 const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt");
 
 const QString ScanOwnerPath = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/scan_in_progress");
-// Enable only after the installed CELL, output, RSI context and physical measurement bounds are commissioned.
-constexpr bool ScanCommissioned = false;
-const QJsonObject CommissionedScanPoseBounds{}; // Empty until measured for this robot, tool and search setup.
-
-bool hasScanPoseBounds(const QJsonObject& bounds)
-{
-  for (const auto* key : {"axial_mm", "lateral_mm", "angular_deg"}) {
-    const double limit = bounds.value(key).toDouble(-1.0);
-    if (!std::isfinite(limit) || limit < 0.0) return false;
-  }
-  return !bounds.value("basis").toString().trimmed().isEmpty();
-}
+// Enable only after the installed CELL, output and RSI context are commissioned.
+constexpr bool ScanCommissioned = true;
 
 // RSI_Probe_Check (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
 constexpr double RsiCycleSeconds = 0.004; // #IPO_FAST
@@ -300,7 +290,7 @@ SceneMachiningPreparation::SceneMachiningPreparation(SceneModel* scene, SceneMac
   if (QFile::exists(ScanOwnerPath)) {
     m_scan.emplace();
     m_scan->flushed = true;
-    m_scan->failure = tr("Previous scan requires controller recovery and confirmed return to CELL.");
+    m_scan->failure = tr("Previous scan awaits idle PLC and RSI feedback.");
     setError(m_scan->failure);
   } else {
     setError(clearPrepared());
@@ -326,7 +316,11 @@ bool SceneMachiningPreparation::isCurrentCalibration(const std::shared_ptr<const
 
 bool SceneMachiningPreparation::controllerBusy() const
 {
-  if (m_scan || m_run != CalibrationRun::Idle) return true;
+  return m_scan || m_run != CalibrationRun::Idle || hardwareBusy(false);
+}
+
+bool SceneMachiningPreparation::hardwareBusy(bool requireRsiFeedback) const
+{
   if (m_plc && m_plc->isConnected()) {
     const auto& data = *m_plc->data();
     const int program = data.value("robotProgramState").toInt();
@@ -335,9 +329,9 @@ bool SceneMachiningPreparation::controllerBusy() const
         || (!x1.value(X1AutExt).toBool() && x1.value(X1ProAct).toBool())
         || program == ProgramRunning || program == ProgramInterrupted) return true;
   }
-  if (!m_rsi || !m_rsi->isConnected()) return false;
+  if (!m_rsi || !m_rsi->isConnected()) return requireRsiFeedback;
   const auto state = m_rsi->data()->value("rsiState").toString();
-  return !state.isEmpty() && state != QStringLiteral("idle");
+  return state.isEmpty() ? requireRsiFeedback : state != QStringLiteral("idle");
 }
 
 QString SceneMachiningPreparation::busyReason() const
@@ -570,13 +564,14 @@ std::variant<double, QString> SceneMachiningPreparation::PreparedProbe::scanComp
 {
   const auto& plan = motion->plan();
   const auto primary = probeInputs.value("primary").toObject();
-  const auto source = primary.value("source").toString();
   const auto ball = primary.value("ballCentreF").toArray();
   const auto sphere = primary.value("sphereCentreB").toArray();
   if (const QString error = probeInputs.value("settings_error").toString(); !error.isEmpty()) return error;
-  if (!plan.sphere || source.trimmed().isEmpty() || source == QStringLiteral("manual")
-      || ball.size() != 3 || sphere.size() != 3)
-    return tr("Scan requires a reference sphere and applied primary probe calibration.");
+  if (!plan.sphere) return tr("Scan requires a reference sphere.");
+  for (const auto key : {"ballCentreF", "sphereCentreB", "contactVertical", "contactHorizontal"})
+    if (!primary.contains(key)) return tr("Missing primary compensation parameter: %1.").arg(key);
+  if (ball.size() != 3 || sphere.size() != 3)
+    return tr("Primary ballCentreF and sphereCentreB each require three coordinates.");
   const auto& tool = motion->robot().flangeToTcp;
   for (int axis = 0; axis < 3; ++axis)
     if (ball.at(axis).toDouble() != tool(axis, 3) || sphere.at(axis).toDouble() != plan.sphere->sphereCentre[axis])
@@ -625,7 +620,6 @@ QString SceneMachiningPreparation::saveProbePlan(const ProbeCalibrationRsi& job)
     record.inputs.insert("joint_speed_limits_deg_s", recordArray(motion.robot().timing.jointSpeed.data(), 6));
     record.inputs.insert("cycle_s", RsiCycleSeconds);
     record.inputs.insert("group", motion.plan().passes.front().group);
-    record.inputs.insert("pose_bounds", CommissionedScanPoseBounds);
     const auto radius = m_pendingProbe.scanCompensationRadius();
     if (const auto* error = std::get_if<QString>(&radius)) record.inputs.insert("scan_setup_error", *error);
     else record.inputs.insert("compensation_radius_mm", std::get<double>(radius));
@@ -695,7 +689,6 @@ void SceneMachiningPreparation::shutdown()
   m_preparing = false;
   if (m_scan && !m_scan->flushed) {
     failScan(tr("Application closed during the scan."));
-    closeScan();
   } else if (!m_scan && m_run != CalibrationRun::Idle) {
     endRun(tr("Application closed during the calibration run."));
   }
@@ -731,7 +724,7 @@ void SceneMachiningPreparation::attachRecorder(SessionRecorder* recorder)
 // The PLC's own Run checks (FB_RunSetVar): step IDLE, AUT EXT, $IN_HOME, APPL_RUN off.
 bool SceneMachiningPreparation::plcReady() const
 {
-  if (!m_plc || !m_plc->isConnected()) return false;
+  if (!m_plc || !m_plc->isConnected() || !m_plc->data()->value("plcIoCurrent").toBool()) return false;
   const QVariantList x1 = m_plc->data()->value(QStringLiteral("x1")).toList();
   return m_plc->data()->value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(X1AutExt).toBool()
       && x1.value(X1InHome).toBool() && !x1.value(X1ApplRun).toBool();
@@ -747,7 +740,7 @@ bool SceneMachiningPreparation::canResumeCalibration() const
                  || m_rsi->data()->value("rsiDiagnosticId").toString() != m_scan->id)) return false;
   const QQmlPropertyMap& data = *m_plc->data();
   const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
-  return data.value(QStringLiteral("robotProgramState")).toInt() == ProgramInterrupted
+  return data.value("plcIoCurrent").toBool() && data.value(QStringLiteral("robotProgramState")).toInt() == ProgramInterrupted
       && data.value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(X1AutExt).toBool()
       && x1.value(X1ApplRun).toBool() && !x1.value(X1ProAct).toBool() && !x1.value(X1StopMess).toBool()
       && m_calibration->gaugeUseError().isEmpty();
@@ -786,7 +779,7 @@ void SceneMachiningPreparation::resumeCalibration()
 
 bool SceneMachiningPreparation::canStartScan() const
 {
-  if (!ScanCommissioned || !canPrepareScan() || !m_preparedCalibration || !plcReady() || !m_plc->data()->value("plcIoCurrent").toBool()
+  if (!ScanCommissioned || !canPrepareScan() || !m_preparedCalibration || !plcReady()
       || !m_rsi || !m_rsi->isConnected()) return false;
   const auto& probe = *m_preparedCalibration;
   const auto* job = m_recorder->armedJob();
@@ -797,7 +790,7 @@ bool SceneMachiningPreparation::canStartScan() const
   if (!path || path->samplingInput.value("job_id").toString() != job->jobId
       || path->samplingInput.value("scan_data_sha256") != job->inputs.value("scan_data_sha256")) return false;
   return probe.motion->plan().gauge->source == QStringLiteral("measured")
-      && job->inputs.contains("compensation_radius_mm") && hasScanPoseBounds(job->inputs.value("pose_bounds").toObject());
+      && job->inputs.contains("compensation_radius_mm");
 }
 
 void SceneMachiningPreparation::startScan()
@@ -829,7 +822,6 @@ void SceneMachiningPreparation::startScan()
   if (!error.isEmpty()) {
     m_scan->terminated = true; // No PLC request was sent.
     failScan(error);
-    closeScan();
     return;
   }
   m_run = CalibrationRun::Requested;
@@ -861,8 +853,7 @@ void SceneMachiningPreparation::failScan(const QString& error)
 {
   if (!m_scan || !m_scan->failure.isEmpty()) return;
   m_scan->failure = error;
-  if (!m_scan->closing) emit scanPermission({});
-  m_scanRequestTimer.stop();
+  closeScan();
   m_runError = error;
   setError(error);
   emit calibrationRunChanged();
@@ -897,7 +888,7 @@ void SceneMachiningPreparation::finishScanRecord(const QString& id, const QStrin
   m_recorder->addFile({"scan_completion.json", QJsonDocument(evidence).toJson()});
   m_recorder->failScan(m_scan->failure);
   m_scan->flushed = true;
-  releaseScan();
+  if (m_scan->failure.isEmpty()) releaseScan();
 }
 
 QJsonObject SceneMachiningPreparation::recordScanMeasurements()
@@ -916,9 +907,6 @@ QJsonObject SceneMachiningPreparation::recordScanMeasurements()
   const QList<QByteArray> columns{"search_step", "pass", "role", "source_face", "u", "v"};
   auto rows = touchesCsv(m_detections).split('\n');
   rows[0] += ';' + columns.join(';');
-  const auto bounds = job.inputs.value("pose_bounds").toObject();
-  const bool bounded = hasScanPoseBounds(bounds);
-  if (!bounded) failScan(tr("The sampled scan has no commissioned pose bounds and basis."));
   if (const auto error = job.inputs.value("scan_setup_error").toString(); !error.isEmpty()) failScan(error);
   EndGaugeObservations observations;
   observations.compensationRadiusMm = job.inputs.value("compensation_radius_mm").toDouble();
@@ -958,11 +946,6 @@ QJsonObject SceneMachiningPreparation::recordScanMeasurements()
     const double angle = Eigen::AngleAxisd(relative).angle() * GeomConst::RadToDeg;
     if (!std::isfinite(axial) || !std::isfinite(lateral) || !std::isfinite(angle))
       failScan(tr("Non-finite measured pose deviation at touch %1.").arg(detection.touch));
-    else if (bounded && (axial < -bounds.value("axial_mm").toDouble()
-             || axial > touch.searchDistance() + bounds.value("axial_mm").toDouble()
-             || lateral > bounds.value("lateral_mm").toDouble() || angle > bounds.value("angular_deg").toDouble()))
-      failScan(tr("Touch %1 exceeds the sampled pose bounds (axial %2 mm, lateral %3 mm, angle %4 deg).")
-                   .arg(detection.touch).arg(axial).arg(lateral).arg(angle));
 
     const int face = pass - 1;
     observations.ballCentres[face].append(centre);
@@ -1098,11 +1081,7 @@ void SceneMachiningPreparation::discardScanResult()
 void SceneMachiningPreparation::observeScan(const QVariantHash& values)
 {
   auto& scan = *m_scan;
-  if (scan.terminated) { releaseScan(); return; }
-  if (values.contains("plcIoCurrent") && !values.value("plcIoCurrent").toBool()) {
-    failScan(tr("Scan PLC feedback was lost."));
-    return;
-  }
+  if (scan.terminated && scan.failure.isEmpty()) { releaseScan(); return; }
   for (const auto& key : {QStringLiteral("scanStartReply"), QStringLiteral("resumeReply")}) {
     if (!values.contains(key) || !scan.requestPending) continue;
     const bool resume = key == QStringLiteral("resumeReply");
@@ -1117,7 +1096,6 @@ void SceneMachiningPreparation::observeScan(const QVariantHash& values)
         m_runError = tr("PLC refused Resume. Check the stop acknowledgement.");
         emit calibrationRunChanged();
       } else if (!resume) {
-        scan.recoverySeen = true; // Matched negative PLC reply confirms non-start.
         failScan(tr("PLC refused scan program 2."));
       }
     } else if (!resume) {
@@ -1126,8 +1104,7 @@ void SceneMachiningPreparation::observeScan(const QVariantHash& values)
     return;
   }
   const auto x1 = values.value("x1").toList();
-  if (x1.size() != 8 || !m_plc->isConnected() || !values.contains("robotStep")
-      || values.value("robotProgramState", -1).toInt() == 0) return;
+  if (!values.value("plcIoCurrent").toBool() || x1.size() != 8 || !values.contains("robotStep") || !m_plc->isConnected()) return;
   const int step = values.value("robotStep").toInt();
   const int program = values.value("robotProgram").toInt();
   const int result = values.value("robotResult").toInt();
@@ -1135,14 +1112,15 @@ void SceneMachiningPreparation::observeScan(const QVariantHash& values)
   const bool automatic = x1.at(X1AutExt).toBool();
   const bool active = x1.at(X1ApplRun).toBool();
   const bool proAct = x1.at(X1ProAct).toBool();
-  const bool cell = automatic && !active && proAct && x1.at(5).toBool() && step == 0;
   scan.terminal = scanPlcState(*m_plc->data());
+  if (!automatic) failScan(tr("AUT EXT was left during the scan."));
+  if (!scan.failure.isEmpty()) {
+    scan.terminated = !scan.requestPending && !hardwareBusy(true);
+    if (scan.terminated) releaseScan();
+    return;
+  }
   if (scan.accepted && program == 2 && (result == 4 || result == 5) && m_run == CalibrationRun::Starting)
     failScan(tr("PLC aborted the scan start sequence."));
-  if (!automatic) {
-    failScan(tr("AUT EXT was left during the scan."));
-    if (!active && !proAct && step == 0 && !scan.requestPending) scan.recoverySeen = true;
-  }
   if (!scan.acknowledged && program == 2 && step != 0 && m_run == CalibrationRun::Requested)
     m_run = CalibrationRun::Starting;
   if (scan.accepted && m_run == CalibrationRun::Starting && program == 2) {
@@ -1175,14 +1153,13 @@ void SceneMachiningPreparation::observeScan(const QVariantHash& values)
       }
     }
   }
-  if (cell && !scan.requestPending && (scan.acknowledged || scan.recoverySeen)) {
+  if (scan.acknowledged && !active && proAct && x1.at(5).toBool() && step == 0 && !scan.requestPending) {
     scan.terminated = true;
-    if (!scan.acknowledged || scan.paused || !scan.low || !scan.high || !x1.at(1).toBool()
+    if (scan.paused || !scan.low || !scan.high || !x1.at(1).toBool()
         || !x1.at(X1InHome).toBool() || state != ProgramFinished)
       failScan(tr("CELL returned without complete scan success and HOME evidence."));
     closeScan();
   }
-  releaseScan();
 }
 
 bool SceneMachiningPreparation::canStartCalibration() const
@@ -1246,13 +1223,16 @@ void SceneMachiningPreparation::observeResume(int state, int step, int result)
 // the start sequence of this run (robotStep above IDLE) returns to IDLE without program 1 running.
 void SceneMachiningPreparation::onPlcData(const QVariantHash& values)
 {
-  if (!m_scan && (values.contains("resumeReply") || values.contains("scanStartReply")
-                  || (values.contains("plcIoCurrent") && !values.contains("x1")))) return;
+  if (values.contains("plcIoCurrent") && !values.contains("x1")) {
+    emit availabilityChanged();
+    return;
+  }
   if (m_scan) {
     observeScan(values);
     emit availabilityChanged();
     return;
   }
+  if (values.contains("resumeReply") || values.contains("scanStartReply")) return;
   const int state = values.value(QStringLiteral("robotProgramState"), -1).toInt(); // -1: unchanged.
   const QQmlPropertyMap& data = *m_plc->data();
   const int step = data.value(QStringLiteral("robotStep")).toInt();
@@ -1287,7 +1267,6 @@ void SceneMachiningPreparation::onPlcSocket()
   emit availabilityChanged();
   if (m_scan && !m_plc->isConnected()) {
     m_scan->requestPending = false;
-    m_scan->recoverySeen = false;
     failScan(tr("PLC disconnected during the scan."));
     return;
   }

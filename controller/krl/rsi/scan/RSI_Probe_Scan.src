@@ -90,22 +90,19 @@ END
 DEFFCT BOOL READ_JOB()
    DECL STATE_T State
    DECL MODUS_T Mode
-   DECL INT File
-   DECL INT Version
-   DECL INT Step
+   DECL INT File, Version, Step, Kind, Offset, LineCodes
+   DECL CHAR LineEnds[4], Tail
    DECL BOOL Ok
-   DECL CHAR Tail
-   DECL INT Searches
-   DECL POS StartPos
-   DECL POS RetractPos
 
-   ; Version 1 of /RoboCrapJobs/scan_data.txt (RSI_Probe_Scan_CONTRACT.md).
    Mode=#SYNC
    File=0
-   Version=0
    StepCount=0
-   TransferVelocity=0
-   TransferAcceleration=0
+   TransferVelocity=0.0
+   TransferAcceleration=0.0
+   ; CR (0D), LF (0A) in the first two bytes of a little-endian INT.
+   LineCodes='H0A0D'
+   Offset=0
+   CAST_TO(LineEnds[],Offset,LineCodes)
    IF NOT REMOUNT_SHARE() THEN
       RETURN FALSE
    ENDIF
@@ -113,70 +110,85 @@ DEFFCT BOOL READ_JOB()
    IF State.RET1<>#DATA_OK THEN
       RETURN FALSE
    ENDIF
+
+   ; Version 1: see RSI_Probe_Scan_CONTRACT.md.
+   Version=0
    CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d",Version)
    Ok=(State.RET1==#DATA_OK) AND (Version==1)
    ToolFrame=READ_FRAME(File,Ok)
    CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%f",TransferVelocity)
-   Ok=Ok AND (State.RET1==#DATA_OK)
+   Ok=Ok AND (State.RET1==#DATA_OK) AND (TransferVelocity>0) AND (TransferVelocity<=$VEL_MA.CP)
    CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%f",TransferAcceleration)
-   Ok=Ok AND (State.RET1==#DATA_OK)
-   Ok=Ok AND (TransferVelocity>0) AND (TransferVelocity<=$VEL_MA.CP)
-   Ok=Ok AND (TransferAcceleration>0) AND (TransferAcceleration<=$ACC_MA.CP)
+   Ok=Ok AND (State.RET1==#DATA_OK) AND (TransferAcceleration>0) AND (TransferAcceleration<=$ACC_MA.CP)
    CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d",StepCount)
-   Ok=Ok AND (State.RET1==#DATA_OK) AND (StepCount>=1) AND (StepCount<=600)
-   Searches=0
+   Ok=Ok AND (State.RET1==#DATA_OK) AND (StepCount>=6) AND (StepCount<=600)
    Step=1
    WHILE Ok AND (Step<=StepCount)
-      ; Reset first: values left from a previous job must not survive a partial conversion.
+      ; Invalid defaults also reject an incomplete conversion.
       StepKind[Step]=0
-      StepTouch[Step]=0
+      StepTouch[Step]=-1
       CWRITE($FCT_CALL,State,Mode,"krl_fscanf",File,"%d;%d",StepKind[Step],StepTouch[Step])
-      Ok=(State.RET1==#DATA_OK) AND (StepKind[Step]>=1) AND (StepKind[Step]<=5)
-      IF Ok THEN
-         SWITCH StepKind[Step]
-         CASE 1,2
-            StepTarget[Step]=READ_POS(File,Ok)
-            Ok=Ok AND (StepTouch[Step]==0) AND ((StepKind[Step]==2) OR (Step==1))
-         CASE 4
-            Searches=Searches+1
-            Ok=(StepTouch[Step]==Searches) AND (Step>1) AND (Step<StepCount)
-            IF Ok THEN
-               Ok=(StepKind[Step-1]==2)
-            ENDIF
-         CASE 5
-            Ok=(Step==StepCount) AND (StepTouch[Step]==0)
-         DEFAULT
-            Ok=FALSE
-         ENDSWITCH
-      ENDIF
-      IF Ok AND (Step>1) THEN
-         IF StepKind[Step-1]==4 THEN
-            Ok=(StepKind[Step]==2)
-            IF Ok THEN
-               StartPos=StepTarget[Step-2]
-               RetractPos=StepTarget[Step]
-               Ok=(StartPos.X==RetractPos.X) AND (StartPos.Y==RetractPos.Y) AND (StartPos.Z==RetractPos.Z)
-               Ok=Ok AND (StartPos.A==RetractPos.A) AND (StartPos.B==RetractPos.B) AND (StartPos.C==RetractPos.C)
-               Ok=Ok AND (StartPos.S==RetractPos.S) AND (StartPos.T==RetractPos.T)
-            ENDIF
-         ENDIF
+      Kind=StepKind[Step]
+      Ok=(State.RET1==#DATA_OK) AND (Kind>=1) AND (Kind<=5) AND (Kind<>3)
+      IF Ok AND ((Kind==1) OR (Kind==2)) THEN
+         StepTarget[Step]=READ_POS(File,Ok)
       ENDIF
       Step=Step+1
    ENDWHILE
+
    IF Ok THEN
-      Ok=(Searches>0) AND (StepCount>=6) AND (StepKind[1]==1) AND (StepKind[StepCount]==5)
+      Ok=VALID_ROUTE()
    ENDIF
-   IF Ok THEN
-      Ok=(StepKind[StepCount-3]==4) AND (StepKind[StepCount-1]==2)
-   ENDIF
+
+   ; Accept only CR/LF up to actual EOF.
+	 Tail=" "
    WHILE Ok
       CWRITE($FCT_CALL,State,Mode,"krl_fgetc",File,Tail)
       IF State.RET1<>#DATA_OK THEN
          Ok=(State.MSG_NO==-4)
          EXIT
       ENDIF
-      Ok=(Tail==13) OR (Tail==10)
+      Ok=(Tail==LineEnds[1]) OR (Tail==LineEnds[2])
    ENDWHILE
    CWRITE($FCT_CALL,State,Mode,"krl_fclose",File)
    RETURN Ok AND (State.RET1==#DATA_OK)
+ENDFCT
+
+DEFFCT BOOL VALID_ROUTE()
+   DECL INT Step, Searches
+   DECL POS StartPos, RetractPos
+
+   ; The reader has loaded 6..600 complete steps.
+   IF (StepKind[1]<>1) OR (StepKind[StepCount]<>5) OR (StepTouch[1]<>0) OR (StepTouch[StepCount]<>0) THEN
+      RETURN FALSE
+   ENDIF
+   ; The last four steps are SEARCH, retract, retreat, HOME.
+   IF (StepKind[StepCount-3]<>4) OR (StepKind[StepCount-1]<>2) THEN
+      RETURN FALSE
+   ENDIF
+   Searches=0
+   FOR Step=2 TO StepCount-1
+      IF StepKind[Step]==4 THEN
+         Searches=Searches+1
+         IF (StepTouch[Step]<>Searches) OR (StepKind[Step-1]<>2) OR (StepKind[Step+1]<>2) THEN
+            RETURN FALSE
+         ENDIF
+         StartPos=StepTarget[Step-1]
+         RetractPos=StepTarget[Step+1]
+         IF (StartPos.X<>RetractPos.X) OR (StartPos.Y<>RetractPos.Y) OR (StartPos.Z<>RetractPos.Z) THEN
+            RETURN FALSE
+         ENDIF
+         IF (StartPos.A<>RetractPos.A) OR (StartPos.B<>RetractPos.B) OR (StartPos.C<>RetractPos.C) THEN
+            RETURN FALSE
+         ENDIF
+         IF (StartPos.S<>RetractPos.S) OR (StartPos.T<>RetractPos.T) THEN
+            RETURN FALSE
+         ENDIF
+      ELSE
+         IF (StepKind[Step]<>2) OR (StepTouch[Step]<>0) THEN
+            RETURN FALSE
+         ENDIF
+      ENDIF
+   ENDFOR
+   RETURN TRUE
 ENDFCT

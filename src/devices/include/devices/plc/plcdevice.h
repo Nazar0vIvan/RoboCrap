@@ -62,6 +62,7 @@ private:
   // Queues one request map (WRITE_IO, SET_VAR or SNAPSHOT); not part of the invoke API.
   void writeMessage(const QVariantMap& msg);
   void sendNext();
+  void snapshotFailed();
   void publishProgramReply(const QVariantMap& request, const QVariant& accepted);
   bool matchResponse(const QVariantMap& data);
   void processIncoming(const QByteArray& bytes);
@@ -84,5 +85,6 @@ private:
   QQueue<QVariantMap> m_queue;
   QHash<quint8, QVariantMap> m_pend;
   quint8 m_nextTid = 1;
+  bool m_snapshotRetry = false;
   ProgramState m_programState = ProgramState::Unknown;
 };

@@ -165,7 +165,7 @@ QJsonObject primaryObject(const PrimaryCentres& primary)
   return result;
 }
 
-// Version 1. A missing file gives empty settings without an error; every key but version is
+// A missing file gives empty settings without an error; every key but version is
 // optional, and a present key must be valid.
 ProbeSettingsResult readProbeSettings()
 {
@@ -179,8 +179,9 @@ ProbeSettingsResult readProbeSettings()
   if (parse.error != QJsonParseError::NoError || !document.isObject())
     return {{}, prefix + SceneCalibration::tr("is not a JSON object (%1).").arg(parse.errorString())};
   const QJsonObject root = document.object();
-  if (root.value(QStringLiteral("version")).toInt() != 1)
-    return {{}, prefix + SceneCalibration::tr("version must be 1.")};
+  const int version = root.value(QStringLiteral("version")).toInt();
+  if (version != 1 && version != 2)
+    return {{}, prefix + SceneCalibration::tr("version must be 1 or 2.")};
   const QJsonValue primaryValue = root.value(QStringLiteral("primary"));
   const QJsonValue lastValue = root.value(QStringLiteral("lastCalibration"));
   if (!(primaryValue.isUndefined() || primaryValue.isObject()) || !(lastValue.isUndefined() || lastValue.isObject()))
@@ -197,6 +198,10 @@ ProbeSettingsResult readProbeSettings()
     return {{}, prefix + SceneCalibration::tr("primary ballCentreF and sphereCentreB need three finite numbers, "
                                               "contactVertical and contactHorizontal finite positive numbers.")};
   ProbeSettings settings{{primary.value(QStringLiteral("source")).toString(), ball, sphere, vertical, horizontal}, {}};
+  if (version == 1 && (settings.primary.source.trimmed().isEmpty() || settings.primary.source == QStringLiteral("manual"))) {
+    settings.primary.contactVertical.reset();
+    settings.primary.contactHorizontal.reset();
+  }
   if (lastValue.isObject()) {
     settings.last = calibrationSummary(lastValue.toObject());
     if (!settings.last)
@@ -325,9 +330,10 @@ QString preciseInputError(const QJsonObject& root)
   const auto horizontal = positiveNumber(primary, "contactHorizontal");
   const auto physical = positiveNumber(root, "physicalBallRadiusMm");
   const auto effective = positiveNumber(root, "compensationRadiusMm");
+  for (const auto key : {"ballCentreF", "sphereCentreB", "contactVertical", "contactHorizontal"})
+    if (!primary.contains(key)) return SceneCalibration::tr("Missing primary compensation parameter: %1.").arg(key);
   if (!radius || !physical || !effective || !vertical || !horizontal
-      || *vertical <= *radius || *horizontal <= *radius || primary.value("source").toString().trimmed().isEmpty()
-      || primary.value("source") == "manual" || !setup.value("settings_error").toString().isEmpty()
+      || *vertical <= *radius || *horizontal <= *radius || !setup.value("settings_error").toString().isEmpty()
       || !vectorValue(primary.value("sphereCentreB")) || primary.value("sphereCentreB") != inputs.value("sphere_centre_b_mm")
       || primary.value("ballCentreF").toArray() != QJsonArray{tool.at(0), tool.at(1), tool.at(2)}
       || *physical != setup.value("ball_radius_mm").toDouble()
@@ -452,7 +458,7 @@ SceneCalibration::SceneCalibration(SceneModel* scene, SceneEndEffectors* effecto
   connect(scene, &SceneModel::objectAdded, this, &SceneCalibration::onObjectAdded);
   connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::invalidateProbeMotions);
   connect(effectors, &SceneEndEffectors::activeToolChanged, this, &SceneCalibration::invalidatePendingScan);
-  connect(effectors, &SceneEndEffectors::measuringTcpChanged, this, &SceneCalibration::onMeasuringTcpChanged);
+  connect(effectors, &SceneEndEffectors::measuringBallCentreChanged, this, &SceneCalibration::onMeasuringTcpChanged);
   connect(playback, &ScenePlayback::robotModelChanged, this, &SceneCalibration::invalidateProbeMotions);
   connect(playback, &ScenePlayback::robotAvailabilityChanged, this, &SceneCalibration::availabilityChanged);
   connect(playback, &ScenePlayback::stateChanged, this, &SceneCalibration::availabilityChanged);
@@ -869,10 +875,12 @@ void SceneCalibration::onMeasuringTcpChanged()
 {
   const QList<double>& pose = m_effectors->measuringTcp();
   const V3d ball{pose[0], pose[1], pose[2]};
-  // A change of only A, B or C, or a ball centre that is already saved, writes nothing.
+  // Reassign installs the matching fitted distances before applying the centre.
   if (m_settings.primary.ballCentre == ball) return;
   m_settings.primary.ballCentre = ball;
   m_settings.primary.source = QStringLiteral("manual");
+  m_settings.primary.contactVertical.reset();
+  m_settings.primary.contactHorizontal.reset();
   setSettingsError(saveSettings());
 }
 
@@ -951,7 +959,7 @@ QString SceneCalibration::saveSettings() const
   // An unreadable file stays as it is until the user fixes or deletes it.
   if (!m_settingsReadError.isEmpty())
     return m_settingsReadError + tr(" Not saved: fix or delete the file, then restart RoboCrap.");
-  QJsonObject root{{QStringLiteral("version"), 1}};
+  QJsonObject root{{QStringLiteral("version"), 2}};
   if (const auto primary = primaryObject(m_settings.primary); !primary.isEmpty()) root.insert("primary", primary);
   if (m_settings.last) root.insert("lastCalibration", summaryObject(*m_settings.last));
   return writeSettingsDocument(SettingsPath, root);

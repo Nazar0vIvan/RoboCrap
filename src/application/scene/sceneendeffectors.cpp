@@ -64,9 +64,11 @@ bool SceneEndEffectors::applyMeasuringTcp(const QList<double>& pose)
   if (m_measuringTcpFrame && m_measuringTcp == pose) return true;
   const auto frame = poseTransform(pose);
   if (!frame) return false;
+  const bool centreChanged = pose[0] != m_measuringTcp[0] || pose[1] != m_measuringTcp[1] || pose[2] != m_measuringTcp[2];
   m_measuringTcp = pose;
   m_measuringTcpFrame = frame;
   emit measuringTcpChanged();
+  if (centreChanged) emit measuringBallCentreChanged();
   return true;
 }
 

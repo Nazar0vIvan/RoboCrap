@@ -197,7 +197,11 @@ QxPanel {
           text: qsTr("Apply")
           enabled: root.validDraft
           onClicked: {
-            const values = root.drafts.map(value => Number(value))
+            const values = root.drafts.map((value, index) => {
+              const entered = Number(value)
+              return root.tcp.length === 6 && entered === Number(root.formatReal(root.tcp[index]))
+                  ? root.tcp[index] : entered
+            })
             if (root.measuring) root.measuringTcpRequested(values)
             // ER fields are read-only: display rounding must not alter the stored ER transform.
             else root.posesRequested(root.colletPose, values)

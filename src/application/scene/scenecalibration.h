@@ -16,7 +16,7 @@
 // Centres that path generation uses; an absent value falls back to TOOL_DATA[5] or the jog fit.
 struct PrimaryCentres
 {
-  QString source; // "manual" or the calibration id that Reassign took them from.
+  QString source; // Optional provenance of the applied primary parameters.
   std::optional<V3d> ballCentre; // {F}, mm.
   std::optional<V3d> sphereCentre; // {B}, mm.
   std::optional<double> contactVertical; // mm, stylus down.

@@ -55,6 +55,7 @@ signals:
   void spindleColletChanged();
   void activeToolChanged();
   void measuringTcpChanged();
+  void measuringBallCentreChanged();
 
 private:
   bool setSpindleTcp(const QList<double>& pose);

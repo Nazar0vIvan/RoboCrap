@@ -58,11 +58,11 @@ QxGroupBox {
         yStates: root.y1
 
         // KUKA Automatic External interface: EL2809 outputs -> X1, Y1 -> EL1809 inputs.
-        xTags: ["AUT EXT", "N/D", "PERI_RDY", "STOPMESS", "PRO_ACT", "PGNO_REQ", "APPL_RUN", "IN_HOME"]
+        xTags: ["AUT EXT", "SCAN_DONE", "PERI_RDY", "STOPMESS", "PRO_ACT", "PGNO_REQ", "APPL_RUN", "IN_HOME"]
         yTags: ["EXT_START", "DRV_ON", "CONF_MESS", "PGNO0", "PGNO1", "N/D", "N/D", "PROBE"]
         xLabel: 'IN / <font color="red">SOURCE</font>'
         yLabel: 'OUT / <font color="red">SOURCE</font>'
-        xPlugged: [1, 0, 1, 1, 1, 1, 1, 1]
+        xPlugged: [1, 1, 1, 1, 1, 1, 1, 1]
         yPlugged: [1, 1, 1, 1, 1, 0, 0, 1]
         yDisplayOnly: [0, 1, 2, 3, 4, 7] // driven by the PLC program (RobotIo, ProbeMap)
         moduleIndex: 1

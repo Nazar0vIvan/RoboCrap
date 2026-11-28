@@ -153,7 +153,6 @@ private:
     bool accepted = false;
     bool acknowledged = false;
     bool paused = false;
-    bool recoverySeen = false;
     bool low = false;
     bool high = false;
     bool terminated = false;
@@ -176,6 +175,7 @@ private:
   // Shutdown, a calibration run in any non-Idle state or a running Sampling; empty otherwise.
   QString busyReason() const;
   bool controllerBusy() const;
+  bool hardwareBusy(bool requireRsiFeedback) const;
   void onAvailabilityChanged();
   void onCalibrationAvailabilityChanged();
   void finishPreparation();

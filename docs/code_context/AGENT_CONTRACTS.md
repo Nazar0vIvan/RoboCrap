@@ -201,6 +201,11 @@ src/application/main.cpp; for QML registration also Build and modules.
   SceneMachiningPreparation's plcReady and canResumeCalibration repeat the PLC's FB_RunSetVar Run and
   Resume checks; change both sides together. The PLC panel never drives module 1 outputs and starts no
   program; programs are started only by Start Calibration and resumed by its Resume.
+  The PC clears the latched robotProgramState to Unknown when AUT EXT, APPL_RUN and PRO_ACT are all off.
+  A SNAPSHOT timeout or matched error marks PLC I/O stale and queues one immediate SNAPSHOT with a new
+  transaction ID and the same 1 s reply timeout. A valid I/O change frame or matched SNAPSHOT success
+  restores freshness and resets the retry allowance. A second failure without intervening valid I/O
+  disconnects the PLC. Both Start actions and Resume require current I/O. SET_VAR commands are never retried.
 - RSI: `RsiDevice` holds a stream table and plays `streams[TouchIndex]` from the first Start = 1
   request after Idle; a Start = 1 request with another TouchIndex while not Idle first ends the run
   as Start = 0 does (consecutive searches may send no Start = 0 packet). `decodeRequest` reads a
@@ -240,7 +245,11 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   by default) is applied with applyMeasuringTcp and reconstructed as measuringTcpFrame; an unchanged
   value emits nothing. SceneCalibration persists only its X, Y, Z: its constructor applies a saved
   primary ball centre (A, B, C kept) before connecting its save slot, which saves a changed X, Y, Z
-  with source "manual" and writes nothing when they equal the saved value.
+  with source "manual" and clears both contact distances. The sphere centre and last calibration
+  survive the edit. Changing only A, B or C leaves the probe settings file alone.
+  Read probe settings versions 1 and 2. After validating version 1, discard primary contact distances
+  in memory for manual or empty provenance because an earlier TCP edit could have retained them.
+  Startup writes nothing. The next ordinary save writes version 2 with the same field names.
 - SceneModel owns SceneObject; QML changes scene state through model methods. SceneObject holds a
   plane, cylinder, intersection edge (with its two source IDs), GE-22 placement, calibration sphere or generated probe path
   (the shared immutable ProbeTouchMotion) by value in a std::variant; only a machining path has a child
@@ -451,18 +460,24 @@ Apply Geometry and scene to numerical changes.
     CAD revision, native face planes, signed approach sides and ruby clearance from the clamp.
     The shared probe sampler numbers each Approach once for plan.csv and the stream table. Scan Path Properties shows the sampled job ID.
     Archive the sampled record before exporting the same scan_data.txt bytes and installing the table.
+    Sampling and precise-file loading require both primary centres and both contact distances for
+    compensation. Each distance must exceed the reference sphere radius. G1 uses the vertical distance
+    minus that radius and G2 the horizontal distance minus that radius. Primary source records provenance only.
     Physical Scan requires the same selected path, applied primary, measured mounting, acknowledged table ID,
     connected devices, PLC Run conditions and a fresh SHA-256 of the live bytes. The commissioning gate
-    stays closed pending installed-cell evidence and justified physical pose bounds.
+    stays closed pending installed-cell evidence.
     Installing a scan table grants no correction permission. ControlIO requires the admitted job ID and
     acknowledged program 2. Passive STOP holds the stream index. Abort or invalidation revokes permission
-    synchronously. The preparation owner retains the export and table until fresh CELL feedback and capture closure.
+    synchronously. Failure requests final capture. Release a failed scan or startup marker on fresh PLC I/O after
+    capture closure with no pending Start/Resume, connected idle RSI, step IDLE, APPL_RUN off and program state
+    neither Running nor Interrupted. Outside AUT EXT, PRO_ACT must also be off. Both Sampling actions use the
+    same controller availability checks in either mode. Both Start actions additionally require plcReady().
     The settings marker scan_in_progress preserves the replacement block across restart. See the scan module contract
     for recovery and the completion levels at X1.1.
     At capture closure, use the sampled pass and touch indices to compare each actual FK/TCP with
-    its Approach. Check signed inward travel, perpendicular distance and smallest rotation angle
-    against the sampled physical bounds. Require their commissioning basis. Fit raw centres only
-    after complete acquisition, current inputs and accepted poses. The scan record retains available
+    its Approach. Record signed inward travel, perpendicular distance and the smallest rotation angle
+    as diagnostics. Non-finite values fail the run. Fit raw centres only after complete acquisition,
+    current inputs and successful pose reconstruction. The scan record retains available
     centres and signed residuals on failure. The fitted frame belongs to the execution record.
     Keep the successful fit in memory until the matching session writer reports its actual folder.
     Block physical starts during archival and operator review. Reassign rechecks the sampled setup,
@@ -502,8 +517,8 @@ Apply Geometry and scene to numerical changes.
     A fit supplies `residual_sets.csv` and SceneCalibration::recordCalibrationResult updates
     lastCalibration. The recorder includes `result` in `session.json` only on success. An invalid result
     is reported as a run error. After a failed read of probe_calibration.json, SceneCalibration writes nothing to
-    it in that session, and every refused save reports the read error through settingsError. It becomes
-    primary only through Reassign (reassignPrimaryCentres): primary = the last result with source =
+    it in that session, and every refused save reports the read error through settingsError. Reassign
+    (reassignPrimaryCentres) installs both contact distances and centres from the last result with source =
     its id, the ball centre applied with A, B, C kept, the sphere moved in the submode; the primary
     centres come only from the calibration touches, never from the verification refit. Reassign
     removes the calibration path. Saved sampling records remain available.
@@ -525,8 +540,8 @@ registration, module names or resources.
   labels: concise field names, units, statuses and actionable errors; explanations go to docs/chat.
 - Measuring EE/Machining EE settings open in the right Properties area; Close restores object
   properties. Measuring EE edits the ruby ball centre TCP with Apply. End-effector numeric fields show
-  four decimals and accept at most four fractional digits; read-only ER rounding never changes the
-  stored ER transform.
+  four decimals and accept at most four fractional digits. Apply passes the original TCP coordinate
+  whenever the entry equals its displayed numeric value. The read-only ER pose retains full precision.
 - Use implicitWidth/implicitHeight for natural size and keep useful inherited sizing. Before
   overriding styled Controls inspect contentItem/background sizes, padding and insets; Item wrappers
   may need their own implicit size.

@@ -16,6 +16,7 @@ constexpr int ReplyTimeoutMs = 1000;
 constexpr int HeartbeatMs = 2000;
 
 // KUKA Automatic External outputs wired to PLC module 1 inputs X1.n.
+constexpr int X1AutExt = 0;
 constexpr int X1ProAct = 4;
 constexpr int X1PgnoReq = 5;
 constexpr int X1ApplRun = 6;
@@ -201,6 +202,7 @@ void PlcDevice::sendNext()
       // clears the pending replies, and onStateChanged clears the queue, which ends this loop.
       publishProgramReply(msg, count > 0 ? QVariant{} : QVariant(false));
       if (count > 0) disconnectDevice();
+      else if (msg.value("cmd").toUInt() == PlcMessageManager::SNAPSHOT) snapshotFailed();
       continue;
     }
 
@@ -219,11 +221,21 @@ void PlcDevice::onReplyTimeout()
   qInfo().noquote() << "[ERROR]" << objectName() + ":"
       << QString("PLC reply timeout for transaction %1").arg(static_cast<uint>(m_nextTid));
   recordIo(QString("reply timeout %1").arg(static_cast<uint>(m_nextTid)));
-  const auto request = m_pend.value(m_nextTid);
-  if (request.value("cmd").toUInt() == PlcMessageManager::SNAPSHOT) emit stateReady({{"plcIoCurrent", false}});
-  publishProgramReply(request, {});
-  m_pend.clear();
+  const auto request = m_pend.take(m_nextTid);
+  if (request.value("cmd").toUInt() == PlcMessageManager::SNAPSHOT) snapshotFailed();
+  else publishProgramReply(request, {});
   sendNext();
+}
+
+void PlcDevice::snapshotFailed()
+{
+  emit stateReady({{"plcIoCurrent", false}});
+  if (m_snapshotRetry) {
+    disconnectDevice();
+    return;
+  }
+  m_snapshotRetry = true;
+  m_queue.prepend(QVariantMap{{"cmd", PlcMessageManager::SNAPSHOT}});
 }
 
 void PlcDevice::onHeartbeat()
@@ -282,10 +294,10 @@ bool PlcDevice::matchResponse(const QVariantMap& data)
     }
   }
   const bool accepted = data.value("type").toUInt() == PlcMessageManager::RESP_OK;
-  if (cmd == PlcMessageManager::SNAPSHOT && !accepted) emit stateReady({{"plcIoCurrent", false}});
   publishProgramReply(request, accepted);
   m_pend.remove(tid);
   m_replyTimer->stop();
+  if (cmd == PlcMessageManager::SNAPSHOT && !accepted) snapshotFailed();
   return true;
 }
 
@@ -349,6 +361,7 @@ void PlcDevice::onStateChanged(QAbstractSocket::SocketState state)
   m_replyTimer->stop();
   m_heartbeat->stop();
   m_programState = ProgramState::Unknown;
+  m_snapshotRetry = false;
   m_logged.clear();
 
   // Clear the persistent PLC state seen by QML.
@@ -399,6 +412,7 @@ void PlcDevice::publishData(const QVariantMap& data)
 
 void PlcDevice::publishIo(const QVariantMap& data)
 {
+  m_snapshotRetry = false;
   // The IO change frame and the SNAPSHOT reply carry the same IO bytes and start-sequence state.
   QVariantHash values{{"plcIoCurrent", true}};
   for (const char* key : {"x1", "y1", "x2", "y2", "robotStep", "robotProgram", "robotResult"})
@@ -432,6 +446,7 @@ PlcDevice::ProgramState PlcDevice::nextProgramState(ProgramState current, const 
   const bool applRun = x1.value(X1ApplRun).toBool();
 
   if (applRun) return proAct ? ProgramState::Running : ProgramState::Interrupted;
+  if (!proAct && !x1.value(X1AutExt).toBool()) return ProgramState::Unknown;
 
   const bool started = current == ProgramState::Running || current == ProgramState::Interrupted;
   if (started && proAct && pgnoReq) return ProgramState::Finished;
