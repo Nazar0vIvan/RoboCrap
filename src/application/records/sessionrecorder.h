@@ -31,6 +31,8 @@ public:
   QString sessionName() const; // Folder name of the open session without suffix; empty when none.
   void addFile(const RecordFile& file);
   void setResult(const QJsonObject& result);
+  void retryScanArchive();
+  void discardScanArchive() { m_scanArchive.reset(); }
   // Ends the calibration session; it is written when RsiDevice has returned its remaining requests.
   void closeCalibration(const QString& error);
   // After DeviceHub::stopAll: takes the devices' last signals, writes a closing session, waits for every write.
@@ -44,6 +46,7 @@ signals:
   // RsiDevice::flushCapture: the remaining requests of the closing calibration session.
   void captureRequested();
   void scanClosing(const QString& jobId, const QString& error);
+  void scanArchiveWritten(const QString& jobId, const QString& folder, const QString& error);
   void probeTouch(const QString& jobId, int touch, const V6d& joints);
   void scanSearchFailed(const QString& jobId);
 
@@ -77,5 +80,6 @@ private:
   std::optional<OpenSession> m_session;
   QVector<PlcIoRecord> m_plcRows; // Since the last arm, starting with the latest row before it.
   std::vector<std::future<RecordWriteResult>> m_writes;
+  std::optional<SessionRecord> m_scanArchive;
   QTimer m_timer; // Capture wait of a closing session and finished writes.
 };

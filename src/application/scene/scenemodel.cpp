@@ -143,10 +143,29 @@ void SceneModel::showSelection(const QList<quint32>& ids)
   refreshRefineSelection();
 }
 
+std::pair<quint32, QString> SceneModel::resolveJobWorkpiece(const QJsonObject& job) const
+{
+  const auto direct = m_viewport->resolveRefineTarget(job);
+  if (job.contains("workpieceId")) return direct;
+  const SceneObject* legacy = nullptr;
+  for (const auto* object : m_objects) {
+    const auto* gauge = object->endGauge();
+    if (!gauge || gauge->modelSha256.isEmpty() || gauge->modelSha256 != job.value("modelSha256").toString()
+        || !gauge->roughMountingDigests.contains(job.value("mountingId").toString())) continue;
+    if (legacy || (direct.first && direct.first != object->objectId())) return {0, tr("Ambiguous legacy workpiece mounting.")};
+    legacy = object;
+  }
+  if (!legacy) return direct;
+  if (const auto error = workpieceRevisionError(legacy->objectId(), legacy->endGauge()->modelSha256); !error.isEmpty()) return {0, error};
+  auto linked = job;
+  linked.insert("workpieceId", legacy->endGauge()->workpieceId);
+  return m_viewport->resolveRefineTarget(linked);
+}
+
 QString SceneModel::previewRefineJob(SceneObject& object)
 {
   const auto job = object.refineJob();
-  const auto [target, reason] = m_viewport->resolveRefineTarget(job);
+  const auto [target, reason] = resolveJobWorkpiece(job);
   object.setRefineTarget(target);
   auto* workpiece = findObject(target);
   if (!workpiece || !workpiece->endGauge()) {
@@ -378,9 +397,25 @@ QString SceneModel::refineScanError(const RefineScanSource& source, const ProbeT
       || resolveRefineTarget(source.job) != source.target || !gauge || !mount
       || gauge->workpieceInBase != mount->workpieceInBase || gauge->observationsSha256 != mount->observationsSha256)
     return tr("The Refine Job or its mounted workpiece changed. Generate again.");
-  if (m_viewport->workpieceModelRevision(source.target) != job.value("modelSha256").toString())
+  return workpieceRevisionError(source.target, job.value("modelSha256").toString());
+}
+
+QString SceneModel::workpieceRevisionError(quint32 target, const QString& expected) const
+{
+  const auto loaded = m_viewport ? m_viewport->workpieceModelRevision(target) : QString{};
+  if (loaded.isEmpty()) return tr("Workpiece CAD is unavailable.");
+  if (loaded != expected)
     return tr("The workpiece model has changed. Reassign the three faces.");
-  return m_viewport->workpieceRevisionError(source.target);
+  return m_viewport->workpieceRevisionError(target);
+}
+
+QString SceneModel::savedRefineJobError(quint32 jobId) const
+{
+  const auto [store, error] = readRefineStore(refineStorePath());
+  if (!error.isEmpty()) return error;
+  const auto* object = findObject(jobId);
+  if (object && store.value("jobs").toArray().contains(object->refineJob())) return {};
+  return tr("The sampled Refine Job changed on disk.");
 }
 
 std::pair<quint32, QString> SceneModel::publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion)
@@ -402,7 +437,7 @@ quint32 SceneModel::resolveRefineTarget(quint32 jobId)
 {
   auto* object = findObject(jobId);
   if (!object || object->kind() != SceneObject::RefineJob || !m_viewport) return 0;
-  const auto target = m_viewport->resolveRefineTarget(object->refineJob()).first;
+  const auto target = resolveJobWorkpiece(object->refineJob()).first;
   object->setRefineTarget(target);
   return target;
 }

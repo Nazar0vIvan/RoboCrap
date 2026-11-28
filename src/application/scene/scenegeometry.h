@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QList>
 #include <QObject>
+#include <QStringList>
 #include <optional>
 #include <utility>
 
@@ -145,6 +146,8 @@ struct SceneEndGauge : ProbeGaugeMount
 {
   QString workpieceId;
   QString alternateLineEndingSha256;
+  QString modelSha256; // CAD revision required by accepted precise observations.
+  QStringList roughMountingDigests; // Original LF/CRLF mounting references of legacy Refine Jobs.
   static QString cadPath();
 };
 

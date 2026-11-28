@@ -7,29 +7,34 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 const QStringList EndGaugeObservations::FaceNames{
     QStringLiteral("wide"), QStringLiteral("end"), QStringLiteral("top")};
 
 EndGaugeFit EndGaugeObservations::fit() const
 {
-  if (!positiveFinite(ballRadius))
-    return {{}, QStringLiteral("ballRadiusMm must be finite and positive.")};
+  if (!positiveFinite(compensationRadiusMm) || !positiveFinite(physicalBallRadiusMm))
+    return {{}, QStringLiteral("Compensation and physical ball radii must be finite and positive.")};
 
+  std::array<QVector<double>, 3> residuals;
   M3d normals;
   V3d offsets;
   for (int face = 0; face < 3; ++face) {
     const auto plane = Plane::fromPoints(ballCentres[face]);
     if (!plane)
-      return {{}, QStringLiteral("%1 needs at least three finite, noncollinear ball centres.").arg(FaceNames[face])};
+      return {{}, QStringLiteral("%1 needs at least three finite, noncollinear ball centres.").arg(FaceNames[face]),
+              std::move(residuals)};
     // GE-22 material extends from x=0 toward +X, y=0 toward -Y, and z=0 toward -Z.
     const double alignment = plane->normal()[face] * (face == 0 ? -1.0 : 1.0);
-    if (std::abs(alignment) < std::cos(15.0 * GeomConst::DegToRad))
-      return {{}, QStringLiteral("%1 normal differs from its expected base axis by more than 15 degrees.")
-                      .arg(FaceNames[face])};
     const double sign = alignment < 0.0 ? -1.0 : 1.0;
     normals.row(face) = sign * plane->normal().transpose();
-    offsets[face] = -sign * plane->coeffs.w() - ballRadius;
+    for (const V3d& centre : ballCentres[face])
+      residuals[face].append(normals.row(face).dot(centre) + sign * plane->coeffs.w());
+    if (std::abs(alignment) < std::cos(15.0 * GeomConst::DegToRad))
+      return {{}, QStringLiteral("%1 normal differs from its expected base axis by more than 15 degrees.")
+                      .arg(FaceNames[face]), std::move(residuals)};
+    offsets[face] = -sign * plane->coeffs.w() - compensationRadiusMm;
   }
 
   QStringList angles;
@@ -39,23 +44,24 @@ EndGaugeFit EndGaugeObservations::fit() const
     const double angle = std::acos(cosine) * GeomConst::RadToDeg;
     const QString pair = QStringLiteral("%1/%2 %3 deg").arg(FaceNames[face], FaceNames[other]).arg(angle, 0, 'f', 4);
     if (std::abs(angle - 90.0) > 5.0)
-      return {{}, pair + QStringLiteral(" is outside 85 to 95 degrees.")};
+      return {{}, pair + QStringLiteral(" is outside 85 to 95 degrees."), std::move(residuals)};
     angles.append(pair);
   }
 
   const Eigen::JacobiSVD<M3d, Eigen::ComputeFullU | Eigen::ComputeFullV> solve(normals);
   if (solve.info() != Eigen::Success || solve.singularValues().z() < 0.1 * solve.singularValues().x())
-    return {{}, QStringLiteral("The three material planes do not determine a stable corner.")};
+    return {{}, QStringLiteral("The three material planes do not determine a stable corner."), std::move(residuals)};
   const V3d origin = solve.solve(offsets);
   const V3d up = normals.row(2).transpose();
   const auto width = prjUnitOnPlane(-normals.row(0).transpose(), up);
   if (!width || !origin.allFinite())
-    return {{}, QStringLiteral("Cannot determine finite GE-22 axes and corner.")};
+    return {{}, QStringLiteral("Cannot determine finite GE-22 axes and corner."), std::move(residuals)};
   const V3d length = up.cross(*width);
   if (!isBasis(*width, length, up) || length.dot(normals.row(1).transpose()) <= 0.0)
-    return {{}, QStringLiteral("GE-22 axes disagree with the measured end face.")};
+    return {{}, QStringLiteral("GE-22 axes disagree with the measured end face."), std::move(residuals)};
   const M4d placement = makeTransform(basis2rot({*width, length, up}), origin);
   auto result = checkContacts(placement, normals);
+  result.planeResidualsMm = std::move(residuals);
   result.diagnostic = angles.join(QStringLiteral(", ")) + QStringLiteral(". ") + result.diagnostic;
   return result;
 }
@@ -77,7 +83,7 @@ EndGaugeFit EndGaugeObservations::checkContacts(const M4d& placement, const M3d&
       // Each fitted material plane passes through the recovered origin.
       const V3d relative = point - origin;
       const V3d contact = baseToWorkpiece * (relative - normal * normal.dot(relative));
-      const double ballBottom = baseToWorkpiece.row(2).dot(relative) - ballRadius;
+      const double ballBottom = baseToWorkpiece.row(2).dot(relative) - physicalBallRadiusMm;
       if (!contact.allFinite() || !std::isfinite(ballBottom))
         return {{}, QStringLiteral("%1 contact projection is not finite.").arg(FaceNames[face])};
       minimum = minimum.cwiseMin(contact);

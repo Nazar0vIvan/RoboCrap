@@ -71,6 +71,8 @@ public:
   SceneCalibration(SceneModel* scene, SceneEndEffectors* effectors, ScenePlayback* playback);
   QString error() const { return m_error; }
   QString settingsError() const { return m_settingsError; }
+  QString gaugeUseError() const;
+  bool applyScanObservations(const QJsonObject& document); // True once the authoritative file is committed.
   QVariantList lastCalibrationRows() const;
   // Saves a successful fit of run id as the last result; returns the settings write error, or the
   // rejection without keeping or emitting anything when the settings reader would refuse the result.
@@ -102,6 +104,7 @@ public:
 
 signals:
   void scanGenerated(quint32 objectId);
+  void gaugeReplacing(quint32 oldId, quint32 newId);
   void scanSamplingRequested(quint32 pathId);
   void errorChanged();
   // Also emitted for a repeated failure with the same text, so every failed write is reported.
@@ -117,7 +120,7 @@ private:
   void onObjectRemoved(quint32 id);
   void onPlaybackFailed(quint32 ownerId, const QString& error);
   void replaceSphere(const SceneSphere& sphere);
-  QString reloadEndGauge(const QString& path);
+  QString reloadEndGauge();
   // A changed sphere, measuring TCP or robot model makes the calibration path invalid.
   void invalidatePath();
   void invalidateProbeMotions();
@@ -148,6 +151,7 @@ private:
   QList<quint32> m_hiddenIds; // Objects hidden on entry, shown again on exit.
   QString m_error;
   QString m_sphereError; // An invalid configured obstacle prevents generating a scan with missing geometry.
+  QString m_gaugeError; // A failed authoritative reload keeps the previous drawing for reference.
   ProbeSettings m_settings; // Empty when the file is missing or invalid.
   QString m_settingsError;
   QString m_settingsReadError; // The start read's error; while set, nothing is written to the settings file.

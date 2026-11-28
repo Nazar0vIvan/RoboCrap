@@ -119,6 +119,15 @@ void WorkspaceController::setSelection(QList<quint32> ids)
   emit selectionChanged(m_selectedIds);
 }
 
+void WorkspaceController::replaceSelectedObject(quint32 oldId, quint32 newId)
+{
+  auto ids = m_selectedIds;
+  const auto index = ids.indexOf(oldId);
+  if (index < 0) return;
+  ids[index] = newId;
+  setSelection(std::move(ids));
+}
+
 void WorkspaceController::pruneSelection()
 {
   auto ids = m_selectedIds;

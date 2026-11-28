@@ -14,9 +14,10 @@ QxPanel {
   required property Backend.SceneObject selectedObject
   required property bool showPoints
   required property bool showNormals
-  // Rows {label, value} of the last calibration result, shown while nothing is selected.
+  required property bool calibrationActive
+  // Rows {label, value} of the last calibration result.
   required property var calibrationRows
-  readonly property bool calibrationShown: root.selectionCount === 0
+  readonly property bool calibrationShown: root.calibrationActive && root.selectionCount === 0
   readonly property int labelColumnWidth: Math.ceil(Math.max(Metrics.w120,
       ...[qsTr("Name"), qsTr("Type"), qsTr("State"), qsTr("Source"), qsTr("Visible"),
           qsTr("Show Points"), qsTr("Show Normals"), qsTr("Normal"), qsTr("Origin"),
@@ -105,9 +106,8 @@ QxPanel {
 
   Label {
     Layout.fillWidth: true
-    visible: !root.selectedObject && !root.calibrationShown
-    text: root.selectionCount <= 1 ? qsTr("Select an object.")
-                                   : qsTr("%1 objects selected.").arg(root.selectionCount)
+    visible: !root.selectedObject && root.selectionCount > 1
+    text: qsTr("%1 objects selected.").arg(root.selectionCount)
     color: Colors.foreground.medium
     font: Fonts.body
     wrapMode: Text.NoWrap

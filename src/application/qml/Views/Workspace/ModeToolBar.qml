@@ -230,6 +230,15 @@ ToolBar {
         onTriggered: root.calibrationStartRequested()
       }
 
+      Tool {
+        visible: !root.rough && !root.calibration
+        text: root.precise ? qsTr("Start Scan") : qsTr("Start Machining")
+        iconSource: root.precise ? "qrc:/icons/scan.svg" : "qrc:/icons/run.svg"
+        available: root.precise && root.scanAvailable
+        onTriggered: root.scanRequested()
+        preserveIconColors: true
+      }
+
       // A separate tool, so no label change resizes the toolbar.
       Tool {
         visible: root.calibration || root.precise
@@ -238,15 +247,6 @@ ToolBar {
         preserveIconColors: true
         available: root.calibrationResumeAvailable
         onTriggered: root.calibrationResumeRequested()
-      }
-
-      Tool {
-        visible: !root.rough && !root.calibration
-        text: root.precise ? qsTr("Scan") : qsTr("Start Machining")
-        iconSource: root.precise ? "qrc:/icons/scan.svg" : "qrc:/icons/run.svg"
-        available: root.precise && root.scanAvailable
-        onTriggered: root.scanRequested()
-        preserveIconColors: true
       }
     }
   }

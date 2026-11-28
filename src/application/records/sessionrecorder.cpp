@@ -171,7 +171,21 @@ SessionRecord SessionRecorder::recordFor(const OpenSession& session, const QStri
 void SessionRecorder::writeSession(const OpenSession& session)
 {
   const QString outcome = session.error.isEmpty() ? QStringLiteral("ok") : QStringLiteral("failed");
-  m_writes.push_back(std::async(std::launch::async, &writeSessionFolder, recordFor(session, outcome)));
+  auto record = recordFor(session, outcome);
+  if (session.job.kind == SessionKind::Scan && session.error.isEmpty()) {
+    record.scanJobId = session.job.jobId;
+    m_scanArchive = std::move(record);
+    retryScanArchive();
+    return;
+  }
+  m_writes.push_back(std::async(std::launch::async, &writeSessionFolder, std::move(record)));
+  m_timer.start();
+}
+
+void SessionRecorder::retryScanArchive()
+{
+  if (!m_scanArchive) return;
+  m_writes.push_back(std::async(std::launch::async, &writeSessionFolder, *m_scanArchive));
   m_timer.start();
 }
 
@@ -205,13 +219,18 @@ void SessionRecorder::onTimer()
 
 void SessionRecorder::reportWrites(bool wait)
 {
-  for (auto write = m_writes.begin(); write != m_writes.end();) {
+  for (std::size_t index = 0; index < m_writes.size();) {
+    auto write = m_writes.begin() + index;
     if (!wait && write->wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
-      ++write;
+      ++index;
       continue;
     }
-    const QString error = write->get().error;
-    if (!error.isEmpty()) qInfo().noquote() << "[ERROR] Records:" << error;
-    write = m_writes.erase(write);
+    const auto result = write->get();
+    m_writes.erase(write);
+    if (!result.error.isEmpty()) qInfo().noquote() << "[ERROR] Records:" << result.error;
+    if (m_scanArchive && result.scanJobId == m_scanArchive->scanJobId) {
+      if (result.error.isEmpty()) m_scanArchive.reset();
+      emit scanArchiveWritten(result.scanJobId, result.folder, result.error);
+    }
   }
 }

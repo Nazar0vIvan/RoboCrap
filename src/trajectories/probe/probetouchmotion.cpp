@@ -195,6 +195,16 @@ QString ProbeMotionPhase::text(const ProbeTouchPlan& plan) const
   return owner.label() + QStringLiteral(": ") + name;
 }
 
+std::variant<M4d, QString> ProbeTouchMotion::measuredTcp(const V6d& joints) const
+{
+  const auto& setup = robot();
+  const auto error = chamferJointPositionError(joints, setup.model);
+  if (!error.isEmpty()) return error;
+  const M4d tcp = Kr10Kinematics(setup.model).solveFK(joints).back() * setup.flangeToTcp;
+  if (!tcp.allFinite()) return QStringLiteral("Measured TCP pose is not finite.");
+  return tcp;
+}
+
 ProbeTouchMotionResult ProbeTouchMotion::create(const ProbeTouchPlan& plan, const ChamferRobotSetup& robot)
 {
   const auto rated = ratedRobotSetup(robot);

@@ -32,6 +32,8 @@ class SceneMachiningPreparation final : public QObject
   Q_PROPERTY(QString summary READ summary NOTIFY preparedChanged FINAL)
   Q_PROPERTY(bool canStartScan READ canStartScan NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool scanRunning READ scanRunning NOTIFY availabilityChanged FINAL)
+  Q_PROPERTY(QVariantList scanDisplacement READ scanDisplacement NOTIFY scanResultChanged FINAL)
+  Q_PROPERTY(bool scanArchiveFailed READ scanArchiveFailed NOTIFY scanResultChanged FINAL)
   Q_PROPERTY(bool canStartCalibration READ canStartCalibration NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(bool canResumeCalibration READ canResumeCalibration NOTIFY availabilityChanged FINAL)
   Q_PROPERTY(QString calibrationInterruption READ calibrationInterruption NOTIFY availabilityChanged FINAL)
@@ -67,6 +69,11 @@ public:
   bool canStartScan() const;
   bool scanRunning() const { return m_scan.has_value(); }
   Q_INVOKABLE void startScan();
+  QVariantList scanDisplacement() const;
+  bool scanArchiveFailed() const { return m_candidate && m_candidate->archiveFailed; }
+  Q_INVOKABLE bool reassignScan();
+  Q_INVOKABLE void discardScanResult();
+  Q_INVOKABLE void retryScanArchive();
   bool calibrationRunning() const { return m_run != CalibrationRun::Idle; }
   int calibrationDetected() const { return static_cast<int>(m_detections.size()); }
   int calibrationTouchCount() const { return m_preparedCalibration ? m_preparedCalibration->touchCount : 0; }
@@ -92,6 +99,7 @@ signals:
   // Empty values clear the streams; the table (stream i for TouchIndex i) and its log ID travel together.
   void correctionsReady(const QVector<QVector<V6d>>& streams, const QString& diagnosticId);
   void scanPermission(const QString& jobId, bool paused = false);
+  void scanResultChanged();
   void calibrationRunChanged();
   // A run ended; a successful fit is SceneCalibration's last result, errors are in calibrationRunError.
   void calibrationRunFinished();
@@ -123,7 +131,19 @@ private:
     QJsonObject probeInputs; // Applied setup at the start of offline scan sampling.
     int touchCount = 0;
     qsizetype stepCount = 0;
+    std::variant<double, QString> scanCompensationRadius() const;
   };
+
+  struct ScanCandidate
+  {
+    PreparedProbe probe;
+    QJsonObject document;
+    M4d fittedFrame = M4d::Identity();
+    QString stale;
+    bool archiveFailed = false;
+  };
+  std::optional<ScanCandidate> m_candidate;
+  void onScanArchiveWritten(const QString& jobId, const QString& folder, const QString& error);
 
   struct ScanAttempt
   {
@@ -146,6 +166,7 @@ private:
   void failScan(const QString& error);
   void closeScan();
   void finishScanRecord(const QString& id, const QString& error);
+  QJsonObject recordScanMeasurements();
   void releaseScan();
   void onRsiState();
   void onSearchFailure(const QString& id);

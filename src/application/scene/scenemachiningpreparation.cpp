@@ -1,6 +1,7 @@
 #include "scenemachiningpreparation.h"
 
 #include "devices/devicerunner.h"
+#include "geometry/endgaugefit.h"
 #include "geometry/utils.h"
 #include "kinematics/kr10kinematics.h"
 #include "records/sessionrecorder.h"
@@ -16,6 +17,7 @@
 #include <QSaveFile>
 #include <QStringList>
 #include <QThread>
+#include <algorithm>
 #include <array>
 #include <chrono>
 #include <cmath>
@@ -31,6 +33,16 @@ const QString SharedDataPath = QStringLiteral("C:/RoboCrapJobs/shared_data.txt")
 const QString ScanOwnerPath = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/scan_in_progress");
 // Enable only after the installed CELL, output, RSI context and physical measurement bounds are commissioned.
 constexpr bool ScanCommissioned = false;
+const QJsonObject CommissionedScanPoseBounds{}; // Empty until measured for this robot, tool and search setup.
+
+bool hasScanPoseBounds(const QJsonObject& bounds)
+{
+  for (const auto* key : {"axial_mm", "lateral_mm", "angular_deg"}) {
+    const double limit = bounds.value(key).toDouble(-1.0);
+    if (!std::isfinite(limit) || limit < 0.0) return false;
+  }
+  return !bounds.value("basis").toString().trimmed().isEmpty();
+}
 
 // RSI_Probe_Check (controller/krl/rsi/probe_check/RSI_Probe_Check_CONTRACT.md): constant WORLD X increments.
 constexpr double RsiCycleSeconds = 0.004; // #IPO_FAST
@@ -186,6 +198,13 @@ QJsonObject scanPlcState(const QQmlPropertyMap& data)
           {"robot_result", data.value("robotResult").toInt()}, {"program_state", data.value("robotProgramState").toInt()}};
 }
 
+QJsonArray frameRows(const M4d& frame)
+{
+  QJsonArray rows;
+  for (int r = 0; r < 4; ++r) rows.append(QJsonArray{frame(r, 0), frame(r, 1), frame(r, 2), frame(r, 3)});
+  return rows;
+}
+
 // session.json "inputs" of a calibration session (docs/code context/RECORDS_FORMAT.md).
 QJsonObject calibrationInputs(const ProbeCalibrationRsi& job, const ProbeTouchMotion& motion)
 {
@@ -324,6 +343,7 @@ bool SceneMachiningPreparation::controllerBusy() const
 QString SceneMachiningPreparation::busyReason() const
 {
   if (m_shuttingDown) return tr("Application is shutting down.");
+  if (m_candidate) return tr("Scan result awaiting archive or operator acceptance.");
   if (controllerBusy()) return tr("Controller program in progress.");
   if (m_preparing) return tr("RSI Sampling…");
   return {};
@@ -376,6 +396,7 @@ void SceneMachiningPreparation::onAvailabilityChanged()
 
 QString SceneMachiningPreparation::probeJobError(const PreparedProbe& probe) const
 {
+  if (const auto error = m_calibration->gaugeUseError(); !error.isEmpty()) return error;
   if (!probe.scanPathId)
     return isCurrentCalibration(probe.motion) ? QString{} : tr("The calibration path changed. Run RSI Sampling again.");
   const auto* object = m_scene->findObject(probe.scanPathId);
@@ -388,6 +409,7 @@ QString SceneMachiningPreparation::probeJobError(const PreparedProbe& probe) con
 
 void SceneMachiningPreparation::onCalibrationAvailabilityChanged()
 {
+  if (m_candidate && m_candidate->stale.isEmpty()) m_candidate->stale = probeJobError(m_candidate->probe);
   if (m_preparing && m_pendingProbe.scanPathId && m_pendingScanError.isEmpty())
     m_pendingScanError = probeJobError(m_pendingProbe);
   if (m_preparedCalibration) {
@@ -544,6 +566,41 @@ void SceneMachiningPreparation::finishCalibration()
   emit availabilityChanged();
 }
 
+std::variant<double, QString> SceneMachiningPreparation::PreparedProbe::scanCompensationRadius() const
+{
+  const auto& plan = motion->plan();
+  const auto primary = probeInputs.value("primary").toObject();
+  const auto source = primary.value("source").toString();
+  const auto ball = primary.value("ballCentreF").toArray();
+  const auto sphere = primary.value("sphereCentreB").toArray();
+  if (const QString error = probeInputs.value("settings_error").toString(); !error.isEmpty()) return error;
+  if (!plan.sphere || source.trimmed().isEmpty() || source == QStringLiteral("manual")
+      || ball.size() != 3 || sphere.size() != 3)
+    return tr("Scan requires a reference sphere and applied primary probe calibration.");
+  const auto& tool = motion->robot().flangeToTcp;
+  for (int axis = 0; axis < 3; ++axis)
+    if (ball.at(axis).toDouble() != tool(axis, 3) || sphere.at(axis).toDouble() != plan.sphere->sphereCentre[axis])
+      return tr("Sampled TCP or reference sphere centre differs from the applied primary.");
+  const double physical = probeInputs.value("ball_radius_mm").toDouble();
+  if (!positiveFinite(physical) || physical != plan.sphere->ballRadius || !positiveFinite(plan.sphere->sphereRadius))
+    return tr("Invalid sampled reference sphere or physical probe ball radius.");
+  const double vertical = primary.value("contactVertical").toDouble() - plan.sphere->sphereRadius;
+  const double horizontal = primary.value("contactHorizontal").toDouble() - plan.sphere->sphereRadius;
+  if (!positiveFinite(vertical) || !positiveFinite(horizontal))
+    return tr("Both applied contact distances must exceed the reference sphere radius.");
+  // The sampler accepts one group across all three faces. The pinned straight stylus follows flange +Z.
+  const int group = plan.passes.front().group;
+  const V3d expected = group == 1 ? V3d(0, 0, -1) : V3d(1, 0, 0);
+  const V3d stylusInTcp = tool.topLeftCorner<3, 3>().row(2).transpose();
+  for (const auto& pass : plan.passes)
+    for (const auto& touch : pass.touches) {
+      const V3d stylus = touch.start.topLeftCorner<3, 3>() * stylusInTcp;
+      if ((stylus - expected).cwiseAbs().maxCoeff() > RoboCrap3D::Kr10RotEps)
+        return tr("Sampled probe mounting disagrees with the G%1 stylus orientation.").arg(group);
+    }
+  return group == 1 ? vertical : horizontal;
+}
+
 QString SceneMachiningPreparation::saveProbePlan(const ProbeCalibrationRsi& job)
 {
   const auto& motion = *m_pendingProbe.motion;
@@ -568,6 +625,10 @@ QString SceneMachiningPreparation::saveProbePlan(const ProbeCalibrationRsi& job)
     record.inputs.insert("joint_speed_limits_deg_s", recordArray(motion.robot().timing.jointSpeed.data(), 6));
     record.inputs.insert("cycle_s", RsiCycleSeconds);
     record.inputs.insert("group", motion.plan().passes.front().group);
+    record.inputs.insert("pose_bounds", CommissionedScanPoseBounds);
+    const auto radius = m_pendingProbe.scanCompensationRadius();
+    if (const auto* error = std::get_if<QString>(&radius)) record.inputs.insert("scan_setup_error", *error);
+    else record.inputs.insert("compensation_radius_mm", std::get<double>(radius));
   } else {
     record.inputs.insert("gauge_length_mm", 22.0);
     record.inputs.insert("gauge_reference", QStringLiteral("nominal"));
@@ -599,7 +660,7 @@ QString SceneMachiningPreparation::clearPrepared()
   }
   const QString error = errors.join(QLatin1Char(' '));
   if (!error.isEmpty()) qInfo().noquote() << "[ERROR] RSI Sampling:" << error;
-  if (!m_scanCad.files().isEmpty()) m_scanCad.removePaths(m_scanCad.files());
+  if (!m_candidate && !m_scanCad.files().isEmpty()) m_scanCad.removePaths(m_scanCad.files());
   auto* scan = m_preparedCalibration ? m_scene->findObject(m_preparedCalibration->scanPathId) : nullptr;
   const bool wasPrepared = m_prepared.has_value() || m_testLin || m_preparedCalibration.has_value();
   m_prepared.reset();
@@ -664,6 +725,7 @@ void SceneMachiningPreparation::attachRecorder(SessionRecorder* recorder)
   connect(recorder, &SessionRecorder::probeTouch, this, &SceneMachiningPreparation::recordTouch);
   connect(recorder, &SessionRecorder::scanSearchFailed, this, &SceneMachiningPreparation::onSearchFailure);
   connect(recorder, &SessionRecorder::scanClosing, this, &SceneMachiningPreparation::finishScanRecord);
+  connect(recorder, &SessionRecorder::scanArchiveWritten, this, &SceneMachiningPreparation::onScanArchiveWritten);
 }
 
 // The PLC's own Run checks (FB_RunSetVar): step IDLE, AUT EXT, $IN_HOME, APPL_RUN off.
@@ -680,14 +742,15 @@ bool SceneMachiningPreparation::plcReady() const
 // message stays (only the PLC's $CONF_MESS acknowledges it in AUT EXT), so the PLC refuses Resume.
 bool SceneMachiningPreparation::canResumeCalibration() const
 {
+  if (m_candidate || m_run != CalibrationRun::Started || !m_plc || !m_plc->isConnected()) return false;
   if (m_scan && (!m_scan->paused || !m_scan->failure.isEmpty() || m_scan->closing || !m_rsi || !m_rsi->isConnected()
                  || m_rsi->data()->value("rsiDiagnosticId").toString() != m_scan->id)) return false;
-  if (m_run != CalibrationRun::Started || !m_plc || !m_plc->isConnected()) return false;
   const QQmlPropertyMap& data = *m_plc->data();
   const QVariantList x1 = data.value(QStringLiteral("x1")).toList();
   return data.value(QStringLiteral("robotProgramState")).toInt() == ProgramInterrupted
       && data.value(QStringLiteral("robotStep")).toInt() == 0 && x1.value(X1AutExt).toBool()
-      && x1.value(X1ApplRun).toBool() && !x1.value(X1ProAct).toBool() && !x1.value(X1StopMess).toBool();
+      && x1.value(X1ApplRun).toBool() && !x1.value(X1ProAct).toBool() && !x1.value(X1StopMess).toBool()
+      && m_calibration->gaugeUseError().isEmpty();
 }
 
 QString SceneMachiningPreparation::calibrationInterruption() const
@@ -733,19 +796,8 @@ bool SceneMachiningPreparation::canStartScan() const
   const auto* path = object ? object->touchPath() : nullptr;
   if (!path || path->samplingInput.value("job_id").toString() != job->jobId
       || path->samplingInput.value("scan_data_sha256") != job->inputs.value("scan_data_sha256")) return false;
-  const auto& plan = probe.motion->plan();
-  const auto primary = probe.probeInputs.value("primary").toObject();
-  const auto source = primary.value("source").toString();
-  const auto centre = primary.value("ballCentreF").toArray();
-  if (source.isEmpty() || source == QStringLiteral("manual") || centre.size() != 3
-      || primary.value("sphereCentreB").toArray().size() != 3
-      || !probe.probeInputs.value("settings_error").toString().isEmpty()
-      || !plan.gauge || plan.gauge->source != QStringLiteral("measured") || !plan.sphere
-      || primary.value("contactVertical").toDouble() <= plan.sphere->sphereRadius
-      || primary.value("contactHorizontal").toDouble() <= plan.sphere->sphereRadius) return false;
-  for (int axis = 0; axis < 3; ++axis)
-    if (centre.at(axis).toDouble() != probe.motion->robot().flangeToTcp(axis, 3)) return false;
-  return true;
+  return probe.motion->plan().gauge->source == QStringLiteral("measured")
+      && job->inputs.contains("compensation_radius_mm") && hasScanPoseBounds(job->inputs.value("pose_bounds").toObject());
 }
 
 void SceneMachiningPreparation::startScan()
@@ -834,7 +886,24 @@ void SceneMachiningPreparation::finishScanRecord(const QString& id, const QStrin
     const QString stale = probeJobError(*m_preparedCalibration);
     if (!stale.isEmpty()) failScan(stale);
   }
-  const SessionJob& job = *m_recorder->armedJob();
+  const auto fit = recordScanMeasurements();
+  QJsonObject evidence{{"acknowledged", m_scan->acknowledged}, {"observed_low", m_scan->low},
+                       {"observed_high_after_low", m_scan->high}, {"terminated", m_scan->terminated},
+                       {"terminal_plc", m_scan->terminal}, {"error", m_scan->failure}};
+  if (!fit.isEmpty()) {
+    if (m_scan->failure.isEmpty()) m_recorder->setResult(fit);
+    else evidence.insert("fit", fit);
+  }
+  m_recorder->addFile({"scan_completion.json", QJsonDocument(evidence).toJson()});
+  m_recorder->failScan(m_scan->failure);
+  m_scan->flushed = true;
+  releaseScan();
+}
+
+QJsonObject SceneMachiningPreparation::recordScanMeasurements()
+{
+  const auto& job = *m_recorder->armedJob();
+  const auto& motion = *m_preparedCalibration->motion;
   const int expected = m_preparedCalibration->touchCount;
   if (m_detections.size() != expected)
     failScan(tr("Recorded %1 of %2 scan detections.").arg(m_detections.size()).arg(expected));
@@ -847,23 +916,116 @@ void SceneMachiningPreparation::finishScanRecord(const QString& id, const QStrin
   const QList<QByteArray> columns{"search_step", "pass", "role", "source_face", "u", "v"};
   auto rows = touchesCsv(m_detections).split('\n');
   rows[0] += ';' + columns.join(';');
+  const auto bounds = job.inputs.value("pose_bounds").toObject();
+  const bool bounded = hasScanPoseBounds(bounds);
+  if (!bounded) failScan(tr("The sampled scan has no commissioned pose bounds and basis."));
+  if (const auto error = job.inputs.value("scan_setup_error").toString(); !error.isEmpty()) failScan(error);
+  EndGaugeObservations observations;
+  observations.compensationRadiusMm = job.inputs.value("compensation_radius_mm").toDouble();
+  observations.physicalBallRadiusMm = m_preparedCalibration->probeInputs.value("ball_radius_mm").toDouble();
+  std::array<QList<QByteArray>, 3> centreRows;
+  QJsonArray measured;
   for (const auto& detection : std::as_const(m_detections)) {
     const auto fields = plan.value(detection.touch).trimmed().split(';');
     const bool matches = fields.value(0) == QByteArray::number(detection.touch);
+    QList<QByteArray> identity;
     for (const auto& column : columns) {
       const QByteArray field = matches ? fields.value(header.indexOf(column)) : QByteArray{};
       if (field.isEmpty()) failScan(tr("Missing scan plan field for touch %1.").arg(detection.touch));
-      rows[detection.touch] += ';' + field;
+      identity.append(field);
     }
+    const QByteArray labels = identity.join(';');
+    rows[detection.touch] += ';' + labels;
+    const int pass = fields.value(header.indexOf("pass")).toInt();
+    const int local = fields.value(header.indexOf("pass_touch")).toInt();
+    if (!matches || pass < 1 || pass > motion.plan().passes.size() || local < 1
+        || local > motion.plan().passes[pass - 1].touches.size()) {
+      failScan(tr("No sampled Approach for touch %1.").arg(detection.touch));
+      continue;
+    }
+    const auto& touch = motion.plan().passes[pass - 1].touches[local - 1];
+    const auto pose = motion.measuredTcp(detection.joints);
+    if (const auto* error = std::get_if<QString>(&pose)) {
+      failScan(tr("Touch %1: %2").arg(detection.touch).arg(*error));
+      continue;
+    }
+    const auto& tcp = std::get<M4d>(pose);
+    const V3d centre = tcp.topRightCorner<3, 1>();
+    const V3d delta = centre - touch.start.topRightCorner<3, 1>();
+    const double axial = -touch.normal.dot(delta);
+    const double lateral = (delta + axial * touch.normal).norm();
+    const M3d relative = touch.start.topLeftCorner<3, 3>().transpose() * tcp.topLeftCorner<3, 3>();
+    const double angle = Eigen::AngleAxisd(relative).angle() * GeomConst::RadToDeg;
+    if (!std::isfinite(axial) || !std::isfinite(lateral) || !std::isfinite(angle))
+      failScan(tr("Non-finite measured pose deviation at touch %1.").arg(detection.touch));
+    else if (bounded && (axial < -bounds.value("axial_mm").toDouble()
+             || axial > touch.searchDistance() + bounds.value("axial_mm").toDouble()
+             || lateral > bounds.value("lateral_mm").toDouble() || angle > bounds.value("angular_deg").toDouble()))
+      failScan(tr("Touch %1 exceeds the sampled pose bounds (axial %2 mm, lateral %3 mm, angle %4 deg).")
+                   .arg(detection.touch).arg(axial).arg(lateral).arg(angle));
+
+    const int face = pass - 1;
+    observations.ballCentres[face].append(centre);
+    measured.append(QJsonObject{{"touch", detection.touch}, {"face", EndGaugeObservations::FaceNames[face]},
+                                {"sourceFace", motion.plan().passes[face].sourceFace},
+                                {"u", touch.cell.x()}, {"v", touch.cell.y()},
+                                {"X", centre.x()}, {"Y", centre.y()}, {"Z", centre.z()}});
+    QByteArray row = QByteArray::number(detection.touch) + ';' + labels + ';' + EndGaugeObservations::FaceNames[face].toUtf8();
+    for (double value : {centre.x(), centre.y(), centre.z(), axial, lateral, angle})
+      row += ';' + QByteArray::number(value, 'g', 17);
+    centreRows[face].append(row);
   }
   m_recorder->addFile({"touches.csv", rows.join('\n')});
-  QJsonObject evidence{{"acknowledged", m_scan->acknowledged}, {"observed_low", m_scan->low},
-                       {"observed_high_after_low", m_scan->high}, {"terminated", m_scan->terminated},
-                       {"terminal_plc", m_scan->terminal}, {"error", m_scan->failure}};
-  m_recorder->addFile({"scan_completion.json", QJsonDocument(evidence).toJson()});
-  m_recorder->failScan(m_scan->failure);
-  m_scan->flushed = true;
-  releaseScan();
+
+  EndGaugeFit fit;
+  QJsonObject result;
+  if (m_scan->failure.isEmpty()) {
+    fit = observations.fit();
+    result.insert("diagnostic", fit.diagnostic);
+    if (fit.workpieceInBase) {
+      result.insert("workpiece_in_base", frameRows(*fit.workpieceInBase));
+      QJsonArray counts;
+      for (const auto& pass : motion.plan().passes) counts.append(pass.touches.size());
+      QJsonObject inputs = job.inputs;
+      const auto& sphere = *motion.plan().sphere;
+      inputs.insert("sphere_radius_mm", sphere.sphereRadius);
+      inputs.insert("sphere_centre_b_mm", QJsonArray{sphere.sphereCentre.x(), sphere.sphereCentre.y(), sphere.sphereCentre.z()});
+      inputs.insert("gauge_workpiece_in_base", frameRows(motion.plan().gauge->workpieceInBase));
+      const auto& tool = motion.robot().flangeToTcp;
+      const auto abc = rot2euler(tool.topLeftCorner<3, 3>());
+      inputs.insert("tool_xyzabc", QJsonArray{tool(0, 3), tool(1, 3), tool(2, 3), abc.A1, abc.B1, abc.C1});
+      QJsonObject document{{"version", 1}, {"model", "GE-22"}, {"source", "measured"},
+                           {"workpieceId", inputs.value("workpiece_id")}, {"job_id", job.jobId},
+                           {"acquired_at", QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)},
+                           {"inputs", inputs}, {"expected_counts", counts}, {"observations", measured},
+                           {"compensationRadiusMm", observations.compensationRadiusMm},
+                           {"physicalBallRadiusMm", observations.physicalBallRadiusMm}};
+      m_candidate = ScanCandidate{*m_preparedCalibration, std::move(document), *fit.workpieceInBase};
+    } else failScan(fit.diagnostic);
+  }
+  QByteArray csv = "touch;" + columns.join(';') + ";face;x_mm;y_mm;z_mm;axial_mm;lateral_mm;angular_deg;plane_residual_mm\n";
+  QJsonObject summaries;
+  for (int face = 0; face < 3; ++face) {
+    const auto& residuals = fit.planeResidualsMm[face];
+    double squares = 0.0;
+    double maximum = 0.0;
+    for (qsizetype i = 0; i < centreRows[face].size(); ++i) {
+      csv += centreRows[face][i] + ';';
+      if (!residuals.isEmpty()) {
+        const double residual = residuals[i];
+        csv += QByteArray::number(residual, 'g', 17);
+        squares += residual * residual;
+        maximum = std::max(maximum, std::abs(residual));
+      }
+      csv += '\n';
+    }
+    if (!residuals.isEmpty())
+      summaries.insert(EndGaugeObservations::FaceNames[face], QJsonObject{{"count", residuals.size()},
+                       {"rms_mm", std::sqrt(squares / residuals.size())}, {"max_abs_mm", maximum}});
+  }
+  if (!summaries.isEmpty()) result.insert("plane_residuals", summaries);
+  m_recorder->addFile({"observations.csv", csv});
+  return result;
 }
 
 void SceneMachiningPreparation::releaseScan()
@@ -878,7 +1040,58 @@ void SceneMachiningPreparation::releaseScan()
   m_run = CalibrationRun::Idle;
   const QString cleanup = clearPrepared();
   setError(cleanup.isEmpty() ? outcome : outcome + QLatin1Char(' ') + cleanup);
+  if (m_candidate && m_candidate->document.contains("session_folder")) emit scanResultChanged();
   emit calibrationRunChanged();
+  emit availabilityChanged();
+}
+
+QVariantList SceneMachiningPreparation::scanDisplacement() const
+{
+  if (m_scan || !m_candidate || !m_candidate->document.contains("session_folder")) return {};
+  const M4d relative = inverseRigidTransform(m_candidate->probe.motion->plan().gauge->workpieceInBase)
+      * m_candidate->fittedFrame;
+  const auto angles = rot2euler(relative.topLeftCorner<3, 3>());
+  return {relative(0, 3), relative(1, 3), relative(2, 3), angles.A1, angles.B1, angles.C1};
+}
+
+void SceneMachiningPreparation::onScanArchiveWritten(const QString& jobId, const QString& folder, const QString& error)
+{
+  if (m_shuttingDown || !m_candidate || m_candidate->document.value("job_id").toString() != jobId) return;
+  m_candidate->archiveFailed = !error.isEmpty();
+  if (error.isEmpty()) m_candidate->document.insert("session_folder", folder);
+  else setError(error);
+  emit scanResultChanged();
+}
+
+void SceneMachiningPreparation::retryScanArchive()
+{
+  if (!scanArchiveFailed() || m_shuttingDown) return;
+  m_candidate->archiveFailed = false;
+  setError({});
+  m_recorder->retryScanArchive();
+  emit scanResultChanged();
+}
+
+bool SceneMachiningPreparation::reassignScan()
+{
+  if (m_scan || m_shuttingDown || !m_candidate || !m_candidate->document.contains("session_folder")) return false;
+  if (m_candidate->stale.isEmpty()) m_candidate->stale = probeJobError(m_candidate->probe);
+  if (!m_candidate->stale.isEmpty()) { setError(m_candidate->stale); return false; }
+  const auto* path = m_scene->findObject(m_candidate->probe.scanPathId)->touchPath();
+  if (const auto error = m_scene->savedRefineJobError(path->source.job); !error.isEmpty()) { setError(error); return false; }
+  const bool committed = m_calibration->applyScanObservations(m_candidate->document);
+  setError(m_calibration->error());
+  if (committed) discardScanResult();
+  return committed;
+}
+
+void SceneMachiningPreparation::discardScanResult()
+{
+  if (!m_candidate) return;
+  m_candidate.reset();
+  m_recorder->discardScanArchive();
+  if (!m_scan && !m_scanCad.files().isEmpty()) m_scanCad.removePaths(m_scanCad.files());
+  emit scanResultChanged();
   emit availabilityChanged();
 }
 
@@ -975,7 +1188,7 @@ void SceneMachiningPreparation::observeScan(const QVariantHash& values)
 bool SceneMachiningPreparation::canStartCalibration() const
 {
   return busyReason().isEmpty() && m_preparedCalibration && !m_preparedCalibration->scanPathId
-      && isCurrentCalibration(m_preparedCalibration->motion)
+      && isCurrentCalibration(m_preparedCalibration->motion) && m_calibration->gaugeUseError().isEmpty()
       && plcReady();
 }
 

@@ -41,6 +41,7 @@ struct SessionRecord
   QVector<RsiCapture> captures;
   QVector<PlcIoRecord> plcRows; // The first row is the state at the start.
   QVector<RecordFile> files;
+  QString scanJobId; // Successful execution awaiting operator review after archival.
 };
 
 // The value rounded to the six decimals of the record files.
@@ -51,6 +52,7 @@ struct RecordWriteResult
 {
   QString folder;
   QString error;
+  QString scanJobId;
 };
 
 RecordWriteResult writeSessionFolder(SessionRecord record);

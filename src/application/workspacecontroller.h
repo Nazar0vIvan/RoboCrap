@@ -45,6 +45,7 @@ public:
   // Also deselects the end-effector model.
   Q_INVOKABLE void selectObject(quint32 id, bool additive);
   void pickObject(quint32 id, bool additive);
+  void replaceSelectedObject(quint32 oldId, quint32 newId);
   // Viewport pick of the end-effector model: replaces the object selection.
   void selectTool();
   Q_INVOKABLE void deleteSelected();

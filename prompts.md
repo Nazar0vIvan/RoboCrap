@@ -1,38 +1,42 @@
-# SERENA
-
-Use Serena MCP for C++ symbol navigation, code structure analysis, and tracing declarations, implementations, references, and dependencies. Prefer targeted symbol queries over reading entire files. Use ordinary file/text search for documentation and QML when Serena's language-server operations are unsupported. 
-
 # Ponytail
 
 Use the ponytail skill for this task. Follow its principles: make the smallest complete change, reuse existing code, avoid overengineering, and preserve correctness, safety
 
-# QMD
-
-Use QMD MCP to search and retrieve relevant project files, including C++, QML, KRL, resources, documentation, and other indexed content. Prefer QMD for project-wide discovery and context retrieval before making changes.
-
-## Powershell:
-
-cd "$env:USERPROFILE\Downloads"
-qmd.cmd update
-qmd.cmd embed
+---
 
 # OpenTab
 
-1) Install 
+1) Установиь
+
 ```
 py -m pip install opentab-ai
 ```
-2) Open web UI
+
+2) Открыть в браузере
+
 ```
 py -m opentab web
 ```
-3) In PowerShell
+
+3) Открыть в PowerShell
+
 ```
 py -m opentab
 ```
---------
+
+4. Экспорт сессии OpenTab
+
+```
+cd "$env:USERPROFILE\Downloads"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\export-codex-session.ps1
+```
+
+---
+
+# RoboCrap-snapshot
 
 Получить RoboCrap-snapshot - НАЧАЛО нового чата ChatGPT
+
 ```
 cd "$env:USERPROFILE\Downloads"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "E:\Qt\QtProjects\RoboCrap" -Initial
@@ -40,6 +44,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapsho
 ```
 
 Получить RoboCrap-snapshot - ПРОДОЛЖЕНИЕ чата ChatGPT
+
 ```
 cd "$env:USERPROFILE\Downloads"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapshot.ps1 -ProjectRoot "E:\Qt\QtProjects\RoboCrap"
@@ -47,34 +52,32 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\Export-RoboCrapSnapsho
 ```
 
 Дерево проекта:
+
 ```
 cd "$env:USERPROFILE\Downloads"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ".\Show-RoboCrapTree.ps1"
 ```
 
-Экспорт сессии OpenTab
-```
-cd "$env:USERPROFILE\Downloads"
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\export-codex-session.ps1
-```
+---
 
---------
-
-В данный момент у меня сохранена одна Refine Job в файле \settings\planar_probe_scans.json. Когда я выбираю его в Scene и нажимаю Generate Path -> Generate, в строке состояния появляется ошибка: G1: ZPlane face 5 G1 (2,1): transfer: Transfer schedule exceeds numerical range or 200,000 points.
-
-Как я понимаю, слишком много точек траектории. Это очень странно, потому что траектория для процедуры калибровки в разы больше. Важно понять, что Generate Path должен генерировать траекторию только для анимации, а уже RSI Sampling дискретизирует те участки на которых нужен RSI. Эта разница хорошо должна быть видна в коде для обработки фаски (chamfer) и для калибровки в принципе тоже. Была проделана специальная работа, чтобы траектория генерировалась на сначала для анимации упрощённо, но визуально правдоподобно, а уже потом RSI Sampling только для нужных участков, для сканирования и калибровки - это approach path 
-
-
----------
 Есть следующая проблема. Сейчас уже реализована создание Refine Job по точкам для трёх плоскостей + и анимация сканирования этих точек 
 Генерируемая траектория сканирования делиться на две части: 
+
 1) Часть, которая исполняется встроенными KRL командами (LIN, CIRC и пр.)
 2) Часть, которая исполняется RSI
 
 На сколько я могу судить, это ведет к 3 вариантам решения вопроса доставки желаемого движения от приложения до KRC4: 
+
 1) Составление шаблона KRL программы с уже заранее установленной последовательностью выполнения PTP, LIN, CIRC ... RSI_MOVECORR()
 2) Генерация src/dat файлов, например, scan.src/dat на стороне приложения и каким-то образом доставка их до KRC4. При этом для автоматического запуска через cell.src названия файлов scan.src/dat одно и тоже для разных траекторий сканирования, но содержимое разное для каждой траектории.
 3) Генерация всей траектории сканирования через RSI
 
-Сейчас после реализации генерации траектории сканирования 
---------
+---
+
+По ходу выполнения плана, я заметил следующее:
+1) Вроде мы говорили об сканировании и калибровке, но изменялись такие файлы как scenemachiningpreparaton.h/cpp и скорее всего ещё наподобие им, хотя по названию они к сканировании и калиброке никакого отношение иметь не должен. Это наводит на опасение о наличии GodObject, не соблюдения SRP в S.O.L.I.D, да и просто имена файлов не соотвествуют тому, что внутри. Как будто раньше класс был довольно конкретный, а потом его начали использовать в других зонах ответственности и он как бы стал абстракнее, но на деле оставил старое название.
+2) Last Calibration должен отображаться только в Calibration submode, когда ничего не выбрано, в остальный submode когда ничего не выбрано, правая панель должна оставать пустой
+3) Кнопка Scan должна быть Start Scan, по аналогии со Start Calibration
+4) Кнока Resume должна быть справа от Start Scan
+5) Предупреждения типо "Workpiece placement changed. Recheck fixture clearance before ... " пусть будут в Status bar
+6) Кнопка Save Changes или Create Refine Job не должна растягиваться до максимума

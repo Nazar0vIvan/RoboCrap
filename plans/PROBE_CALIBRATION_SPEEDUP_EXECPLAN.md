@@ -11,7 +11,7 @@ The probe calibration measures where the centre of the WP-500 ruby ball sits rel
 
 After this plan the user can: read, from the existing session records, which direction-dependent residuals recur across the recorded robot poses and which plan reductions would cost no accuracy (Milestone 1); add a 22 mm gauge block to the calibration session and get the effective ball radius from the block’s reference length, with its calibration uncertainty stated when available (Milestone 2); run the session with transfer moves at 15 mm/s and 100 mm/s² instead of 10 mm/s and 20 mm/s² (Milestone 3); and run every search with a smooth 2 mm pre-approach inside the RSI correction stream, so that only 1 mm is travelled at the slow search speed (Milestone 4). The expected time from the first to the last touch falls from about 976 s to about 528 s, plus about 3 minutes for the gauge block when it is included. Milestone 5 records, from the evidence of Milestones 1–4, whether a shorter calibration plan, a verification-only check before work, or a denser roll ring is justified; implementing those is left to a follow-up plan.
 
-The proposals and estimates are in `docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_SPEEDUP_RU.md`. The [GE-22 placement plan](END_GAUGE_WORKPIECE_PLACEMENT_EXECPLAN.md) supplies the placed gauge. Milestones 1 and 2 of the [planar probe scanning plan](PLANAR_PROBE_SCANNING_EXECPLAN.md) supply the fixed two-face points, ordered movements and common animation and sampling geometry. Calibration Milestone 2 integrates those inputs into one session and evaluates the detected positions. The operator-defined workpiece editor can be completed independently.
+The proposals and estimates are in `docs/calibration/ROBOT_PROBE_SPHERE_CALIBRATION_SPEEDUP_RU.md`. The [GE-22 placement plan](END_GAUGE_WORKPIECE_PLACEMENT_EXECPLAN.md) supplies the placed gauge. The fixed two-face gauge preset supplies the contact points and ordered movements for both animation and sampling. Calibration Milestone 2 integrates those inputs into one session and evaluates the detected positions independently of the workpiece editor.
 
 
 ## Progress
@@ -253,7 +253,7 @@ Time budget of the current session (speedup document, section 1.2): 974–978 s 
 
 No new library. Python 3 with numpy, as `calibration_fit.py` already uses.
 
-Calibration Milestone 2 takes the placed GE-22 preset and its numerical passes from `plans/PLANAR_PROBE_SCANNING_EXECPLAN.md`, Milestones 1 and 2. The shared probe planning code under `src/trajectories/probe/` owns local-to-base target conversion, the ordered straight/circular/joint moves and search geometry. Calibration supplies the existing sphere passes and fixture, appends the gauge passes, and generates one motion. The player and sampler consume that same motion and step order.
+The shared probe planning code under `src/trajectories/probe/` owns local-to-base target conversion for the placed GE-22 preset, the ordered straight/circular/joint moves and search geometry. Calibration supplies the existing sphere passes and fixture, appends the gauge passes, and generates one motion. The player and sampler consume that same motion and step order.
 
 In `src/application/scene/scenecalibration.cpp`, capture the active scene placement and mounting source when including GE-22. In preparation and recording, require the same setup identity, enforce mounted-use eligibility and carry the `gauge` purpose into the session. The operator reviews interference in Dry Run. The generic face editor, future three-face fitting and physical robot procedure for a standalone workpiece scan are independent of this interface.
 
@@ -268,4 +268,4 @@ Revision note (2026-11-22): incorporated the dimensioned clamp view and hardcode
 
 Revision note (2026-11-23). Replaced the embedded sphere-file gauge and its upright assumption with the separate three-datum placement prerequisite. The 32 measurement touches consume the accepted pose. The 100 mm centre offset belongs to the synthetic fixture.
 
-Revision note (2026-11-23). Assigned the preset, planar moves, shared animation and scratch sampling to the planar scanning ExecPlan. Calibration Milestone 2 now composes the combined job and owns recording and length evaluation. Qualified the 591-step estimate by the selected route.
+Revision note (2026-11-23). Calibration Milestone 2 uses the shared gauge preset and motion for animation and scratch sampling. Calibration composes the combined job and owns recording and length evaluation. Qualified the 591-step estimate by the selected route.

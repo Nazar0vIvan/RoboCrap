@@ -2,6 +2,7 @@
 
 #include "geometry/endgaugefit.h"
 #include "geometry/spherefit.h"
+#include "geometry/utils.h"
 
 #include <QDebug>
 #include <QDir>
@@ -10,7 +11,11 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDateTime>
+#include <QLockFile>
 #include <QSaveFile>
+#include <QSet>
+#include <QUuid>
 
 #include <chrono>
 #include <cmath>
@@ -22,6 +27,20 @@
 namespace {
 
 const QString SettingsPath = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/probe_calibration.json");
+const QString PreciseGaugePath = QStringLiteral(ROBOCRAP_SETTINGS_DIR "/EG22_precise.json");
+
+QString endGaugePath()
+{
+  return QFile::exists(PreciseGaugePath) ? PreciseGaugePath : QStringLiteral(ROBOCRAP_SETTINGS_DIR "/EG22_rough.json");
+}
+
+QString fileDigest(const QString& path)
+{
+  QFile file(path);
+  QCryptographicHash hash(QCryptographicHash::Sha256);
+  if (!file.open(QIODevice::ReadOnly) || !hash.addData(&file) || file.error() != QFileDevice::NoError) return {};
+  return QString::fromLatin1(hash.result().toHex());
+}
 
 struct ProbeSettingsResult
 {
@@ -188,18 +207,14 @@ ProbeSettingsResult readProbeSettings()
 }
 
 // Atomically replaces the settings file; empty on success.
-QString writeProbeSettings(const ProbeSettings& settings)
+QString writeSettingsDocument(const QString& path, const QJsonObject& root)
 {
-  QJsonObject root{{QStringLiteral("version"), 1}};
-  if (const QJsonObject primary = primaryObject(settings.primary); !primary.isEmpty())
-    root.insert(QStringLiteral("primary"), primary);
-  if (settings.last) root.insert(QStringLiteral("lastCalibration"), summaryObject(*settings.last));
   const QByteArray contents = QJsonDocument(root).toJson(QJsonDocument::Indented);
   if (!QDir().mkpath(QStringLiteral(ROBOCRAP_SETTINGS_DIR)))
     return SceneCalibration::tr("Cannot create %1.").arg(QDir::toNativeSeparators(QStringLiteral(ROBOCRAP_SETTINGS_DIR)));
-  QSaveFile file(SettingsPath);
+  QSaveFile file(path);
   if (!file.open(QIODevice::WriteOnly) || file.write(contents) != contents.size() || !file.commit())
-    return SceneCalibration::tr("Cannot save %1: %2").arg(QDir::toNativeSeparators(SettingsPath), file.errorString());
+    return SceneCalibration::tr("Cannot save %1: %2").arg(QDir::toNativeSeparators(path), file.errorString());
   return {};
 }
 
@@ -265,11 +280,73 @@ SphereFileResult readSphereFile(const QString& path, double ballRadius)
                       *strutDiameter / 2.0, *strutRecess, *table}, {}};
 }
 
+bool finiteArray(const QJsonValue& value, int size)
+{
+  const auto entries = value.toArray();
+  if (entries.size() != size) return false;
+  for (const auto& entry : entries)
+    if (!entry.isDouble() || !std::isfinite(entry.toDouble())) return false;
+  return true;
+}
+
+QString preciseInputError(const QJsonObject& root)
+{
+  const auto inputs = root.value("inputs").toObject();
+  const auto setup = inputs.value("measuring_setup").toObject();
+  const auto primary = setup.value("primary").toObject();
+  const int group = inputs.value("group").toInt();
+  const auto id = root.value("job_id").toString();
+  const auto key = root.value("workpieceId").toString();
+  const auto mounting = inputs.value("gauge_observations_sha256").toString().toLatin1();
+  if (root.value("source") != "measured" || !id.startsWith("scan_") || QUuid(id.mid(5)).isNull()
+      || key.trimmed().isEmpty() || key != inputs.value("workpiece_id").toString()
+      || root.value("session_folder").toString().trimmed().isEmpty()
+      || !QDateTime::fromString(root.value("acquired_at").toString(), Qt::ISODateWithMs).isValid()
+      || QUuid(inputs.value("refine_job_id").toString()).isNull() || inputs.value("refine_job_revision").toInt() < 1
+      || inputs.value("gauge_source") != "measured" || mounting.size() != 64
+      || QByteArray::fromHex(mounting).toHex() != mounting || (group != 1 && group != 2)
+      || inputs.value("robot_model").toString().trimmed().isEmpty() || setup.value("probe").toString().trimmed().isEmpty())
+    return SceneCalibration::tr("Invalid scan identity, acquisition or mounting provenance.");
+  const auto frame = inputs.value("gauge_workpiece_in_base").toArray();
+  const auto tool = inputs.value("tool_xyzabc").toArray();
+  if (frame.size() != 4 || !finiteArray(tool, 6))
+    return SceneCalibration::tr("Invalid sampled workpiece or tool transform.");
+  M4d previous = M4d::Identity();
+  for (int r = 0; r < 4; ++r) {
+    const auto row = frame.at(r).toArray();
+    if (!finiteArray(row, 4)) return SceneCalibration::tr("Invalid sampled workpiece transform.");
+    for (int c = 0; c < 4; ++c) previous(r, c) = row.at(c).toDouble();
+  }
+  if (!isBasis(previous.block<3, 1>(0, 0), previous.block<3, 1>(0, 1), previous.block<3, 1>(0, 2))
+      || previous.row(3) != Eigen::RowVector4d(0, 0, 0, 1))
+    return SceneCalibration::tr("The previous workpiece transform is not rigid.");
+  const auto radius = positiveNumber(inputs, "sphere_radius_mm");
+  const auto vertical = positiveNumber(primary, "contactVertical");
+  const auto horizontal = positiveNumber(primary, "contactHorizontal");
+  const auto physical = positiveNumber(root, "physicalBallRadiusMm");
+  const auto effective = positiveNumber(root, "compensationRadiusMm");
+  if (!radius || !physical || !effective || !vertical || !horizontal
+      || *vertical <= *radius || *horizontal <= *radius || primary.value("source").toString().trimmed().isEmpty()
+      || primary.value("source") == "manual" || !setup.value("settings_error").toString().isEmpty()
+      || !vectorValue(primary.value("sphereCentreB")) || primary.value("sphereCentreB") != inputs.value("sphere_centre_b_mm")
+      || primary.value("ballCentreF").toArray() != QJsonArray{tool.at(0), tool.at(1), tool.at(2)}
+      || *physical != setup.value("ball_radius_mm").toDouble()
+      || *effective != inputs.value("compensation_radius_mm").toDouble()
+      || *effective != (group == 1 ? *vertical : *horizontal) - *radius)
+    return SceneCalibration::tr("Stored radii disagree with the sampled probe or applied primary calibration.");
+  const QString cad = SceneEndGauge::cadPath();
+  const QString digest = inputs.value("model_sha256").toString();
+  if (digest.size() != 64 || digest != fileDigest(cad))
+    return SceneCalibration::tr("The measured CAD revision does not match %1.").arg(cad);
+  return {};
+}
+
 // Missing optional fixture returns an empty diagnostic. Coordinates are observed ball centres in base mm.
 std::pair<std::optional<SceneEndGauge>, QString> readEndGaugeFile(const QString& path)
 {
   QFile file(path);
-  if (!file.exists()) return {};
+  const bool precise = path == PreciseGaugePath;
+  if (!file.exists() && !precise) return {};
   if (!file.open(QIODevice::ReadOnly)) return {{}, file.errorString()};
   const QByteArray bytes = file.readAll();
   QJsonParseError parse;
@@ -283,21 +360,49 @@ std::pair<std::optional<SceneEndGauge>, QString> readEndGaugeFile(const QString&
   const auto source = root.value(QStringLiteral("source")).toString();
   if (source != QStringLiteral("synthetic") && source != QStringLiteral("measured"))
     return {{}, SceneCalibration::tr("Expected a synthetic or measured source.")};
-  const auto points = root.value(QStringLiteral("roughPoints"));
-  if (!points.isArray()) return {{}, SceneCalibration::tr("roughPoints must be an array.")};
+  if (precise) {
+    const auto error = preciseInputError(root);
+    if (!error.isEmpty()) return {{}, error};
+  }
+  const QString field = precise ? QStringLiteral("observations") : QStringLiteral("roughPoints");
+  const auto points = root.value(field);
+  if (!points.isArray()) return {{}, SceneCalibration::tr("%1 must be an array.").arg(field)};
 
   EndGaugeObservations observations;
-  observations.ballRadius = root.value(QStringLiteral("ballRadiusMm")).toDouble();
+  observations.compensationRadiusMm = root.value(precise ? "compensationRadiusMm" : "ballRadiusMm").toDouble();
+  observations.physicalBallRadiusMm = precise ? root.value("physicalBallRadiusMm").toDouble() : observations.compensationRadiusMm;
   const auto entries = points.toArray();
+  std::array<QSet<QPoint>, 3> cells;
+  std::array<int, 3> sourceFaces{};
   for (qsizetype i = 0; i < entries.size(); ++i) {
     const auto entry = entries.at(i);
-    const auto label = entry.toObject().value(QStringLiteral("face")).toString();
+    const auto row = entry.toObject();
+    const auto label = row.value(QStringLiteral("face")).toString();
     const auto face = EndGaugeObservations::FaceNames.indexOf(label);
     if (face < 0)
-      return {{}, SceneCalibration::tr("roughPoints[%1] needs a wide, end or top face label.").arg(i)};
+      return {{}, SceneCalibration::tr("%1[%2] needs a wide, end or top face label.").arg(field).arg(i)};
     const auto point = roughPoint(entry);
-    if (!point) return {{}, SceneCalibration::tr("roughPoints[%1] needs finite X, Y, Z.").arg(i)};
+    if (!point) return {{}, SceneCalibration::tr("%1[%2] needs finite X, Y, Z.").arg(field).arg(i)};
+    if (precise) {
+      const int sourceFace = row.value("sourceFace").toInt();
+      const QPoint cell(row.value("u").toInt(), row.value("v").toInt());
+      if (row.value("touch").toInt() != i + 1 || sourceFace < 1 || cell.x() < 1 || cell.y() < 1
+          || (sourceFaces[face] && sourceFaces[face] != sourceFace) || cells[face].contains(cell))
+        return {{}, SceneCalibration::tr("Invalid touch, source face or repeated grid cell at observation %1.").arg(i + 1)};
+      sourceFaces[face] = sourceFace;
+      cells[face].insert(cell);
+    }
     observations.ballCentres[face].append(*point);
+  }
+  const auto inputs = root.value("inputs").toObject();
+  if (precise) {
+    const auto counts = root.value("expected_counts").toArray();
+    if (counts.size() != 3 || inputs.value("touches").toInt() != entries.size())
+      return {{}, SceneCalibration::tr("Invalid expected scan counts.")};
+    for (int face = 0; face < 3; ++face)
+      if (counts[face].toInt() != cells[face].size() || cells[face].size() < 3
+          || sourceFaces[face] == sourceFaces[(face + 1) % 3])
+        return {{}, SceneCalibration::tr("Invalid count or duplicate CAD face for %1.").arg(EndGaugeObservations::FaceNames[face])};
   }
   const auto result = observations.fit();
   if (!result.workpieceInBase) return {{}, result.diagnostic};
@@ -308,9 +413,21 @@ std::pair<std::optional<SceneEndGauge>, QString> readEndGaugeFile(const QString&
   QByteArray alternate = bytes;
   if (alternate.contains("\r\n")) alternate.replace("\r\n", "\n");
   else alternate.replace("\n", "\r\n");
-  SceneEndGauge mount{{*result.workpieceInBase, source,
-                       QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex())},
-                      workpieceId, QString::fromLatin1(QCryptographicHash::hash(alternate, QCryptographicHash::Sha256).toHex())};
+  const QString digest = QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
+  const QString alternateDigest = QString::fromLatin1(QCryptographicHash::hash(alternate, QCryptographicHash::Sha256).toHex());
+  QStringList roughDigests{digest, alternateDigest};
+  if (precise) {
+    roughDigests.clear();
+    for (const auto& value : root.value("rough_mounting_sha256").toArray()) {
+      const auto hash = value.toString().toLatin1();
+      if (hash.size() != 64 || QByteArray::fromHex(hash).toHex() != hash)
+        return {{}, SceneCalibration::tr("Invalid legacy mounting digest.")};
+      roughDigests.append(value.toString());
+    }
+    if (roughDigests.size() != 2) return {{}, SceneCalibration::tr("Missing original rough mounting references.")};
+  }
+  SceneEndGauge mount{{*result.workpieceInBase, source, digest}, workpieceId, alternateDigest,
+                      precise ? inputs.value("model_sha256").toString() : QString{}, roughDigests};
   return {std::move(mount), QString{}};
 }
 
@@ -371,9 +488,10 @@ void SceneCalibration::activate()
   auto file = m_precise && !QFile::exists(sphereFile) ? SphereFileResult{}
       : readSphereFile(sphereFile, m_effectors->rubyBallDiameter() / 2.0);
   m_sphereError = file.error;
-  if (const QString error = reloadEndGauge(QStringLiteral(ROBOCRAP_SETTINGS_DIR "/EG22_rough.json")); !error.isEmpty()) {
+  m_gaugeError = reloadEndGauge();
+  if (!m_gaugeError.isEmpty()) {
     if (!file.error.isEmpty()) file.error.append(QLatin1Char('\n'));
-    file.error += error;
+    file.error += m_gaugeError;
   }
   setError(file.error);
   if (file.sphere) {
@@ -404,21 +522,82 @@ const SceneSphere* SceneCalibration::sphere() const
   return object ? object->sphere() : nullptr;
 }
 
-QString SceneCalibration::reloadEndGauge(const QString& path)
+QString SceneCalibration::gaugeUseError() const
 {
+  if (!m_gaugeError.isEmpty()) return m_gaugeError;
+  const auto* object = m_scene->findObject(m_endGaugeId);
+  const auto* gauge = object ? object->endGauge() : nullptr;
+  return gauge && !gauge->modelSha256.isEmpty() ? m_scene->workpieceRevisionError(m_endGaugeId, gauge->modelSha256) : QString{};
+}
+
+bool SceneCalibration::applyScanObservations(const QJsonObject& document)
+{
+  QLockFile lock(PreciseGaugePath + QStringLiteral(".lock"));
+  if (!lock.tryLock(0)) { setError(tr("Cannot lock %1 for writing.").arg(PreciseGaugePath)); return false; }
+  const auto inputs = document.value("inputs").toObject();
+  const QString previous = endGaugePath();
+  if (fileDigest(previous) != inputs.value("gauge_observations_sha256").toString()) {
+    m_gaugeError = tr("The mounting file %1 changed since sampling. Re-enter the measuring submode to reload it.").arg(previous);
+    setError(m_gaugeError);
+    emit availabilityChanged();
+    return false;
+  }
+  const auto settings = readProbeSettings();
+  if (!settings.error.isEmpty() || primaryObject(settings.settings.primary) != primaryObject(m_settings.primary)) {
+    setError(settings.error.isEmpty() ? tr("The applied primary changed on disk.") : settings.error);
+    return false;
+  }
+  const auto* mounted = m_scene->findObject(m_endGaugeId);
+  if (!mounted || !mounted->endGauge() || mounted->endGauge()->workpieceId != document.value("workpieceId").toString()
+      || mounted->endGauge()->observationsSha256 != inputs.value("gauge_observations_sha256").toString()) {
+    setError(tr("The sampled end gauge is no longer mounted."));
+    return false;
+  }
+  auto accepted = document;
+  accepted.insert("rough_mounting_sha256", QJsonArray::fromStringList(mounted->endGauge()->roughMountingDigests));
+  if (const auto error = writeSettingsDocument(PreciseGaugePath, accepted); !error.isEmpty()) {
+    setError(error);
+    return false;
+  }
+  m_gaugeError = tr("Reloading the accepted EG22 observations.");
+  if (m_endGaugeId) m_scene->removeObjects(m_scene->refinePathIds({}, m_endGaugeId));
+  invalidatePath();
+  m_gaugeError = reloadEndGauge();
+  if (!m_gaugeError.isEmpty())
+    m_gaugeError = tr("Measurements saved; scene placement unavailable. %1: %2").arg(PreciseGaugePath, m_gaugeError);
+  setError(m_gaugeError);
+  emit availabilityChanged();
+  return true;
+}
+
+QString SceneCalibration::reloadEndGauge()
+{
+  const QString path = endGaugePath();
   const auto [gauge, error] = readEndGaugeFile(path);
   if (!gauge) {
-    m_scene->removeObjects({m_endGaugeId});
+    if (path != PreciseGaugePath) m_scene->removeObjects({m_endGaugeId});
     return error.isEmpty() ? QString{} : tr("End gauge file %1: %2").arg(QDir::toNativeSeparators(path), error);
   }
-  if (const auto* object = m_scene->findObject(m_endGaugeId)) {
-    const auto* existing = object->endGauge();
+  const auto* old = m_scene->findObject(m_endGaugeId);
+  if (old) {
+    if (!gauge->modelSha256.isEmpty()) {
+      const auto reason = m_scene->workpieceRevisionError(m_endGaugeId, gauge->modelSha256);
+      if (!reason.isEmpty()) return tr("%1: %2").arg(path, reason);
+    }
+    const auto* existing = old->endGauge();
     if (existing && existing->observationsSha256 == gauge->observationsSha256) return {};
   }
-  auto* inserted = m_scene->addCalibrationObject(*gauge, tr("End gauge"));
-  m_scene->removeObjects({m_endGaugeId});
+  const bool visible = !old || old->visible();
+  auto* inserted = m_scene->addCalibrationObject(*gauge, old ? old->name() : tr("End gauge"));
   if (!inserted) return tr("Cannot insert the end gauge: scene IDs or drawing installation failed.");
+  if (old) {
+    emit gaugeReplacing(m_endGaugeId, inserted->objectId());
+    m_scene->removeObjects({m_endGaugeId});
+  }
   m_endGaugeId = inserted->objectId();
+  m_scene->setObjectVisible(inserted, visible);
+  for (const auto* object : m_scene->objectList())
+    if (object->kind() == SceneObject::RefineJob) m_scene->resolveRefineTarget(object->objectId());
   return {};
 }
 
@@ -480,7 +659,7 @@ bool SceneCalibration::canPrepareScan() const
 {
   return m_precise && m_sphereError.isEmpty() && m_effectors->activeTool() == SceneEndEffectors::Measuring
       && m_selectedScanId && m_scene->findObject(m_selectedScanId)
-      && !calculating() && !m_playback->active();
+      && !calculating() && !m_playback->active() && gaugeUseError().isEmpty();
 }
 
 QJsonObject SceneCalibration::scanProbeInputs() const
@@ -551,6 +730,7 @@ void SceneCalibration::invalidatePendingScan()
 
 QString SceneCalibration::probeSetupError() const
 {
+  if (const auto error = gaugeUseError(); !error.isEmpty()) return error;
   if (calculating()) return tr("Calculating trajectory…");
   if (m_playback->active()) return tr("Stop Dry Run before generating a trajectory.");
   if (!m_playback->robotModel() || !m_playback->robotAvailable()) return tr("Robot preview is not ready.");
@@ -771,5 +951,8 @@ QString SceneCalibration::saveSettings() const
   // An unreadable file stays as it is until the user fixes or deletes it.
   if (!m_settingsReadError.isEmpty())
     return m_settingsReadError + tr(" Not saved: fix or delete the file, then restart RoboCrap.");
-  return writeProbeSettings(m_settings);
+  QJsonObject root{{QStringLiteral("version"), 1}};
+  if (const auto primary = primaryObject(m_settings.primary); !primary.isEmpty()) root.insert("primary", primary);
+  if (m_settings.last) root.insert("lastCalibration", summaryObject(*m_settings.last));
+  return writeSettingsDocument(SettingsPath, root);
 }

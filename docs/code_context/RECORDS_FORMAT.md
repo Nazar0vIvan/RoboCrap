@@ -39,6 +39,7 @@ RoboCrap writes run records under `ROBOCRAP_RECORDS_DIR` (CMake cache path, defa
 | `rsi_timing.csv` | with a capture | PC timing for the same requests in the same order |
 | `plc.csv` | with PLC rows | Available state at session start and observations through session end |
 | `touches.csv` | calibration with detections, executed scan | Actual AIPos joint angles in detection order. Scan appends `search_step;pass;role;source_face;u;v` from its sampled plan and retains the header for zero detections. |
+| `observations.csv` | executed scan | One row per reconstructible, indexed TCP. Includes touch, search step, pass, role, CAD face, U/V cell, face name, base X/Y/Z in mm, axial travel, lateral and angular deviation, and signed plane residual in mm when available. |
 | `scan_completion.json` | executed scan | Program acknowledgement, observed low and subsequent high, termination status, last available PLC feedback (eight X1 bits, step, program, result and program state), and failure reason |
 | `residual_sets.csv` | calibration with a computed fit | Step-K7 residual sets |
 
@@ -62,7 +63,7 @@ JSON indented by 4 spaces, top-level keys in this order, keys inside `inputs`, `
       "error": "",                                 // the run error when failed
       "job_id": "calibration_20261120_135817_781",
       "inputs": { ... },
-      "result": { ... },                           // calibration with outcome ok only
+      "result": { ... },                           // fitted scan or calibration with outcome ok
       "rsi": {"delayed": 30, "dropped": 0, "max_delay": 6, "requests": 132812, "unanswered": 103, "unreadable": 0}
     }
 
@@ -77,6 +78,14 @@ JSON indented by 4 spaces, top-level keys in this order, keys inside `inputs`, `
 `result` of a successful calibration session: `ball_centre_f_mm` (3 values, ruby ball centre in the flange frame {F}), `sphere_centre_b_mm` (3, sphere centre in the base frame {B}), `verification_sphere_centre_b_mm` (3), `contact_vertical_mm`, `contact_horizontal_mm`, `quantile95_mm`, `repeatability_mm`, `smallest_singular_value`, `calibration_touches`, `verification_touches`, with floating-point results rounded to six decimal places. The settings file `settings/probe_calibration.json` stores the base session name (before any folder collision suffix) as `lastCalibration.id`.
 
 A converted session (made from records older than this format) adds `"converted_from": "<old folder name>"` and `"clock": "rsi and plc times have separate origins"`, and its `inputs` contain only `touches` (the other inputs were not recorded). Its session start is the PLC `run` row of that run, its `rsi.csv` and `rsi_timing.csv` count `t_s` from the first stored request, and `duration_s` is the time from the first to the last request; `y1_7_probe` and `y2_0_spindle` are empty (not in the old PLC logs). The converter has no original KRL job bytes to archive. Successful converted sessions can have `null` in `error`.
+
+Scan inputs store the applied `primary` under `measuring_setup`, with the physical ruby radius in `measuring_setup.ball_radius_mm`. The sampled group selects the vertical (G1) or horizontal (G2) contact distance. Subtracting `sphere_radius_mm` gives `compensation_radius_mm`. An ineligible setup records `scan_setup_error`. The `pose_bounds` object is empty until commissioned. Physical Scan requires finite nonnegative `axial_mm`, `lateral_mm` and `angular_deg` limits and their documented `basis`.
+
+In `observations.csv`, `axial_mm` is signed travel from the start along the inward search direction. Its accepted interval runs from minus the axial bound through planned travel plus that bound. `lateral_mm` is distance from the search line and `angular_deg` is the smallest rotation from the planned TCP orientation. The residual column is empty until the fitter obtains the corresponding ball-centre plane.
+
+A successful scan stores `result.workpiece_in_base` as four matrix rows with translation in mm. `plane_residuals` gives each fitted face's `count`, `rms_mm` and `max_abs_mm`. The `diagnostic` field carries the fitter's report. A failed fit retains its diagnostic and available face summaries under `fit` in `scan_completion.json`. Its available signed residuals stay in `observations.csv`.
+
+The archive describes acquisition and fit for both operator choices. Only Reassign commits `settings/EG22_precise.json`. The version-1 settings file identifies the measured GE-22 and its workpiece key, sampled `job_id`, actual `session_folder` (including collision suffix), and UTC acquisition closure time in `acquired_at`. It carries `inputs` with the acquisition-time primary, robot, full-precision mounting and TCP, group, Refine Job revision and CAD digest. `expected_counts` follows wide, end, top order. Each ordered `observations` row stores touch, face, sourceFace, u, v and base X/Y/Z in mm. Replay uses `compensationRadiusMm` and `physicalBallRadiusMm`. The two `rough_mounting_sha256` entries preserve LF and CRLF references for legacy jobs.
 
 ## plan.csv
 

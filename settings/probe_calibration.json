@@ -26,5 +26,13 @@
         ],
         "verificationTouches": 44
     },
+    "primary": {
+        "ballCentreF": [
+            -0.048,
+            -0.097,
+            127
+        ],
+        "source": "manual"
+    },
     "version": 1
 }

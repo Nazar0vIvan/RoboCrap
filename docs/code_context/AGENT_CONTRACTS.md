@@ -289,16 +289,23 @@ producer/consumer; for OCCT adapters or robot presentation also Viewport and CAD
   Calibration is active the sphere, end gauge and calibration path form the Calibration group. Entry records and
   hides other visible objects (also ones added meanwhile), exit shows the recorded ones that still
   exist. Delete is disabled for the Calibration group.
-- On entry to Calibration or Precise, `EG22_rough.json` supplies
-  GE-22 ball centres in {B} and their observation radius in mm. Native X=0 (wide), Y=0 (end)
+- On entry to Calibration or Precise, load accepted `EG22_precise.json` if present. Otherwise
+  `EG22_rough.json` supplies GE-22 ball centres in {B} and their observation radius in mm. Native X=0 (wide), Y=0 (end)
   and Z=0 (top) have outward normals near base −X, +Y and +Z respectively. Compensate each
-  fitted plane inward before intersecting them. The top fixes Z and the wide face fixes X
+  fitted plane inward before intersecting them. Rough observations use their stored ballRadiusMm
+  for both plane compensation and physical clamp clearance. Scan observations use the applied
+  group's effective radius for the plane offset and the sampled ruby radius for clearance.
+  Report signed distances to the outward-oriented ball-centre planes before compensation.
+  The top fixes Z and the wide face fixes X
   projected onto that top. Keep gauge placement independent of sphere placement and probe settings.
   Place the native frame of `EG22.brep` and the three positive workpiece axes at the fitted origin
   and orientation. Translate `CALIBRATION_STAND_EG22.brep` to that origin with its axes parallel to
   the base axes. The gauge solid participates in picking and fit bounds. Its stand and axes share
-  the gauge visibility and are excluded from picking and fit bounds. An absent or invalid gauge
-  removes the prior gauge on re-entry, and invalid input reports the filename and reason.
+  the gauge visibility and are excluded from picking and fit bounds. Absent fixtures and invalid
+  rough input retain the rough loader's removal behavior. Invalid precise input or failed scene
+  insertion preserves the old drawing for reference and blocks gauge operations until reload succeeds
+  and the loaded and on-disk CAD agree. Replacement transfers name, visibility and selection.
+  Stable workpiece keys and the original rough mounting digests resolve existing Refine Jobs.
 
 ## Machining and playback
 
@@ -452,6 +459,16 @@ Apply Geometry and scene to numerical changes.
     synchronously. The preparation owner retains the export and table until fresh CELL feedback and capture closure.
     The settings marker scan_in_progress preserves the replacement block across restart. See the scan module contract
     for recovery and the completion levels at X1.1.
+    At capture closure, use the sampled pass and touch indices to compare each actual FK/TCP with
+    its Approach. Check signed inward travel, perpendicular distance and smallest rotation angle
+    against the sampled physical bounds. Require their commissioning basis. Fit raw centres only
+    after complete acquisition, current inputs and accepted poses. The scan record retains available
+    centres and signed residuals on failure. The fitted frame belongs to the execution record.
+    Keep the successful fit in memory until the matching session writer reports its actual folder.
+    Block physical starts during archival and operator review. Reassign rechecks the sampled setup,
+    Refine Job, CAD and mounting, then commits precise observations and invalidates old motions even
+    if scene insertion fails. Cancel and window close release the candidate. Restart loads committed
+    observations only. Archive retry uses the retained acquisition and its original job ID.
   - Calibration RSI Sampling (prepareCalibration, App.Calibration path present, no calculation)
     runs sampleProbeCalibrationRsi on the saved ProbeTouchMotion: probeMotionSteps pairs one to one
     with the timed phases (PTP to entry, LIN descend/retract/retreat, CIRC transfer, Search for each
@@ -549,7 +566,7 @@ registration, module names or resources.
   slot alone supplies the pickable indices, selected-row ring, selected face and approach arrow.
   Releasing the editor restores ordinary picking and removes its face presentation.
   Create submits the three slot drafts together. On failure keep the fields and show the reason in
-  the existing message row. On success select the saved object under Precise / Refine Jobs and close the editor.
+  the main status bar. On success select the saved object under Precise / Refine Jobs and close the editor.
   Opening Refine Frame on a selected job copies its three roles into the editor. Save Changes updates
   the selected job only after the file commit. Cancel discards the copy and reselects the job.
 - In Calibration the toolbar shows only Measuring EE, Generate Path, Dry Run/Pause, Stop, RSI
@@ -565,10 +582,13 @@ registration, module names or resources.
   first in its existing label in every mode. lastCalibrationChanged opens CalibrationResultWindow (a
   modal top-level Window of fixed size, so the viewport cannot cover it: result rows, the bound
   calibrationRunError, Reassign and Cancel); calibrationRunFinished opens the OK-only "Calibration
-  failed" dialog only when that window is not open. A settings-file error opens the native "Probe
-  settings" dialog at start and on every failed write, never a status message. With nothing selected
-  the Properties panel shows the last calibration rows (label above value) in its scroll region, or
-  "No calibration result.". Otherwise the label shows the playback status while calibration
+  failed" dialog only when that window is not open. The same result window presents an archived scan
+  with signed XYZ and principal KUKA ABC in the previous workpiece frame. Reassign publishes the
+  candidate. Cancel or native close leaves the archive and authoritative placement intact. A settings
+  write error for probe calibration opens the native "Probe
+  settings" dialog at start and on every failed write, never a status message. With nothing selected,
+  Properties shows the last calibration rows (label above value) or "No calibration result." in
+  Measuring / Calibration and stays empty in other modes. Otherwise the label shows the playback status while calibration
   playback runs without an error, or while Dry Run plays or pauses with the chamfer editor open;
   otherwise the calibration error or the reason Generate is unavailable; with the chamfer editor open,
   its message (Generate error, reason Generate is unavailable, path incompatibility or invalid fields;

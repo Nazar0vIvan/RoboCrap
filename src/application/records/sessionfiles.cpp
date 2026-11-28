@@ -191,10 +191,10 @@ RecordWriteResult writeSessionFolder(SessionRecord record)
 {
   const QFileInfo requested(record.folder);
   const QDir parent = requested.dir();
-  if (!parent.mkpath(QStringLiteral("."))) return {{}, QStringLiteral("Cannot create %1.").arg(parent.path())};
+  if (!parent.mkpath(QStringLiteral("."))) return {{}, QStringLiteral("Cannot create %1.").arg(parent.path()), record.scanJobId};
   QString name = requested.fileName();
   for (int copy = 2; !parent.mkdir(name); ++copy) {
-    if (!parent.exists(name)) return {{}, QStringLiteral("Cannot create %1.").arg(parent.filePath(name))};
+    if (!parent.exists(name)) return {{}, QStringLiteral("Cannot create %1.").arg(parent.filePath(name)), record.scanJobId};
     name = requested.fileName() + QStringLiteral("_%1").arg(copy);
   }
   const QDir folder(parent.filePath(name));
@@ -211,7 +211,7 @@ RecordWriteResult writeSessionFolder(SessionRecord record)
     if (file.contents.isEmpty()) continue;
     QSaveFile output(folder.filePath(file.name));
     if (!output.open(QIODevice::WriteOnly) || output.write(file.contents) != file.contents.size() || !output.commit())
-      return {{}, QStringLiteral("cannot write %1: %2").arg(output.fileName(), output.errorString())};
+      return {{}, QStringLiteral("cannot write %1: %2").arg(output.fileName(), output.errorString()), record.scanJobId};
   }
-  return {folder.path(), {}};
+  return {folder.path(), {}, record.scanJobId};
 }

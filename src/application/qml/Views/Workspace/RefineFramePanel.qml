@@ -751,35 +751,13 @@ QxPanel {
     }
   }
 
-  QxTextInput {
-    id: status
-    implicitWidth: 0
-    Layout.fillWidth: true
-    Layout.minimumWidth: 0
-    Layout.leftMargin: Metrics.sp8
-    Layout.rightMargin: Metrics.sp8
-    Layout.preferredHeight: Metrics.h24
-    text: root.message
-    color: Colors.maxColor
-    leftPadding: 0
-    rightPadding: 0
-    topPadding: 0
-    bottomPadding: 0
-    font: Fonts.caption
-    readOnly: true
-    clip: true
-    onTextChanged: cursorPosition = 0
-    Accessible.name: qsTr("Refine Frame status")
-    ToolTip.text: text
-    ToolTip.visible: status.contentWidth > status.width && status.hovered
-  }
   RowLayout {
-    Layout.fillWidth: true
+    Layout.fillWidth: false
+    Layout.alignment: Qt.AlignLeft
     Layout.leftMargin: Metrics.sp8
     Layout.rightMargin: Metrics.sp8
     spacing: Metrics.sp8
     QxButton {
-      Layout.fillWidth: true
       text: root.editingJob ? qsTr("Save Changes") : qsTr("Create Refine Job")
       reservedText: root.editingJob ? qsTr("Create Refine Job") : qsTr("Save Changes")
       enabled: !!root.workpiece && uDirection.acceptsInput() && vDirection.acceptsInput()

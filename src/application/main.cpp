@@ -126,6 +126,10 @@ int main(int argc, char* argv[])
   RoboCrap3D::RobotController robotController(&viewportController, &endEffectors, &playback);
   playback.setRobotController(&robotController);
   WorkspaceController workspaceController(&scene, &machining, &endEffectors);
+  QObject::connect(&calibration, &SceneCalibration::gaugeReplacing,
+                   &workspaceController, &WorkspaceController::replaceSelectedObject);
+  QObject::connect(&viewportController, &RoboCrap3D::OccController::workpieceModelsChanged,
+                   &calibration, &SceneCalibration::availabilityChanged);
   QObject::connect(&workspaceController, &WorkspaceController::calibrationActiveChanged,
                    &calibration, &SceneCalibration::setActive);
   QObject::connect(&workspaceController, &WorkspaceController::preciseActiveChanged,

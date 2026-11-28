@@ -7,22 +7,22 @@
             "method": "byThreePlanes",
             "modelInBase": [
                 [
-                    0.9961969180606295,
-                    -0.07153607274546131,
-                    -0.04974224304009239,
-                    1148.0000411698327
+                    0.9999509952191811,
+                    -0.0008163397927472464,
+                    -0.009866141571655697,
+                    1060.6809461420205
                 ],
                 [
-                    0.0696609180374148,
-                    0.9968289489315986,
-                    -0.03846300911407912,
-                    -321.99069472374606
+                    0.0009574448454654693,
+                    0.9998972098644,
+                    0.014305698331645888,
+                    -207.50525740079286
                 ],
                 [
-                    0.05233600046514951,
-                    0.034851640823370486,
-                    0.998021195259515,
-                    471.88588471996917
+                    0.009853449118814537,
+                    -0.0143144435704271,
+                    0.999848991721116,
+                    475.9858837643853
                 ],
                 [
                     0,
@@ -31,9 +31,9 @@
                     1
                 ]
             ],
-            "modelPath": "D:/Qt/QtProjects/RoboCrap/build/Felgo_SDK_Desktop_Qt_6_8_3_MinGW_64_bit-Debug/resources/cad/GE-22.brep",
+            "modelPath": "D:/Qt/QtProjects/RoboCrap/build/Desktop_Qt_6_8_3_MinGW_64_bit-Debug/resources/cad/EG22.brep",
             "modelSha256": "79641b3d7e872f541faec374c214a54008db0667a305e145c513baa32e227271",
-            "mountingId": "4f48ab0b017b542c23dfced4e281bef0cb8548204b67fac0a8d397d629a4d22b",
+            "mountingId": "5cf0c2140e51fc30a5d1f41d5d51bbf704ced68b582634698f377c490d7ac1ac",
             "name": "Refine Job 17c12137",
             "planes": [
                 {
@@ -48,7 +48,7 @@
                     "faceIndex": 2,
                     "includedCount": 16,
                     "marginsMmLeftTopBottomRight": [
-                        10,
+                        15,
                         0,
                         0,
                         3
@@ -58,7 +58,7 @@
                     "skippedUV": [
                     ],
                     "spacingMmUV": [
-                        7.333,
+                        5.666,
                         5.3
                     ]
                 },
@@ -115,7 +115,7 @@
                     ]
                 }
             ],
-            "revision": 1,
+            "revision": 3,
             "workpieceId": "fixture:end-gauge",
             "workpieceName": "End gauge",
             "workpieceSceneId": 2

@@ -33,6 +33,8 @@ public:
   Q_INVOKABLE quint32 resolveRefineTarget(quint32 jobId);
   RoboCrap3D::RefineContacts refineContacts(quint32 jobId, std::optional<double> eg22BallRadius = {}) const;
   QString refineScanError(const RefineScanSource& source, const ProbeTouchPlan& plan);
+  QString workpieceRevisionError(quint32 target, const QString& expected) const;
+  QString savedRefineJobError(quint32 jobId) const;
   QList<quint32> refinePathIds(const QString& jobId = {}, quint32 target = 0) const;
   std::pair<quint32, QString> publishRefineScan(const RefineScanSource& source, ProbeTouchMotion motion);
   Q_INVOKABLE QVariantMap saveRefineJob(quint32 jobId, quint32 target, const QJsonArray& planes);
@@ -58,6 +60,7 @@ signals:
   void objectDiagnosticOverlaysChanged(SceneObject* object);
 
 private:
+  std::pair<quint32, QString> resolveJobWorkpiece(const QJsonObject& job) const;
   QString previewRefineJob(SceneObject& object);
   void refreshRefineSelection();
   std::optional<std::array<const SceneObject*, 2>> intersectionPair(const QList<quint32>& ids) const;

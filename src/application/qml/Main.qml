@@ -99,6 +99,8 @@ ApplicationWindow {
     App.Scene.loadRefineJobs()
     // The settings file is read before this window exists.
     if (App.Calibration.settingsError.length > 0) settingsErrorDialog.open()
+    if (App.MachiningPreparation.scanArchiveFailed) calibrationFailedDialog.open()
+    else if (App.MachiningPreparation.scanDisplacement.length > 0) calibrationResultWindow.present(true)
   }
 
   // Native dialog: a separate window, so it neither hides behind the viewport nor moves the layout.
@@ -120,9 +122,7 @@ ApplicationWindow {
     }
     // Emitted only after a successful fit, inside the run end, before calibrationRunFinished.
     function onLastCalibrationChanged() {
-      calibrationResultWindow.show()
-      calibrationResultWindow.raise()
-      calibrationResultWindow.requestActivate()
+      calibrationResultWindow.present(false)
     }
   }
 
@@ -160,9 +160,14 @@ ApplicationWindow {
 
   Dialogs.MessageDialog {
     id: calibrationFailedDialog
-    title: qsTr("Calibration failed")
-    text: App.MachiningPreparation.calibrationRunError
-    buttons: Dialogs.MessageDialog.Ok
+    readonly property bool archive: App.MachiningPreparation.scanArchiveFailed
+    title: archive ? qsTr("Scan archive failed") : qsTr("Calibration failed")
+    text: archive ? App.MachiningPreparation.error : App.MachiningPreparation.calibrationRunError
+    buttons: archive ? Dialogs.MessageDialog.Retry | Dialogs.MessageDialog.Cancel : Dialogs.MessageDialog.Ok
+    onButtonClicked: function(button, role) {
+      if (archive && button === Dialogs.MessageDialog.Retry) App.MachiningPreparation.retryScanArchive()
+    }
+    onRejected: { if (archive) App.MachiningPreparation.discardScanResult() }
   }
 
   // The error binding also shows write errors that the run end sets after opening the window.
@@ -170,12 +175,23 @@ ApplicationWindow {
     id: calibrationResultWindow
     transientParent: root
     rows: App.Calibration.lastCalibrationRows
-    error: App.MachiningPreparation.calibrationRunError
-    onReassignRequested: App.Calibration.reassignPrimaryCentres()
+    displacement: App.MachiningPreparation.scanDisplacement
+    error: scan ? App.MachiningPreparation.error : App.MachiningPreparation.calibrationRunError
+    onScanDismissed: App.MachiningPreparation.discardScanResult()
+    onReassignRequested: {
+      if (scan) {
+        if (!App.MachiningPreparation.reassignScan()) return
+      } else App.Calibration.reassignPrimaryCentres()
+      close()
+    }
   }
 
   Connections {
     target: App.MachiningPreparation
+    function onScanResultChanged() {
+      if (App.MachiningPreparation.scanArchiveFailed) calibrationFailedDialog.open()
+      else if (App.MachiningPreparation.scanDisplacement.length > 0) calibrationResultWindow.present(true)
+    }
     // A successful fit has already opened calibrationResultWindow.
     function onCalibrationRunFinished() {
       if (!calibrationResultWindow.visible) calibrationFailedDialog.open()
@@ -339,6 +355,7 @@ ApplicationWindow {
                .arg(App.Playback.phase).arg(App.Playback.elapsed.toFixed(2)).arg(App.Playback.duration.toFixed(2))
       if (statusBar.calibrationStatus) return statusBar.calibrationStatus
       if (root.chamferEditorOpen) return machiningPanel.message
+      if (refineEditor.active) return (refineEditor.item as RefineFramePanel)?.message ?? ""
       if (root.preciseActive) return App.MachiningPreparation.error || App.MachiningPreparation.summary
       if (!root.calibrationActive && root.workflowMode !== WorkflowPanel.Machining) return ""
       const preparation = App.MachiningPreparation
@@ -359,7 +376,7 @@ ApplicationWindow {
     readonly property bool errorShown: !App.MachiningPreparation.calibrationRunning && !statusBar.playbackShown
                                        && (statusBar.calibrationStatus ? App.Calibration.error.length > 0
                                            : root.chamferEditorOpen ? App.Machining.error.length > 0
-                                           : App.MachiningPreparation.error.length > 0)
+                                           : refineEditor.active || App.MachiningPreparation.error.length > 0)
 
     padding: Metrics.sp8
     implicitHeight: Metrics.h40
@@ -589,6 +606,7 @@ ApplicationWindow {
         visible: !root.chamferEditorOpen && !root.toolSetupOpen && !refineEditor.active && !scanEditor.active
         selectionCount: root.selectedObjectIds.length
         selectedObject: root.selectedSceneObject
+        calibrationActive: root.calibrationActive
         showPoints: root.selectedSceneObject ? root.selectedSceneObject.showPoints : false
         showNormals: root.selectedSceneObject ? root.selectedSceneObject.showNormals : false
         calibrationRows: App.Calibration.lastCalibrationRows

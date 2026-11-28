@@ -5,7 +5,7 @@ Maintain this living ExecPlan under `PLANS.md` and the repository's `AGENTS.md`.
 
 ## Purpose / Big Picture
 
-In Measuring / Precise, Generate Path and Dry Run continue to prepare and play an animation. RSI Sampling translates that saved motion into the controller job. Scan measures the mounted EG22, and Resume continues the same interrupted run. After normal completion, RoboCrap fits three measured faces and saves the observations. Reopening Calibration or Precise restores the measured frame. The gauge follows its origin and orientation; its stand follows only its origin.
+In Measuring / Precise, Generate Path and Dry Run continue to prepare and play an animation. RSI Sampling translates that saved motion into the controller job. Scan measures the mounted EG22, and Resume continues the same interrupted run. After normal completion, RoboCrap fits three measured faces and archives the observations. Scan complete displays the displacement from the previous placement. Reassign saves the measurements as authoritative and places the gauge and stand. Cancel keeps the previous placement. Reopening Calibration or Precise restores the accepted frame. The gauge follows its origin and orientation. Its stand follows only its origin.
 
 A Refine Job stores CAD faces and grid cells in the gauge's native frame {Wc}. A Scan Path belongs to one job revision, mounting and probe orientation. A sampled job pairs controller commands with numbered search streams. One physical attempt supplies the actual measurements for the fitted frame {Wr} in robot base coordinates {B}. Frame {F} is the robot flange.
 
@@ -17,16 +17,19 @@ A Refine Job stores CAD faces and grid cells in the gauge's native frame {Wc}. A
 - [x] 2026-11-27. Operator completed sampling. In `records/2026-11-27_20-07-31_scan/`, the G1 `sampled` session has 31 CSV rows (16 wide, 9 end, 6 top). All match the saved grid traversal and their numbered SEARCH steps in the 100-step job ending at HOME. The archive, live export and `inputs.scan_data_sha256` matched (`e26c4b19ffbf09c951683487586bb30c8d4765aefc13786827447edf69a05d5e`).
 - [x] 2026-11-27. Operator reported step 4 passed. M1 and its UI corrections are complete.
 - [x] 2026-11-27. M2 source implemented through final acquisition and execution-session recording. The commissioning gate remains closed.
-- [ ] M2 acceptance requires a separately authorized application build, controller translation, installed-cell checks and physical measurement bounds.
-- [ ] M3. Fit actual ball centres with separate compensation and clearance radii; record plane residuals.
-- [ ] M4. Commit precise observations, reload the fixture and exercise the authorized acceptance cases.
+- [x] 2026-11-28. Operator accepted M2 offline job preparation.
+- [ ] M2 controller commissioning and physical validation, including the pose bounds, remain pending.
+- [x] 2026-11-28. M3 source implemented. Scan finalization reconstructs actual ball centres, checks the sampled Approach, fits the planes and records the frame and residuals.
+- [x] 2026-11-28. Operator reports M1–M3 passed their available offline checks.
+- [x] 2026-11-28. M4 source implemented. The matching archive opens operator review. Reassign commits and reloads the accepted observations.
+- [ ] M4 functional acceptance, including the dialog, persistence and recovery cases, remains pending.
 
 
 ## Surprises & Discoveries
 
 `docs/hardware_context/HARDWARE_SETUP.md` and `docs/code_context/ARCHITECTURE.md` identify KUKA `$OUT[2]` as wired to PLC input X1.1 and unassigned in the documented installation. RobotIo's X1 mask already includes bit 1; the PLC transmits the whole byte on change and in snapshots. `PlcMessageManager::ioState()` exposes all eight bits as `x1`. The historical `plc.csv` header omits X1.1. `PlcDevice::nextProgramState()` derives Finished when CELL requests another program after execution. A KRL error return can produce the same transition.
 
-`SceneCalibration::reloadEndGauge()` calls `removeObjects({m_endGaugeId})` before testing the result of `addCalibrationObject()`. A failed insertion can therefore remove good geometry and its paths. In Geometry, `EndGaugeObservations::fit()` subtracts `ballRadius` from fitted plane offsets, and `checkContacts()` also subtracts it to find the bottom of the physical ball. Those radii coincide for the supplied rough file but can differ after calibration.
+Before M4, `SceneCalibration::reloadEndGauge()` removed the old gauge before checking insertion. A failed insertion could therefore remove good geometry. Before M3, Geometry used one radius for plane offsets and the bottom of the physical ball. Those radii coincide for the supplied rough file but can differ after calibration.
 
 
 ## Decision Log
@@ -41,10 +44,14 @@ A Refine Job stores CAD faces and grid cells in the gauge's native frame {Wc}. A
 
 2026-11-27, revision. Commit the valid measurement file first and then use ordinary scene insertion/removal. A display failure can be retried from the saved measurements. Keep one fitter, give its two radius uses explicit inputs, and use the already fitted planes to report measurement quality.
 
+2026-11-28, M3. Use the immutable CSV row's pass and pass_touch to read the sampled full-precision Approach from the held motion. Its joint limits, forward kinematics and tool transform supply the measured TCP. Keep the bounds and commissioning basis together in the sampled job and leave them empty pending cell measurements.
+
+2026-11-28, M4. Operator acceptance replaces automatic publication. The writer reports the actual folder after committing session.json. The preparation owner retains the fit and its sampled source across run release. Only Reassign may commit. Retain the original rough mounting digests with the precise fixture because older Refine Jobs identify their target by those bytes.
+
 
 ## Context and Orientation
 
-`src/application/scene/scenecalibration.cpp` generates a selected G1 or G2 Scan Path. Its `prepareScan()` passes the selected path ID to the preparation owner. `src/application/scene/scenemodel.cpp` owns the immutable motion, Refine Job UUID/revision and target, and checks mounting and CAD identity in `publishRefineScan()`. `src/viewport/occcontroller.cpp` restores model-local contacts against the loaded and on-disk BREP revision. Preserve the earlier animation work in `plans/PLANAR_PROBE_SCANNING_EXECPLAN.md`.
+`src/application/scene/scenecalibration.cpp` generates a selected G1 or G2 Scan Path. Its `prepareScan()` passes the selected path ID to the preparation owner. `src/application/scene/scenemodel.cpp` owns the immutable motion, Refine Job UUID/revision and target, and checks mounting and CAD identity in `publishRefineScan()`. `src/viewport/occcontroller.cpp` restores model-local contacts against the loaded and on-disk BREP revision. Preserve Dry Run playback of the selected Scan Path.
 
 `src/trajectories/probe/probetouchmotion.cpp` supplies `probeMotionSteps()`. `src/trajectories/probe/probersistream.cpp` pairs these steps with saved animation phases. `src/application/scene/scenemachiningpreparation.cpp` owns the worker, held job, PLC run and detections. `src/application/main.cpp` connects it to the RSI device on ControlIO and to SessionRecorder on the GUI thread. Combined sphere calibration presently archives its sampled plan without exporting a live job or enabling program 1. Keep that deferral from `plans/PROBE_CALIBRATION_SPEEDUP_EXECPLAN.md`.
 
@@ -114,9 +121,11 @@ Join each residual back to the touch number via the same face grouping. In the s
 **Acceptance.** Each acquired row can be traced from recorded joints to one base-frame centre and one signed plane residual. A hypothetical applied G2 contact distance of 13.85 mm gives 1.35 mm compensation on every face. Changing only the physical radius changes the clamp test while leaving the compensated plane offsets alone. Reading the original rough file supplies its original radius to both operations and reproduces its existing placement. A detection behind the start, beyond permitted travel, off the search line or at the wrong orientation fails when its deviation exceeds the documented physical bound, even if the other detections fit three planes.
 
 
-### M4. Save valid observations and reload using the existing scene operations
+### M4. Accept archived scan observations and reload the fixture
 
 After completion, current-input checks and a successful fit, first finish archiving the measured run. Reuse the writer's `RecordWriteResult` (actual folder or error); return the scan job ID with that result to the preparation owner. Archive/write failure preserves the existing authoritative placement, reports the failing path and retains available measurements for a save retry. Do not publish from an older writer callback. The session describes acquisition and fit. The settings file identifies which acquisition was applied; no second publication journal is needed.
+
+Keep the M3 fit and its acquisition inputs in memory across archive completion. Show the existing modal result window only for the matching successful archive. Display signed XYZ in mm and signed KUKA ABC in degrees from the principal Euler solution of the inverse previous workpiece transform multiplied by the fitted transform. Reassign checks freshness and commits the observations. Cancel and native window close discard the candidate. Keep the archive in every case and block physical starts while the candidate is pending. Restart reads only previously committed settings.
 
 Write `EG22_precise.json` under `ROBOCRAP_SETTINGS_DIR` using checked `QSaveFile` write and commit. Recheck the sampled placement, job/CAD revision, active primary and robot/TCP before commit. Use a version-1 precise document with `model:"GE-22"`, `source:"measured"`, stable `workpieceId`, `compensationRadiusMm`, `physicalBallRadiusMm`, and an ordered `observations` array. Each row contains global touch number, verified `face` (wide/end/top), source CAD face index, U/V cell and full-precision numeric X/Y/Z of the raw ball centre in base mm. File-level provenance holds group, expected counts, sampled job ID, actual session folder, acquisition time, Refine Job UUID/revision, model SHA-256, preceding mounting pose/digest, sampled tool/robot identity and applied primary snapshot. Keep the complete joints, plan and plane diagnostics in the referenced record. No derived frame needs independent storage. Leave `EG22_rough.json`, `probe_calibration.json` and the saved Refine Job definitions untouched.
 
@@ -126,7 +135,7 @@ After a successful commit call the same `reloadEndGauge()` used for activation. 
 
 On commit invalidate all paths and prepared/pending jobs tied to the prior mounting, even if scene reload fails and the old object survives. Reuse `refinePathIds({}, oldTarget)`, combined path invalidation, calculation revisions and `clearPrepared()`. Finish the physical run before removal signals can re-enter `endRun()`. Keep a gauge-specific error in `SceneCalibration` until a successful reload and the existing CAD readiness/revision checks establish agreement. A transient status-bar message can be cleared by other actions and cannot serve as this interlock. Gate all physical operations using the gauge in the backend. If publication fails after commit, report **“Measurements saved; scene placement unavailable”**, with the filename and cause. Keep the saved bytes and old drawing, block physical use, and retry loading them on re-entry or restart. Failure before commit leaves the old file and placement intact.
 
-**Acceptance.** A complete scan moves the gauge and stand and survives restart. Existing Refine Jobs keep their UUIDs, revisions, faces, cells and exclusions; their old generated motions cannot run. With a failed insert after a successful save, the old object remains, the new file remains authoritative, Scan is disabled and reload can recover without reacquisition.
+**Acceptance.** Archive completion opens Scan complete with the old placement still active. Cancel, close and restart leave the old placement authoritative. Reassign of a fresh candidate moves the gauge and stand and survives restart. Existing Refine Jobs keep their UUIDs, revisions, faces, cells and exclusions. Their old generated motions cannot run. With a failed insert after a successful save, the old object remains, the new file remains authoritative, Scan is disabled and reload can recover without reacquisition.
 
 
 ## Concrete Steps
@@ -155,7 +164,7 @@ A new sample receives a new ID; a resumed run keeps its ID. A failed/consumed sc
 
 ## Outcomes & Retrospective
 
-M1 disconnected sampling, record/export checks and operator step 4 passed. M2 has source review only. Physical Scan remains gated. M3 reconstruction and M4 publication are pending.
+M1–M3 passed the available offline checks. M4 has source review only. Functional acceptance, controller commissioning and physical validation remain pending. Physical Scan remains gated.
 
 ### M2 controller evidence and handoff
 
@@ -204,3 +213,28 @@ Revision 2026-11-27. Completed M2 source and recorded the operator's M1 acceptan
 **Callers and closure.** `Main.qml:513` uses the preparation owner. Visibility depends on the selected mode and the existing toolbar height stays fixed. `main.cpp:109` synchronizes permission changes with ControlIO. Touch, fault and capture notifications use one GUI receiver so shutdown drains them in order. `sessionrecorder.cpp:185` finalizes scan rows before taking the session. `scenemachiningpreparation.cpp:829` uses the original joint CSV formatter and numbered plan rows. Line 869 releases ownership only after termination and capture closure. Review kept calibration's program-1 fit and smartPAD-started chamfer/test-LIN recordings on their existing paths.
 
 **Size and checks.** Against the working tree at M2 entry, 10 C++ files changed from 2,610 physical / 2,317 nonblank lines to 3,061 / 2,751. Two QML files changed from 896 / 787 to 906 / 797. Two KRL files became four, from 220 / 198 to 431 / 399. Six documents became seven, from 1,411 / 1,170 to 1,457 / 1,198. The growth implements the program interpreter, specifically owned correction permission, transaction correlation, recovery and measured-run records. One shared SEARCH, the existing resume transition and the existing recorder replace separate scan implementations of those operations. No build inputs, tools or assets changed. The M2 Git whitespace checks include the new module and plan. The repository-wide check still reports the pre-existing trailing space in `prompts.txt:65`. No build, launch, controller translation, test, deployment or hardware operation was performed.
+
+### M3 source review, 2026-11-28
+
+
+**Declarations.** `probetouchmotion.h:59` returns the measured TCP or the joint/FK error for one detection. `scenemachiningpreparation.h:126` derives the selected radius or setup error from the held inputs. `endgaugefit.h:15` returns residuals in the same order as the input centres for each face. The two radius fields describe separate operations. Four new operations take zero or one input. The recorder and the held job keep their existing ownership.
+
+**Bodies.** `probetouchmotion.cpp:198` checks actual joints against the sampled model before FK and applies the saved TCP. `scenemachiningpreparation.cpp:559` checks the applied centres, distances, ruby radius and planned stylus direction. Line 934 reconstructs the measured TCP for comparison with the indexed Approach. Line 966 calls the fitter only after all acquisition and pose checks pass. `endgaugefit.cpp:33` records the signed distance before the plane shift. The fit keeps its angle, rank, projection, edge and clamp checks and returns available residuals on later failures.
+
+**Callers.** `scenecalibration.cpp:290` maps the rough file radius to both operands. `scenemachiningpreparation.cpp:618` archives the pose bounds with the sampled job. Line 788 requires those bounds and the applied setup for physical Scan. Line 882 publishes a successful result through the recorder. `sessionrecorder.cpp:185` finalizes the measurements before moving the session to the writer. Failed fits retain their diagnostic and available residual statistics in the completion attachment.
+
+**Size and scope.** Seven C++ files grew from 2,508 physical / 2,317 nonblank lines to 2,664 / 2,467. The increase covers checked FK, pose comparisons and per-touch and per-face recording. Reusing the sampled rows and the existing fitter avoids a second acquisition table or plane calculation. Three documents grew from 926 physical / 751 nonblank lines to 959 / 773. M3 added no files and changed no QML, controller programs, build inputs, tooling or assets.
+
+Revision 2026-11-28. Implemented M3 through the existing session closure. Source and Git checks only. M3 functional acceptance remains pending.
+
+### M4 source review, 2026-11-28
+
+**Declarations and ownership.** The candidate in `scenemachiningpreparation.h:137` holds the sampled inputs and completed fit across run release and operator review. The writer returns the job ID, actual archive folder and error through `RecordWriteResult` in `sessionfiles.h`. The recorder retains the original session for archive retry. These lifetimes end independently. The changed interfaces take at most three inputs.
+
+**Bodies.** In `scenemachiningpreparation.cpp`, `recordScanMeasurements()` retains the fit at acquisition, `scanDisplacement()` expresses it in the previous workpiece frame, and `reassignScan()` checks freshness again. In `scenecalibration.cpp`, `applyScanObservations()` checks the authoritative mounting and primary setup under the settings lock before commit. A scene insertion failure after commit keeps the previous drawing, reports the saved file and blocks gauge use until reload succeeds. Review preserved legacy Refine Job mounting digests across successive accepted scans.
+
+**Callers.** `SessionRecorder::reportWrites()` removes the completed write before notifying the GUI and delivers the archive folder chosen by the writer. `Main.qml` opens the existing result window for the matching archived scan. Cancel and native close both discard the in-memory candidate. `WorkspaceController::replaceSelectedObject()` transfers the selected gauge during replacement. The commissioning gate stays closed.
+
+**Size and scope.** Fourteen C++ files grew from 4,161 physical / 3,798 nonblank lines to 4,526 / 4,145. Two QML files grew from 742 / 658 to 821 / 734. Three documents grew from 959 / 773 to 989 / 794. The growth covers archive acknowledgement and retry, measured observation loading, explicit acceptance and replacement recovery. Reuse of the M3 fit, session writer, settings writer, fixture drawing and calibration result window avoids a second scan fit or dialog. No files, build inputs, tools or assets were added.
+
+Revision 2026-11-28. M4 requires explicit operator acceptance after archival. M1–M3 passed their available offline checks. M4 functional acceptance and physical commissioning are pending.
